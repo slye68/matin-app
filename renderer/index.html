@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr" class="dashboard-window">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http:; img-src 'self' data: https:;">
+  <title>Matin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <!-- Bootstrap thème (2026-08-08) — voir config.html pour l'explication
+       complète (même mécanisme dans les 2 documents) : synchrone, pose
+       :root[data-color-scheme] AVANT le premier rendu à partir de
+       window.matin.initialTheme (lu de façon synchrone côté preload.js). -->
+  <script>document.documentElement.dataset.colorScheme = window.matin.initialTheme;</script>
+</head>
+<body>
+  <!-- Fond personnalisé (2026-08-11, sur demande explicite — voir
+       "🎨 Personnaliser" dans Paramètres, config.js/dashboard.js
+       applyAppBackground) — 1er enfant de body pour peindre SOUS tout le
+       reste (titlebar/dashboard n'ont pas besoin de z-index pour passer
+       devant, l'ordre du DOM suffit), `pointer-events:none` pour ne jamais
+       intercepter clics/glisser-déposer. Vide/transparent tant qu'aucun
+       fond n'est sélectionné (app.background === 'none'). -->
+  <div class="app-background-layer" id="appBackgroundLayer"></div>
+
+  <!-- Overlay de démarrage / rafraîchissement — soleil qui se lève, voir
+       style.css (.splash-*) et dashboard.js (playSplashAnimation,
+       revealModuleCards). Couvre TOUTE la fenêtre (position:fixed, au-dessus
+       du titlebar) — rejoué à l'identique à chaque `location.reload()`
+       (bouton Actualiser), puisqu'il fait partie du HTML statique. -->
+  <div class="splash-overlay" id="splashOverlay">
+    <!-- Taille réelle pilotée par CSS (70vw × 70vw, voir style.css) — pas de
+         width/height fixes ici, le viewBox suffit à définir le système de
+         coordonnées interne (rayons, dégradé) indépendamment de la taille
+         de rendu. -->
+    <svg class="splash-sun-wrap" viewBox="0 0 200 200" aria-hidden="true">
+      <!-- 16 rayons "allongés" en triangles (pas des lignes fines) — base
+           volontairement À L'INTÉRIEUR du disque (y=75, disque de rayon 42
+           centré en 100,100 donc bord haut à y=58) pour que le disque,
+           dessiné APRÈS (donc par-dessus), cache proprement leur base et ne
+           laisse dépasser que la pointe. Tournent ensemble via
+           .splash-rays (voir style.css, 1 tour/8s). -->
+      <g class="splash-rays">
+        <polygon points="100,4 94,75 106,75" transform="rotate(0 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(22.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(45 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(67.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(90 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(112.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(135 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(157.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(180 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(202.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(225 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(247.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(270 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(292.5 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(315 100 100)"/>
+        <polygon points="100,4 94,75 106,75" transform="rotate(337.5 100 100)"/>
+      </g>
+      <circle class="splash-sun" cx="100" cy="100" r="42" fill="#fbbf24"/>
+    </svg>
+  </div>
+
+  <!-- Mode auto luminosité (2026-08-08, sur demande explicite) — calque
+       plein écran, `pointer-events: none` (ne doit jamais intercepter les
+       clics/glisser-déposer des cartes en dessous), piloté entièrement par
+       dashboard.js (applyBrightnessOverlay) qui lui ajoute une classe
+       .brightness-<tranche> selon l'heure. Vide/transparent tant que le mode
+       auto est désactivé ou que la tranche horaire ne demande aucun
+       assombrissement (matin/journée). -->
+  <div class="brightness-overlay" id="brightnessOverlay"></div>
+
+  <!-- Barre de titre custom -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <span class="app-logo">☀️</span>
+      <span class="app-name">Matin</span>
+      <span class="app-date" id="headerDate"></span>
+      <!-- Déplacée depuis .titlebar-center (2026-08-10, sur demande explicite,
+           2e révision) : juste après la date, à gauche, PAS centrée entre la
+           date et la barre de recherche — voir .app-greeting dans style.css
+           pour le petit espace supplémentaire (16px) qui la sépare de la date. -->
+      <span class="app-greeting" id="headerGreeting"></span>
+    </div>
+    <div class="titlebar-center">
+      <form class="titlebar-search" id="titlebarSearch">
+        <button type="submit" class="titlebar-search-icon" title="Rechercher sur Google">🔍</button>
+        <input type="text" id="titlebarSearchInput" placeholder="Rechercher sur Google..." autocomplete="off">
+      </form>
+    </div>
+    <div class="titlebar-right">
+      <button class="titlebar-btn" id="btnRefresh" title="Actualiser">Actualiser</button>
+      <button class="titlebar-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞ Réorganiser</button>
+      <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
+    </div>
+  </header>
+
+  <!-- Popup de confirmation "⊞ Réorganiser" (2026-08-10, 2e révision, sur
+       demande explicite) — boutons libellés custom demandés ("Oui,
+       réorganiser"/"Annuler"), impossible avec un confirm() natif (labels
+       fixes, non personnalisables), d'où cette popup HTML maison. Masquée
+       par défaut, `.open` l'affiche (voir style.css, même mécanisme que la
+       popup Sauvegardes de Paramètres). -->
+  <div class="autoarrange-confirm-overlay" id="autoArrangeConfirmOverlay">
+    <div class="autoarrange-confirm-modal">
+      <p class="autoarrange-confirm-text">Voulez-vous réorganiser automatiquement vos modules ?</p>
+      <div class="autoarrange-confirm-actions">
+        <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="autoArrangeConfirmOk">Oui, réorganiser</button>
+        <button type="button" class="autoarrange-confirm-btn" id="autoArrangeConfirmCancel">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notice "Réorganiser" (2026-08-10, 2e révision) — toast bref (2s), voir
+       dashboard.js performAutoArrange/applyAutoArrangeLayouts. Masqué par
+       défaut (opacity:0, voir style.css), `.show` l'affiche/le fait
+       disparaître en fondu (transition CSS), jamais un display:none brutal.
+       Le bouton "Annuler" restaure la disposition juste précédente
+       (lastAutoArrangeSnapshot côté dashboard.js) tant que la notice est
+       visible. -->
+  <div class="autoarrange-notice" id="autoArrangeNotice">
+    <span id="autoArrangeNoticeText">✓ Nouvelle disposition appliquée</span>
+    <button type="button" class="autoarrange-notice-undo" id="autoArrangeUndo">Annuler</button>
+  </div>
+
+  <!-- Bandeau Alertes (2026-08-08, sur demande explicite) — au-dessus de
+       TOUTES les cartes, jamais un module carte comme les autres (voir
+       dashboard.js, initAlertsBanner/renderAlertsBanner ; le check lui-même
+       tourne côté process main, voir main.js checkAlerts). Vide/caché tant
+       qu'aucune alerte active ; `.dashboard` voit son `top` repoussé
+       dynamiquement en JS pour ne jamais laisser une carte sous le bandeau. -->
+  <div class="alerts-banner" id="alertsBanner"></div>
+
+  <!-- Zone de modules : #dashboard est la fenêtre de défilement (taille fixe,
+       calée sur le viewport) ; #dashboardCanvas est le calque interne qui
+       grandit pour accueillir des modules déplacés loin en bas — un élément
+       position:fixed avec top ET bottom définis ignore toute min-height
+       qu'on lui appliquerait directement, d'où ce calque séparé. -->
+  <main class="dashboard" id="dashboard">
+    <div class="dashboard-canvas" id="dashboardCanvas">
+      <!-- Les modules sont injectés dynamiquement par dashboard.js — plus de
+           placeholder "Chargement du dashboard…" ici (retiré le 2026-08-06) :
+           l'overlay plein écran ci-dessus couvre désormais tout le temps de
+           chargement initial. -->
+    </div>
+  </main>
+
+  <script src="../node_modules/interactjs/dist/interact.min.js"></script>
+  <script src="modules/weather.js"></script>
+  <script src="modules/rss-feed.js"></script>
+  <script src="modules/calendar.js"></script>
+  <script src="modules/etf.js"></script>
+  <script src="modules/gmail.js"></script>
+  <script src="modules/sports-sources.js"></script>
+  <script src="modules/ol.js"></script>
+  <script src="modules/fdj-games.js"></script>
+  <script src="modules/fdj-common.js"></script>
+  <script src="modules/fdj-loto.js"></script>
+  <script src="modules/fdj-euromillions.js"></script>
+  <script src="modules/fdj-eurodreams.js"></script>
+  <script src="modules/crypto.js"></script>
+  <script src="modules/spotify.js"></script>
+  <script src="modules/maps.js"></script>
+  <script src="modules/air-quality.js"></script>
+  <script src="modules/hue.js"></script>
+  <script src="modules/kasa.js"></script>
+  <script src="modules/tradfri.js"></script>
+  <script src="modules/fuel-prices.js"></script>
+  <script src="modules/steam-promos.js"></script>
+  <script src="modules/epic-promos.js"></script>
+  <script src="modules/parcels-carriers.js"></script>
+  <script src="modules/parcels.js"></script>
+  <script src="modules/cinema.js"></script>
+  <script src="modules/reminders-categories.js"></script>
+  <script src="modules/reminders.js"></script>
+  <script src="modules/currency.js"></script>
+  <script src="modules/google-tasks.js"></script>
+  <script src="modules/birthdays.js"></script>
+  <script src="modules/indices-defs.js"></script>
+  <script src="modules/indices.js"></script>
+  <script src="modules/podcast.js"></script>
+  <script src="modules/nasa.js"></script>
+  <script src="modules/prets.js"></script>
+  <script src="modules/live-championships.js"></script>
+  <script src="modules/live.js"></script>
+  <script src="modules/mon-equipe.js"></script>
+  <script src="modules/youtube.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

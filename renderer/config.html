@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http:;">
+  <title>Matin — Paramètres</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <!-- Bootstrap thème (2026-08-08) — SYNCHRONE, exécuté avant le premier
+       rendu : pose l'attribut que style.css cible (:root[data-color-scheme])
+       à partir de window.matin.initialTheme, lui-même lu de façon SYNCHRONE
+       côté preload.js (voir main.js, ipcMain.on('theme:getInitial', ...)).
+       Sans ça, le thème ne serait connu qu'après un aller-retour IPC
+       asynchrone, avec un flash visible du mauvais thème à chaque ouverture
+       de cette fenêtre. `window.matin` est déjà disponible ici : le preload
+       s'exécute intégralement AVANT tout script de la page, contextBridge
+       ou non. -->
+  <script>document.documentElement.dataset.colorScheme = window.matin.initialTheme;</script>
+  <style>
+    body { overflow-y: auto; }
+    /* Bordure fenêtre (2026-08-10, sur demande explicite) — encadré fin,
+       DEDANS les bords de la fenêtre (pas de glow extérieur : la fenêtre
+       reste opaque avec cadre/boutons natifs réduire-agrandir-fermer,
+       l'utilisateur a explicitement choisi cette option plutôt qu'une
+       conversion en fenêtre transparente/sans cadre, qui aurait cassé ces
+       boutons natifs et le glisser-déposer de la fenêtre). */
+    body { border: 2px solid #4f8ef7; }
+    /* Thème clair/sombre — cette fenêtre suivait un thème CLAIR figé en dur
+       ici même jusqu'au 2026-08-06→2026-08-08 (voir CONTEXT.md pour
+       l'historique) : ce `:root` local a été retiré sur demande explicite du
+       2026-08-08, remplacé par le même mécanisme partagé que le dashboard
+       (`:root[data-color-scheme="light"]` dans style.css, attribut posé sur
+       CE document par le <script> de bootstrap ci-dessus puis par
+       config.js au clic sur le bouton bascule). `config.html` garde son
+       propre document/CSSOM (séparé d'index.html) mais charge le MÊME
+       style.css, donc la même règle y suffit — juste appliquée à SON PROPRE
+       <html>, indépendamment du dashboard. */
+
+    /* ─── Layout général (2026-08-06, sur demande explicite) ──────────────
+       Réorganisation en onglets : Profil reste TOUJOURS visible en haut
+       (hors onglets), la barre d'onglets suit, et seul le panneau de
+       l'onglet actif défile — plus tout le document comme avant
+       (`body { overflow-y: auto }` retiré). `body` devient une colonne flex
+       (Profil + barre d'onglets à taille fixe, zone de panneaux qui prend le
+       reste de la hauteur), `.config-tabpanel` porte son propre
+       `overflow-y: auto` bornée par `.config-tabpanels { flex:1 }`. */
+    html, body { overflow: hidden; }
+    body { display: flex; flex-direction: column; }
+    .config-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding-top: var(--titlebar-h);
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+    /* Bascule thème clair/sombre (2026-08-08, sur demande explicite) — TOUT
+       en haut de la fenêtre, hors onglets, toujours visible (même principe
+       que .config-profil juste en dessous, mais encore au-dessus). Réutilise
+       .toggle/.toggle-slider (voir plus bas) : décoché = sombre (état par
+       défaut de l'app), coché = clair — les 2 libellés flanquent le
+       switch dans l'ordre demandé ("🌙 Sombre / ☀️ Clair").
+       `justify-content: space-between` (2026-08-10, sur demande explicite,
+       remplace `flex-start`) : le bouton Sauvegardes rejoint cette ligne, à
+       l'extrême droite — `.theme-toggle-left` regroupe les 2 bascules à
+       gauche (porte désormais le `gap` qui vivait avant sur `.theme-toggle-row`
+       elle-même) pour que `space-between` n'écarte que ce groupe du bouton,
+       pas les 2 bascules entre elles. */
+    /* En-tête dégradé (2026-08-10, sur demande explicite) — s'étend sur
+       .titlebar ET .theme-toggle-row (2 éléments empilés distincts, pas un
+       seul conteneur : restructurer le DOM pour n'en faire qu'un aurait été
+       plus risqué juste après une réorganisation récente de cette zone) avec
+       le MÊME dégradé posé sur les 2 pour un rendu visuellement continu.
+       Remplace la bordure grise de .titlebar par défaut (partagée avec le
+       dashboard via style.css) UNIQUEMENT ici, dans le <style> propre à
+       config.html — n'affecte jamais index.html. La bordure bleue demandée
+       ne ferme le bloc qu'en BAS de .theme-toggle-row (fin visuelle de la
+       zone d'en-tête), pas entre les 2 éléments.
+       NOTE : la zone des boutons natifs réduire/agrandir/fermer
+       (titleBarOverlay, voir main.js createConfigWindow) reste une couleur
+       UNIE posée par Electron côté process main — l'API ne permet pas de
+       dégradé à cet endroit précis, approximée à la teinte la plus proche du
+       dégradé pour ce coin (voir main.js). */
+    .titlebar {
+      background: linear-gradient(135deg, #1a2440 0%, #2d1b4e 50%, #1a3040 100%);
+      border-bottom: none;
+    }
+    .app-logo, .app-name {
+      /* Couleur FIXE (pas var(--text-primary)) : ce dégradé sombre est le
+         même en thème clair ET sombre, un texte qui suit le thème clair
+         deviendrait illisible dessus. */
+      color: #e8eaf0;
+    }
+    .theme-toggle-row {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      box-sizing: border-box;
+      background: linear-gradient(135deg, #1a2440 0%, #2d1b4e 50%, #1a3040 100%);
+      border-bottom: 1px solid rgba(79, 142, 247, 0.3);
+    }
+    .theme-toggle-left { display: flex; align-items: center; gap: 24px; }
+    .theme-toggle-group { display: flex; align-items: center; gap: 10px; }
+    .theme-toggle-row span {
+      font-size: 12px;
+      color: #b8c2d9; /* fixe, voir .app-logo/.app-name ci-dessus */
+    }
+    .config-profil { flex-shrink: 0; padding: 16px 20px 4px; }
+    .config-section { margin-bottom: 28px; }
+    .config-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* Barre d'onglets — cliquer change l'onglet actif, glisser un onglet sur
+       un autre le réordonne (ordre persisté dans app.configTabOrder via
+       electron-store, voir config.js/reorderTabs — sauvegarde immédiate,
+       comme la disposition du dashboard, pas besoin de cliquer "Enregistrer"). */
+    .config-tabbar {
+      flex-shrink: 0;
+      display: flex;
+      gap: 4px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .config-tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 14px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--font-ui);
+      cursor: grab;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .config-tab:active { cursor: grabbing; }
+    .config-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+    .config-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .config-tab.drag-over { background: var(--accent-glow); }
+    .config-tab-icon { font-size: 14px; }
+
+    .config-tabpanels { flex: 1; min-height: 0; position: relative; }
+    .config-tabpanel {
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      padding: 14px 20px 20px;
+      display: none;
+    }
+    .config-tabpanel.active { display: block; }
+
+    .config-footer {
+      flex-shrink: 0;
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-panel-alt);
+    }
+
+    /* Config visible seulement si le module est activé (2026-08-06, sur
+       demande explicite) — cache tout sauf la ligne titre+toggle elle-même
+       (`.module-row`, toujours 1er enfant de `.module-row-wrap`) tant que le
+       toggle est décoché, pour ne pas encombrer l'onglet de modules éteints.
+       Un seul sélecteur générique plutôt qu'une classe par type de config
+       (etf-lines-field/parcels-config-field/fdj-config-field/...) : chaque
+       section de config est TOUJOURS un enfant direct de `.module-row-wrap`
+       après `.module-row`, quel que soit le module. */
+    .module-row-wrap.module-disabled > *:not(.module-row) { display: none; }
+
+    .module-row-wrap { margin-bottom: 6px; }
+    .module-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      transition: background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .module-row-icon { font-size: 18px; }
+    .module-row-name { flex: 1; font-size: 13px; font-weight: 500; }
+    .module-row-requires {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-panel-alt);
+      padding: 2px 7px;
+      border-radius: 99px;
+    }
+
+    .module-config-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px 8px 38px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      margin-top: -1px;
+    }
+    .module-config-field label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .module-config-field input {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .module-config-field input:focus { outline: none; border-color: var(--accent); }
+
+    /* Lignes de portefeuille ETF (ISIN + date + qté + prix + frais) — nombre libre de lignes */
+    .module-config-field.etf-lines-field {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 10px 12px 12px 38px;
+    }
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: var(--text-secondary);
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--accent); }
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(16px);
+      background: white;
+    }
+
+    /* Indices boursiers — un .toggle par indice (réutilise le composant
+       ci-dessus tel quel), pas une simple case à cocher (sur demande
+       explicite, 2026-08-08). */
+    .module-config-field.indices-config-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
+    .indices-toggle-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+    .indices-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 4px 2px;
+    }
+    .indices-toggle-label { font-size: 12px; color: var(--text-secondary); }
+
+    /* Alertes — champ département + réutilise .indices-toggle-list/-row pour
+       les 4 types (voir juste au-dessus). */
+    .module-config-field.alerts-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+    .alerts-config-dept-row { display: flex; align-items: center; gap: 8px; }
+    .alerts-config-dept-row label { flex: none; width: 190px; font-size: 11px; color: var(--text-secondary); }
+    .alerts-dept-input {
+      width: 70px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+    }
+    .alerts-dept-input:focus { outline: none; border-color: var(--accent); }
+
+    /* LIVE! (2026-08-11) — club + championnat + mode, même structure en
+       lignes que la section Alertes ci-dessus. */
+    .module-config-field.live-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+    .live-config-row { display: flex; align-items: center; gap: 8px; }
+    .live-config-row label { flex: none; width: 110px; font-size: 11px; color: var(--text-secondary); }
+    .live-club-input {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .live-club-input:focus { outline: none; border-color: var(--accent); }
+    .live-championship-select {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .live-championship-select:focus { outline: none; border-color: var(--accent); }
+
+    /* Mon Équipe (2026-08-15, révisée 2026-08-16 — mise en page compacte sur
+       demande explicite) — nom + sport désormais CÔTE À CÔTE (60%/40%,
+       .monequipe-row-split) au lieu de 2 lignes empilées, + 2 listes
+       (calendrier à venir / résultats), même famille visuelle que
+       .reminders-config-header/-row (style.css) : résumé de colonnes en
+       en-tête, une grille de champs par ligne, "+" en dessous. */
+    .module-config-field.monequipe-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+    /* `calc(60%/40% - 5px)` plutôt que 60%/40% bruts : avec `gap: 10px` entre
+       les 2 champs, des pourcentages bruts sommeraient à >100% de la largeur
+       disponible (les navigateurs les rétréciraient quand même via flexbox,
+       mais le ratio réel affiché ne serait alors plus exactement 60/40). */
+    .monequipe-row-split { display: flex; gap: 10px; }
+    .monequipe-field-name { flex: 0 0 calc(60% - 5px); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .monequipe-field-sport { flex: 0 0 calc(40% - 5px); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .monequipe-field-name label,
+    .monequipe-field-sport label { font-size: 11px; color: var(--text-secondary); }
+    .monequipe-field-name input,
+    .monequipe-field-sport select {
+      width: 100%;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .monequipe-field-name input:focus,
+    .monequipe-field-sport select:focus { outline: none; border-color: var(--accent); }
+    .monequipe-roadmap-note {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--text-muted);
+      margin: 0;
+      padding: 0 2px;
+    }
+    .monequipe-list-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+    /* Colonnes réajustées le 2026-08-16 (sur demande explicite) : DATE/HEURE
+       élargies (date/heure complètes visibles sans coupure), ADVERSAIRE et
+       COMPÉTITION réduites de 30% chacune (valeur de départ × 0.7, sur la
+       largeur MINIMALE `minmax` — 90px→63px / 80px→56px — et sur le poids
+       `fr` — 1fr→0.7fr / 0.9fr→0.63fr, pour que la réduction s'applique
+       aussi bien à la taille de repli qu'à la part d'espace supplémentaire
+       récupérée), colonne D/E élargie à 90px pour accueillir l'intitulé
+       complet "Domicile / Extérieur" (le <select> qu'elle contient reste
+       lui-même étroit, voir .monequipe-de-cell plus bas), bouton × ramené à
+       20px (au lieu de 22px, cohérent entre les 2 tableaux). */
+    .monequipe-upcoming-header,
+    .monequipe-upcoming-row {
+      display: grid;
+      grid-template-columns: 120px 80px minmax(63px, 0.7fr) 90px minmax(56px, 0.63fr) 20px;
+      gap: 6px;
+      align-items: center;
+      padding: 0 2px;
+    }
+    .monequipe-results-header,
+    .monequipe-results-row {
+      display: grid;
+      grid-template-columns: 88px minmax(90px, 1fr) 84px 90px 20px;
+      gap: 6px;
+      align-items: center;
+      padding: 0 2px;
+    }
+    .monequipe-upcoming-header span,
+    .monequipe-results-header span {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      /* "Domicile / Extérieur" tient sur 2 lignes dans sa colonne (90px) —
+         normal (pas nowrap) uniquement pour ces en-têtes-ci. */
+      white-space: normal;
+      line-height: 1.2;
+    }
+    .monequipe-upcoming-list,
+    .monequipe-results-list { display: flex; flex-direction: column; gap: 6px; }
+    .monequipe-upcoming-row input,
+    .monequipe-upcoming-row select,
+    .monequipe-results-row input,
+    .monequipe-results-row select {
+      width: 100%;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .monequipe-upcoming-row input:focus,
+    .monequipe-upcoming-row select:focus,
+    .monequipe-results-row input:focus,
+    .monequipe-results-row select:focus { outline: none; border-color: var(--accent); }
+    /* Bouton × réduit à 20×20 (au lieu des 22×22 de .row-delete-btn
+       génériques, réutilisées partout ailleurs dans Paramètres) — demandé
+       explicitement pour ces 2 tableaux uniquement. */
+    .monequipe-upcoming-row .row-delete-btn,
+    .monequipe-results-row .row-delete-btn { width: 20px; height: 20px; font-size: 12px; }
+
+    /* Profil */
+    .profile-field {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .profile-field label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .profile-field input {
+      /* Largeur figée à 150px (2026-08-10, sur demande explicite — remplace
+         `flex:1`, qui étirait le champ sur toute la largeur de la fenêtre
+         pour 20 caractères max) plutôt qu'un pourcentage : un prénom ne
+         justifie pas un champ pleine largeur. */
+      flex: none;
+      width: 150px;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .profile-field input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
+    .profile-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+    /* Comptes Google/Spotify côte à côte, même largeur (2026-08-10, sur
+       demande explicite — remplace 2 sections empilées pleine largeur) :
+       `.accounts-row` porte déjà `.config-section` pour l'espacement
+       standard, `.accounts-col` (flex:1 chacune) répartit l'espace à parts
+       égales, `.accounts-btn` étire le bouton à la largeur de sa colonne. */
+    .accounts-row { display: flex; gap: 12px; }
+    .accounts-col { flex: 1; min-width: 0; }
+    .accounts-btn { width: 100%; justify-content: center; }
+
+    /* Mode auto luminosité — déplacé dans .theme-toggle-row le 2026-08-10
+       (sur demande explicite, voir plus haut) : .profile-toggle-field n'a
+       plus d'usage, retiré. */
+
+    /* Google auth */
+    .google-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .google-btn:hover { background: var(--bg-hover); }
+    .google-status {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+    }
+
+    /* Sauvegardes (2026-08-10) */
+    .backups-list { display: flex; flex-direction: column; gap: 6px; }
+    .backups-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .backups-date { font-size: 12px; color: var(--text-primary); }
+    .backups-empty { font-size: 12px; color: var(--text-muted); }
+
+    /* Popup Sauvegardes (2026-08-10) — overlay plein écran, masqué par défaut
+       (display:none), .open l'affiche (voir config.js openBackupsModal). */
+    .backups-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .backups-modal-overlay.open { display: flex; }
+    .backups-modal {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 90%;
+      max-width: 420px;
+      max-height: 70vh;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .backups-modal-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .backups-modal .backups-list { overflow-y: auto; min-height: 0; }
+    .backups-modal-close {
+      flex-shrink: 0;
+      padding: 9px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .backups-modal-close:hover { background: var(--bg-hover); }
+
+    /* Ligne titre "Profil" + bouton Personnaliser à droite (2026-08-11) —
+       même conteneur que .config-section-title, juste mis en ligne avec le
+       bouton ; margin-bottom déplacé ici depuis .config-section-title (qui
+       en garde besoin ailleurs, ex. titres de catégories de modules dans les
+       onglets) pour ne pas doubler l'espacement sous cette ligne précise. */
+    .config-section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .config-section-title-row .config-section-title { margin-bottom: 0; }
+
+    /* Popup Personnaliser (2026-08-11) — même structure que la popup
+       Sauvegardes ci-dessus (overlay + carte centrée), grille d'options à la
+       place d'une liste. */
+    .personnaliser-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .personnaliser-modal-overlay.open { display: flex; }
+    .personnaliser-modal {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 90%;
+      max-width: 460px;
+      max-height: 80vh;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+    .personnaliser-modal-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .personnaliser-options {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .personnaliser-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      background: var(--bg-panel-alt);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .personnaliser-option:hover { background: var(--bg-hover); }
+    .personnaliser-option.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .personnaliser-thumb {
+      width: 100%;
+      height: 54px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+      background: var(--bg-base);
+    }
+    .personnaliser-option-label { font-size: 11px; color: var(--text-primary); text-align: center; }
+
+    /* Miniatures — mêmes recettes CSS que les vrais fonds (voir style.css
+       .app-background-layer.bg-*), condensées ici en statique/petit format
+       (pas d'animation ni de canvas pour une simple vignette 54px). */
+    .personnaliser-thumb-none {
+      background:
+        linear-gradient(45deg, transparent 48%, var(--border) 49%, var(--border) 51%, transparent 52%);
+    }
+    .personnaliser-thumb-stars {
+      background: radial-gradient(ellipse at 50% 0%, #1a2138 0%, #0d1424 70%);
+      background-image:
+        radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 60% 20%, #fff, transparent),
+        radial-gradient(1px 1px at 40% 60%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 80% 50%, #fff, transparent),
+        radial-gradient(1px 1px at 85% 80%, #fff, transparent),
+        radial-gradient(1px 1px at 10% 75%, #fff, transparent);
+    }
+    .personnaliser-thumb-aurora {
+      background: #0d1424;
+      background-image:
+        linear-gradient(120deg, transparent 10%, rgba(52,211,153,0.55) 40%, transparent 70%),
+        linear-gradient(120deg, transparent 20%, rgba(167,139,250,0.5) 55%, transparent 85%);
+    }
+    .personnaliser-thumb-particles {
+      background: #0d1424;
+      background-image:
+        radial-gradient(2px 2px at 25% 70%, var(--accent-green), transparent),
+        radial-gradient(2px 2px at 55% 30%, var(--accent-green), transparent),
+        radial-gradient(1.5px 1.5px at 75% 60%, var(--accent-green), transparent),
+        radial-gradient(1.5px 1.5px at 40% 45%, var(--accent-green), transparent);
+    }
+    .personnaliser-thumb-rain {
+      background: #0d1424;
+      background-image:
+        linear-gradient(180deg, transparent 20%, rgba(148,163,184,0.6) 60%, transparent 90%),
+        linear-gradient(180deg, transparent 10%, rgba(148,163,184,0.5) 50%, transparent 80%),
+        linear-gradient(180deg, transparent 35%, rgba(148,163,184,0.6) 70%, transparent 95%);
+      background-size: 2px 60%, 2px 70%, 2px 55%;
+      background-position: 30% 0%, 60% 10%, 82% 0%;
+      background-repeat: no-repeat;
+    }
+    .personnaliser-thumb-snow {
+      background: #0d1424;
+      background-image:
+        radial-gradient(1.5px 1.5px at 20% 25%, #fff, transparent),
+        radial-gradient(2px 2px at 50% 55%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 75% 30%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 35% 75%, #fff, transparent),
+        radial-gradient(1px 1px at 85% 70%, #fff, transparent);
+    }
+    .personnaliser-thumb-matrix {
+      background: #0d1424;
+      background-image:
+        linear-gradient(180deg, transparent 30%, rgba(52,211,153,0.7) 60%, transparent 90%),
+        linear-gradient(180deg, transparent 10%, rgba(52,211,153,0.5) 45%, transparent 75%),
+        linear-gradient(180deg, transparent 45%, rgba(52,211,153,0.6) 75%, transparent 95%);
+      background-size: 3px 70%, 3px 60%, 3px 50%;
+      background-position: 25% 0%, 55% 5%, 78% 15%;
+      background-repeat: no-repeat;
+    }
+    .personnaliser-thumb-nebula {
+      background: #0d1424;
+      background-image:
+        radial-gradient(circle at 30% 35%, rgba(167,139,250,0.7) 0%, transparent 55%),
+        radial-gradient(circle at 70% 65%, rgba(236,72,153,0.6) 0%, transparent 55%),
+        radial-gradient(circle at 50% 50%, rgba(79,142,247,0.5) 0%, transparent 60%);
+    }
+    .personnaliser-thumb-beach {
+      background-image:
+        radial-gradient(circle at 50% 50%, #f59e0b 0%, #f59e0b 9%, transparent 10%),
+        linear-gradient(to bottom, #0f1117 0%, #1e3a5f 45%, #f97316 50%, #ec4899 54%, #0a2a3a 58%, #0d4f5c 65%, #1a1a1a 65.5%, #1a1a1a 100%);
+    }
+    .personnaliser-thumb-paper {
+      background-color: #f5f5f0;
+      background-image: radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px);
+      background-size: 6px 6px;
+    }
+    .personnaliser-thumb-geometric {
+      background-color: #f5f5f0;
+      background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.08) 0, rgba(0,0,0,0.08) 1px, transparent 1px, transparent 8px);
+    }
+    .personnaliser-thumb-gradient {
+      background: linear-gradient(160deg, #ffffff 0%, #eef0f4 55%, #dfe3e9 100%);
+    }
+
+    .save-btn {
+      width: 100%;
+      padding: 10px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius-md);
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .save-btn:hover { opacity: 0.9; }
+    .save-notice {
+      text-align: center;
+      font-size: 11px;
+      color: var(--accent-green);
+      margin-top: 8px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .save-notice.show { opacity: 1; }
+
+    .row-add-btn {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 1px dashed var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .row-add-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .row-add-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+
+    .row-delete-btn {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--accent-red);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .row-delete-btn:hover { background: rgba(248, 113, 113, 0.15); border-color: var(--accent-red); }
+
+    /* Sources d'actualités Sports (détection auto du sport + liste blanche) */
+    .module-config-field.sports-sources-field {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      padding: 10px 12px 12px 38px;
+    }
+    .sports-sources-status {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .sports-sources-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .sports-source-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+    }
+    .sports-source-item input[type="checkbox"] {
+      flex: none;
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+    }
+    .sports-source-note {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* FDJ — 3 modules dashboard indépendants (Loto / EuroMillions /
+       EuroDreams), regroupés visuellement dans une même boîte plutôt que
+       dispersés dans la liste triable générique (voir config.js,
+       createFdjGroup) — pas de drag-handle : ordre fixe entre eux, seul leur
+       toggle individuel et leur config restent éditables ici. */
+    .fdj-group {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      margin-bottom: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .fdj-group-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: 0.03em;
+    }
+    .fdj-sub-row-wrap:last-child { margin-bottom: 0; }
+    .fdj-sub-row { cursor: default; }
+
+    /* Grilles + codes d'un seul jeu (Loto / EuroMillions / EuroDreams) */
+    .module-config-field.fdj-config-field {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+      padding: 10px 12px 12px 38px;
+    }
+    .fdj-config-game {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .fdj-config-game:last-child { border-bottom: none; padding-bottom: 0; }
+    .fdj-config-game-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: 0.03em;
+    }
+    .fdj-config-subsection { display: flex; flex-direction: column; gap: 8px; }
+    .fdj-config-subtitle {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .fdj-config-grids-list, .fdj-config-codes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .fdj-config-grid-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .fdj-grid-inputs, .fdj-grid-special-inputs {
+      display: flex;
+      gap: 6px;
+    }
+    .fdj-grid-special-inputs { padding-left: 10px; border-left: 1px solid var(--border); }
+    .fdj-num-input, .fdj-special-input {
+      width: 45px;
+      min-width: 45px;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 7px 4px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .fdj-special-input { border-color: var(--accent-yellow); }
+    .fdj-num-input:focus, .fdj-special-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .fdj-config-code-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .fdj-code-input {
+      flex: 1;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      text-transform: uppercase;
+    }
+    .fdj-code-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    /* Le bouton "+" partagé (.etf-add-line-btn, réutilisé pour ETF/Crypto/FDJ)
+       a un contour en pointillés très subtil (var(--border)) — presque
+       invisible sur le fond de la section FDJ, au point de donner l'impression
+       que la sous-section "codes" a disparu alors qu'elle est juste peu
+       visible. Renforcé ici sans toucher la règle partagée (pas d'impact sur
+       ETF/Crypto). */
+    .fdj-config-subsection .etf-add-line-btn {
+      border-style: solid;
+      border-color: var(--text-secondary);
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .fdj-config-subsection .etf-add-line-btn:hover { border-color: var(--accent); color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <span class="app-logo">⚙</span>
+      <span class="app-name">Paramètres</span>
+    </div>
+  </header>
+
+  <div class="config-wrap">
+    <!-- Ligne 1 — thème + mode auto (gauche) + Sauvegardes (droite), TOUT en
+         haut, hors onglets, toujours visible (2026-08-10, sur demande
+         explicite — Sauvegardes vivait avant dans une section dédiée sous
+         Profil, remontée ici sur la même ligne pour condenser la fenêtre).
+         Voir config.js (initThemeToggle/initProfileSection/
+         initBackupsSection) pour la bascule instantanée + la persistance. -->
+    <div class="theme-toggle-row">
+      <div class="theme-toggle-left">
+        <div class="theme-toggle-group">
+          <span>🌙 Sombre</span>
+          <label class="toggle">
+            <input type="checkbox" id="themeToggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span>☀️ Clair</span>
+        </div>
+        <div class="theme-toggle-group" title="Ajuster la luminosité selon l'heure — assombrit progressivement le tableau de bord en soirée et la nuit.">
+          <span>🌅 Mode auto</span>
+          <label class="toggle">
+            <input type="checkbox" id="autoBrightnessToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <!-- Sauvegardes — la liste ne reste plus affichée en permanence sur la
+           page, ce bouton ouvre une popup (voir #backupsModalOverlay plus
+           bas) peuplée à la volée par config.js (renderBackupsList). -->
+      <button type="button" class="google-btn" id="btnBackups">
+        <span>💾</span>
+        <span>Sauvegardes</span>
+      </button>
+    </div>
+
+    <!-- Profil — toujours visible, hors onglets (2026-08-06, sur demande
+         explicite). Ligne 2 : prénom (champ resserré, 2026-08-10, sur demande
+         explicite — maxlength 20/largeur 150px, plus l'input pleine largeur
+         d'avant). Ligne 3 : comptes Google/Spotify condensés côte à côte
+         (2026-08-10, sur demande explicite — remplace 2 sections empilées,
+         chacune avec son propre titre "Compte Google"/"Compte Spotify" ;
+         titres retirés, redondants avec le texte du bouton lui-même). -->
+    <div class="config-profil">
+      <div class="config-section">
+        <div class="config-section-title-row">
+          <div class="config-section-title">Profil</div>
+          <!-- 🎨 Personnaliser (2026-08-11, sur demande explicite) — ouvre la
+               popup de choix de fond (#personnaliserModalOverlay plus bas),
+               même style/mécanisme que le bouton Sauvegardes. -->
+          <button type="button" class="google-btn" id="btnPersonnaliser">
+            <span>🎨</span>
+            <span>Personnaliser</span>
+          </button>
+        </div>
+        <div class="profile-field">
+          <label for="firstNameInput">Votre prénom</label>
+          <input type="text" id="firstNameInput" placeholder="Ex : Sylvain" maxlength="20">
+        </div>
+        <div class="profile-hint">Affiché dans la barre de titre ("Bonjour [Prénom]"). Laissez vide pour ne rien afficher.</div>
+      </div>
+
+      <div class="config-section accounts-row">
+        <div class="accounts-col">
+          <button class="google-btn accounts-btn" id="btnGoogle">
+            <span>G</span>
+            <span id="googleLabel">Connecter Google</span>
+          </button>
+          <div class="google-status" id="googleStatus"></div>
+        </div>
+        <div class="accounts-col">
+          <button class="google-btn accounts-btn" id="btnSpotify">
+            <span>🎵</span>
+            <span id="spotifyLabel">Connecter Spotify</span>
+          </button>
+          <div class="google-status" id="spotifyStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Barre d'onglets — cliquer change d'onglet, glisser réordonne (voir config.js) -->
+    <div class="config-tabbar" id="configTabbar"></div>
+
+    <!-- Panneaux d'onglets — un seul visible à la fois (.active), chacun défile indépendamment -->
+    <div class="config-tabpanels">
+      <div class="config-tabpanel" data-tab="finance"></div>
+      <div class="config-tabpanel" data-tab="actualites"></div>
+      <div class="config-tabpanel" data-tab="loisirs"></div>
+      <div class="config-tabpanel" data-tab="maison"></div>
+      <div class="config-tabpanel" data-tab="services"></div>
+      <div class="config-tabpanel" data-tab="utile"></div>
+    </div>
+
+    <div class="config-footer">
+      <button class="save-btn" id="btnSave">Enregistrer</button>
+      <div class="save-notice" id="saveNotice">✓ Configuration enregistrée</div>
+    </div>
+  </div>
+
+  <!-- Popup Sauvegardes (2026-08-10, sur demande explicite) — masquée par
+       défaut (.open ajoutée/retirée par config.js), placée HORS de
+       .config-wrap (qui a son propre overflow:hidden borné) pour couvrir
+       toute la fenêtre comme un vrai overlay. -->
+  <div class="backups-modal-overlay" id="backupsModalOverlay">
+    <div class="backups-modal">
+      <div class="backups-modal-title">💾 Sauvegardes</div>
+      <div class="backups-list" id="backupsList"></div>
+      <button type="button" class="backups-modal-close" id="btnBackupsClose">Fermer</button>
+    </div>
+  </div>
+
+  <!-- Popup Personnaliser (2026-08-11, sur demande explicite) — fond du
+       dashboard, options peuplées par config.js (renderPersonnaliserOptions)
+       selon le thème actif (options sombres/claires mutuellement
+       exclusives, "Aucun fond" toujours visible). Même mécanisme
+       overlay/.open que la popup Sauvegardes ci-dessus. -->
+  <div class="personnaliser-modal-overlay" id="personnaliserModalOverlay">
+    <div class="personnaliser-modal">
+      <div class="personnaliser-modal-title">🎨 Personnaliser le fond</div>
+      <div class="personnaliser-options" id="personnaliserOptions"></div>
+      <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>
+    </div>
+  </div>
+
+  <datalist id="crypto-symbols-datalist"></datalist>
+
+  <script src="modules/sports-sources.js"></script>
+  <script src="modules/fdj-games.js"></script>
+  <script src="modules/parcels-carriers.js"></script>
+  <script src="modules/reminders-categories.js"></script>
+  <script src="modules/indices-defs.js"></script>
+  <script src="modules/live-championships.js"></script>
+  <script src="config.js"></script>
+</body>
+</html>

@@ -1,0 +1,3632 @@
+/* ═══════════════════════════════════════════════════════════════
+   MATIN!* — Design System
+   Thème sombre, typographie Inter, accents bleu-cyan
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-base:       #0f1117;
+  --bg-panel:      #161b27;
+  --bg-panel-alt:  #1c2333;
+  --bg-hover:      #222940;
+
+  --border:        #2a3348;
+  --border-light:  #1e2a3d;
+
+  --text-primary:  #e8eaf0;
+  --text-secondary:#8b95a8;
+  --text-muted:    #4a5568;
+
+  --accent:        #4f8ef7;
+  --accent-glow:   rgba(79, 142, 247, 0.15);
+  --accent-green:  #34d399;
+  --accent-red:    #f87171;
+  --accent-yellow: #fbbf24;
+  --accent-purple: #a78bfa;
+  --spotify-green: #1DB954;
+  --spotify-green-glow: rgba(29, 185, 84, 0.15);
+
+  --radius-sm:     6px;
+  --radius-md:     10px;
+  --radius-lg:     14px;
+
+  --font-ui:       'Inter', system-ui, sans-serif;
+  --font-mono:     'DM Mono', 'Consolas', monospace;
+
+  --titlebar-h:    38px;
+  --titlebar-bg:   var(--bg-base);
+  --gap:           14px;
+
+  /* Sombre = thème de base (ci-dessus, aucun attribut requis) — voir
+     l'override [data-color-scheme="light"] juste en dessous. */
+  --color-scheme: dark;
+}
+
+/* ─── Thème clair (2026-08-08, sur demande explicite) ──────────────────
+   `document.documentElement.dataset.colorScheme` posé côté renderer (voir
+   index.html/config.html : <script> synchrone en tête de <head> au premier
+   affichage à partir de `window.matin.initialTheme`, puis dashboard.js/
+   config.js au clic sur le bouton bascule + `theme:onUpdated` pour rester
+   synchronisé entre les 2 fenêtres). Seules les variables bg-x / border-x /
+   text-x sont redéfinies : les couleurs d'accent (--accent, --accent-green/red/yellow,
+   les couleurs de bordure par catégorie de module, etc.) restent identiques
+   dans les 2 thèmes, non demandées explicitement et déjà choisies pour
+   contraster correctement sur un fond sombre COMME clair (testé en direct,
+   voir CONTEXT.md).
+   AVANT ce jour, `config.html` redéfinissait sa PROPRE copie figée en clair
+   de ce `:root` (voir historique CONTEXT.md, "Thème clair pour cette fenêtre
+   uniquement, 2026-08-06") — retirée : elle bloquait justement ce que cette
+   fonctionnalité demande (Paramètres doit suivre le thème comme le
+   dashboard). style.css étant chargé indépendamment par les 2 documents
+   (index.html ET config.html, CSSOM séparés), cette seule règle ici suffit
+   aux deux dès que chacun pose l'attribut sur SON PROPRE <html>. */
+:root[data-color-scheme="light"] {
+  --bg-base:       #f5f5f0;
+  --bg-panel:      #ffffff;
+  --bg-panel-alt:  #f0f0eb;
+  --bg-hover:      #e8e8e3;
+
+  --border:        #d1d5db;
+  --border-light:  #e5e7eb;
+
+  --text-primary:  #1a1a2e;
+  --text-secondary:#4b5563;
+  --text-muted:    #9ca3af;
+
+  --color-scheme: light;
+}
+
+/* ─── Fenêtre dashboard, thème clair uniquement (2026-08-10, sur demande
+   explicite) — fond légèrement plus sombre que le thème clair de base
+   ci-dessus, SANS toucher la fenêtre Paramètres qui partage le même bloc
+   [data-color-scheme="light"] (voir commentaire plus haut : style.css est
+   chargé indépendamment par index.html ET config.html). Scopé via la classe
+   posée en dur sur <html> dans index.html (absente de config.html) plutôt
+   que par une variable globale, justement pour NE PAS affecter Paramètres.
+   --titlebar-bg garde sa valeur par défaut (= --bg-base) partout ailleurs
+   (thème sombre, thème clair de config.html) : seule la titlebar du
+   dashboard en clair a sa propre teinte, nettement plus foncée que le
+   contenu pour bien la distinguer (demande explicite). */
+html.dashboard-window[data-color-scheme="light"] {
+  /* Palette "parchemin/crème" (2026-08-11, sur demande explicite — remplace
+     la teinte gris-bleu froide ci-dessus, jugée trop clinique/agressive) :
+     tons chauds désaturés plutôt que du blanc/gris pur, pour un rendu plus
+     proche du papier journal que d'un écran. Étendue ici (au-delà des seules
+     bg-base/bg-panel/titlebar-bg déjà présentes) à bg-panel-alt/border/
+     text-* — ces 4 dernières n'étaient pas encore surchargées pour cette
+     fenêtre, elles retombaient sur le bloc clair PARTAGÉ avec Paramètres
+     (voir :root[data-color-scheme="light"] plus haut) : les ajouter ici,
+     PAS là-bas, pour que ce radoucissement reste propre au dashboard, sans
+     toucher Paramètres (non demandé). */
+  --bg-base:       #e8e8e4;
+  --bg-panel:      #f0efe9;
+  --bg-panel-alt:  #e4e3dd;
+  --titlebar-bg:   #d4d3cd;
+
+  --border:        #c8c7c0;
+
+  --text-primary:  #2d2d2a;
+  --text-secondary:#6b6b65;
+  --text-muted:    #9b9b94;
+}
+
+/* ─── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  /* Sans ce déclaratif, Chromium applique son propre thème sombre/clair
+     "deviné" aux contrôles de formulaire natifs (input[type=number],
+     date/heure, scrollbars...) à partir du thème de l'OS plutôt que du
+     thème RÉEL de la page — ce qui peut produire par exemple du texte
+     sombre sur fond sombre malgré un `color` explicite en CSS (observé sur
+     les inputs de grilles FDJ). `color-scheme` est une propriété HÉRITÉE :
+     la poser ici une seule fois (pilotée par --color-scheme, basculé par le
+     bloc [data-color-scheme="light"] ci-dessus) suffit à tous les contrôles
+     natifs de la page, sans avoir à la redéclarer sur chaque input un par
+     un (voir plus bas : les redéclarations locales `color-scheme: light`
+     historiques sur .etf-line-row/.hue-config-row/.parcels-row/
+     .reminders-config-row ont été retirées à cette occasion, devenues
+     inutiles ET fausses maintenant que ces classes doivent aussi suivre le
+     mode sombre). */
+  color-scheme: var(--color-scheme, dark);
+}
+
+/* ─── Titlebar ───────────────────────────────────────────────── */
+.titlebar {
+  height: var(--titlebar-h);
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 140px 0 16px;
+  -webkit-app-region: drag;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+}
+
+.titlebar-left, .titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.app-logo { font-size: 15px; }
+.app-name  { font-weight: 600; font-size: 13px; color: var(--text-primary); letter-spacing: 0.02em; }
+.app-date  { font-size: 11px; color: var(--text-secondary); font-weight: 400; }
+
+/* Zone centrale (salutation + recherche) — centrée dans le titlebar (position
+   absolue relative à .titlebar, plutôt qu'un 3e enfant flex entre
+   .titlebar-left/.titlebar-right : ça la centre vraiment sur toute la largeur
+   de la fenêtre, indépendamment de la largeur du contenu à gauche/droite).
+   La salutation vit dans ce même groupe centré plutôt que dans .titlebar-left
+   ou en 4e enfant flex distribué par space-between : avec 3 items flex de
+   largeurs inégales, space-between ne centre pas réellement l'élément du
+   milieu, ce qui le faisait chevaucher la barre de recherche (elle-même
+   centrée en absolu sur 50% de la largeur totale) à la largeur de fenêtre par
+   défaut de l'appli. */
+.titlebar-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.app-greeting {
+  /* Déplacée dans .titlebar-left, juste après la date (2026-08-10, sur
+     demande explicite, 2e révision — voir index.html) : PAS centrée entre la
+     date et la barre de recherche. margin-left ajoute à ce qui reste du
+     gap:10px déjà posé par .titlebar-left, sans changer l'espacement des
+     autres éléments du groupe (logo/nom/date, qui restent à 10px entre
+     eux) — modifier UNIQUEMENT ce margin-left, jamais le gap partagé.
+     Porté de 6px à 30px (2026-08-11, sur demande explicite) : le gap:10px
+     du conteneur s'ajoute toujours, donnant un espacement total DATE↔GREETING
+     de 10+30 = 40px (contre 16px avant, demandé explicitement). */
+  margin-left: 30px;
+  /* Police manuscrite (2026-08-10, sur demande explicite) — Caveat (voir
+     index.html, import Google Fonts), SEULEMENT ici : le reste du titlebar
+     garde Inter (--font-ui). Taille/graisse relevées (15px/700 → 20px/700) :
+     Caveat paraît visuellement plus fine/petite qu'une police sans-serif à
+     taille égale, compense pour rester aussi lisible qu'avant. */
+  font-family: 'Caveat', cursive;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-green);
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+  white-space: nowrap;
+}
+.app-greeting:empty { display: none; }
+
+.titlebar-search {
+  /* vw et non % : à présent enfant de .titlebar-center (shrink-to-fit, largeur
+     non définie), un % s'y résoudrait comme "auto" et ferait perdre le
+     dimensionnement relatif à la largeur de la fenêtre. */
+  width: 30vw;
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 6px 4px 14px;
+  -webkit-app-region: no-drag;
+  transition: border-color 0.15s;
+}
+.titlebar-search:focus-within { border-color: var(--accent); }
+/* Écran ultrawide (2026-08-16, sur demande explicite) — barre de recherche
+   élargie à 40vw (depuis 30vw) : à 30vw sur un 21:9 très large, elle
+   paraissait proportionnellement plus étroite qu'à largeur standard. Classe
+   posée sur <body> par dashboard.js (applyScreenModeClass), voir aussi
+   .ultrawide .module-card plus bas pour le plafond de largeur des cartes. */
+body.ultrawide .titlebar-search { width: 40vw; }
+.titlebar-search-icon {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.titlebar-search-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
+.titlebar-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 12px;
+  font-family: var(--font-ui);
+}
+.titlebar-search input::placeholder { color: var(--text-muted); }
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.titlebar-btn {
+  background: none;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  -webkit-app-region: no-drag;
+  transition: background 0.15s;
+}
+.titlebar-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* ─── Dashboard : zone libre (glisser-déposer + redimensionnement) ──────── */
+/* #dashboard = fenêtre de défilement, taille fixe (viewport). #dashboard-canvas
+   = calque interne en flux normal dont la min-height grandit via JS pour
+   accueillir des modules déplacés loin en bas — nécessaire car un élément
+   position:fixed avec top ET bottom définis ignore toute min-height qu'on
+   lui appliquerait directement (sa hauteur est entièrement dictée par
+   top/bottom), ce qui empêchait le défilement de fonctionner. */
+.dashboard {
+  position: fixed;
+  top: var(--titlebar-h);
+  left: 0; right: 0; bottom: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--gap);
+}
+.dashboard-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+}
+
+/* ─── Module card ────────────────────────────────────────────── */
+.module-card {
+  position: absolute;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s, opacity 400ms ease;
+  min-width: 220px;
+  min-height: 100px;
+  touch-action: none; /* requis par interact.js pour le drag/resize au pointeur */
+  /* Bordure gauche colorée par catégorie de module (2026-08-08, sur demande
+     explicite) — longhands déclarées APRÈS le raccourci `border` ci-dessus
+     pour n'écraser QUE le côté gauche (le raccourci fixe les 4 côtés à 1px
+     var(--border) ; ces 2 lignes le corrigent ensuite juste à gauche) plutôt
+     que de dupliquer top/right/bottom ici. Transparent par défaut (aucune
+     carte sans thème connu ne doit soudain avoir une bordure visible) ; la
+     couleur réelle vient des règles [data-theme=…] plus bas. */
+  border-left-width: 4px;
+  border-left-color: transparent;
+  /* Apparition échelonnée après l'overlay de démarrage (2026-08-06, sur
+     demande explicite) — invisible par défaut, révélée carte par carte via
+     .revealed (classe ajoutée avec un décalage de 100ms/carte, triées
+     haut-gauche → bas-droite, voir dashboard.js/revealModuleCards). Sans ce
+     défaut à 0, une carte dont le module a fini de charger AVANT que son
+     tour de révélation n'arrive apparaîtrait instantanément au lieu
+     d'attendre son décalage. */
+  opacity: 0;
+}
+.module-card.revealed { opacity: 1; }
+/* Écran ultrawide (2026-08-16, sur demande explicite) — plafonne la largeur
+   des cartes à 500px : sans ça, un module redimensionné à la main sur un
+   21:9 peut s'étirer démesurément (aucun autre garde-fou de largeur MAX
+   n'existait avant, seulement `min-width`, voir plus haut). N'affecte QUE le
+   redimensionnement (`interact.js`, voir `restrictSize` dans
+   makeInteractive) — cette règle CSS est le filet visuel, la vraie
+   contrainte est posée côté JS pour que le curseur de redimensionnement ne
+   dépasse jamais cette largeur non plus (pas juste une carte visuellement
+   coupée par `max-width` pendant qu'on continue de la tirer). */
+body.ultrawide .module-card { max-width: 500px; }
+/* border-top/right/bottom-color (PAS le raccourci border-color) : celui-ci
+   toucherait aussi border-left-color et effacerait la bordure gauche colorée
+   par thème ci-dessus au survol/pendant un glisser-déposer. */
+.module-card:hover { border-top-color: var(--border-light); border-right-color: var(--border-light); border-bottom-color: var(--border-light); }
+.module-card.dragging, .module-card.resizing { border-top-color: var(--accent); border-right-color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ─── Bordure/icône par catégorie de module (2026-08-08) ────────
+   Couleurs demandées explicitement, une par catégorie. */
+.module-card[data-theme="finance"]      { border-left-color: #f59e0b; }
+.module-card[data-theme="football"]     { border-left-color: #3b82f6; }
+.module-card[data-theme="basket"]       { border-left-color: #f97316; }
+.module-card[data-theme="other-sports"] { border-left-color: #10b981; }
+/* Actualités (France/Tech/Bourse/Sciences/Gaming/Santé) : jaune #eab308 →
+   indigo #4f46e5 (2026-08-11, sur demande explicite) — UNIQUEMENT la bordure
+   et le titre (voir .module-title plus bas), volontairement PAS l'icône
+   (ligne .module-icon ci-dessous, non demandée, reste #eab308) : ce thème
+   n'a donc plus une seule couleur unifiée bordure/icône/titre, contrairement
+   aux 9 autres catégories. */
+.module-card[data-theme="actualites"]   { border-left-color: #4f46e5; }
+.module-card[data-theme="fdj"]          { border-left-color: #22c55e; }
+.module-card[data-theme="musique"]      { border-left-color: #a855f7; }
+.module-card[data-theme="maison"]       { border-left-color: #06b6d4; }
+.module-card[data-theme="services"]     { border-left-color: #94a3b8; }
+.module-card[data-theme="perso"]        { border-left-color: #ec4899; }
+
+.module-card[data-theme="finance"]      .module-icon { color: #f59e0b; }
+.module-card[data-theme="football"]     .module-icon { color: #3b82f6; }
+.module-card[data-theme="basket"]       .module-icon { color: #f97316; }
+.module-card[data-theme="other-sports"] .module-icon { color: #10b981; }
+.module-card[data-theme="actualites"]   .module-icon { color: #eab308; }
+.module-card[data-theme="fdj"]          .module-icon { color: #22c55e; }
+.module-card[data-theme="musique"]      .module-icon { color: #a855f7; }
+.module-card[data-theme="maison"]       .module-icon { color: #06b6d4; }
+.module-card[data-theme="services"]     .module-icon { color: #94a3b8; }
+.module-card[data-theme="perso"]        .module-icon { color: #ec4899; }
+
+/* Titre coloré selon la catégorie (2026-08-11, sur demande explicite) — même
+   couleur que la bordure gauche/l'icône ci-dessus, un sélecteur par thème
+   plutôt qu'une variable CSS partagée pour rester cohérent avec le style
+   déjà en place juste au-dessus. */
+.module-card[data-theme="finance"]      .module-title { color: #f59e0b; }
+.module-card[data-theme="football"]     .module-title { color: #3b82f6; }
+.module-card[data-theme="basket"]       .module-title { color: #f97316; }
+.module-card[data-theme="other-sports"] .module-title { color: #10b981; }
+.module-card[data-theme="actualites"]   .module-title { color: #4f46e5; }
+.module-card[data-theme="fdj"]          .module-title { color: #22c55e; }
+.module-card[data-theme="musique"]      .module-title { color: #a855f7; }
+.module-card[data-theme="maison"]       .module-title { color: #06b6d4; }
+.module-card[data-theme="services"]     .module-title { color: #94a3b8; }
+.module-card[data-theme="perso"]        .module-title { color: #ec4899; }
+
+/* Bordures de catégorie adoucies en thème clair (2026-08-11, sur demande
+   explicite) — les mêmes couleurs pleines ci-dessus paraissent trop vives
+   sur le nouveau fond crème/parchemin ; rgba() à 0.7 d'opacité (pas de
+   propriété `opacity` isolée pour une seule bordure : elle s'appliquerait à
+   toute la carte, texte compris) UNIQUEMENT sur border-left-color, qui prime
+   sur la déclaration plein-ton ci-dessus grâce à l'ordre en cascade (règle
+   identique en spécificité, définie après). Le texte/icône/titre restent en
+   couleur pleine (non demandé, et une icône à 70% de moins de contraste
+   deviendrait difficile à lire). */
+:root[data-color-scheme="light"] .module-card[data-theme="finance"]      { border-left-color: rgba(245, 158, 11, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="football"]     { border-left-color: rgba(59, 130, 246, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="basket"]       { border-left-color: rgba(249, 115, 22, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="other-sports"] { border-left-color: rgba(16, 185, 129, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="actualites"]   { border-left-color: rgba(79, 70, 229, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="fdj"]          { border-left-color: rgba(34, 197, 94, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="musique"]      { border-left-color: rgba(168, 85, 247, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="maison"]       { border-left-color: rgba(6, 182, 212, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="services"]     { border-left-color: rgba(148, 163, 184, 0.7); }
+:root[data-color-scheme="light"] .module-card[data-theme="perso"]        { border-left-color: rgba(236, 72, 153, 0.7); }
+
+/* ─── Module : LIVE! (2026-08-11, sur demande explicite) ─────────────────
+   Bordure ROUGE COMPLÈTE (pas juste l'accent gauche des autres thèmes,
+   d'où un sélecteur par id plutôt que [data-theme=...]) : distingue ce
+   module des autres cartes "Sports" (thème 'other-sports' réutilisé
+   uniquement pour le regroupement du Réorganiser automatique, voir
+   dashboard.js MODULE_REGISTRY). */
+#module-live { border-color: #ef4444; }
+#module-live .module-icon { color: #ef4444; }
+#module-live .module-title { color: #ef4444; }
+/* Même radoucissement à 0.7 d'opacité qu'aux 10 bordures par catégorie
+   ci-dessus, en thème clair — LIVE! utilise un ID plutôt que [data-theme]
+   mais reste conceptuellement une "bordure colorée de catégorie". */
+:root[data-color-scheme="light"] #module-live { border-color: rgba(239, 68, 68, 0.7); }
+
+.live-match-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.live-match-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.live-match-row:hover { border-color: #ef4444; background: var(--bg-hover); }
+.live-match-row-live { border-color: rgba(239, 68, 68, 0.4); }
+.live-match-meta { display: flex; align-items: center; gap: 6px; }
+.live-match-time { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.live-match-league { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+/* [Logo][Nom][Score][Nom][Logo] — 5 colonnes, les 2 noms convergent vers le
+   score au centre (texte aligné vers l'intérieur de chaque côté) pour une
+   lecture symétrique façon tableau de scores. */
+.live-match-teams {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+.live-match-team {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.live-match-team-away { text-align: left; }
+.live-team-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.live-team-logo-empty {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.live-match-score {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-align: center;
+}
+.live-match-score-live { color: #ef4444; }
+
+/* Point rouge pulsant — même principe d'animation que d'autres indicateurs
+   "en direct" déjà présents ailleurs dans l'app (opacity/scale en boucle),
+   ici dédié à ce seul module. */
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  animation: live-dot-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes live-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.7); }
+}
+
+.module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: move;
+  flex-shrink: 0;
+}
+
+.module-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+/* Titres cliquables (2026-08-10, sur demande explicite) — ouvrent un site
+   externe (voir dashboard.js, MODULE_CLICK_URLS/resolveModuleClickUrl).
+   `cursor:pointer` prime sur le `cursor:move` de .module-header (le titre
+   reste malgré tout dans la zone de glisser-déposer de la carte — un simple
+   clic sans déplacement du pointeur ouvre le site, un glisser déplace
+   toujours la carte normalement, interact.js ne consomme pas le clic natif
+   tant qu'aucun mouvement n'a dépassé son seuil de déclenchement). */
+.module-title-clickable { cursor: pointer; }
+.module-title-clickable:hover { color: var(--accent); }
+
+.module-icon { font-size: 14px; }
+
+.module-badge {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--bg-panel-alt);
+  color: var(--text-muted);
+}
+
+/* Badge "Bêta" (2026-08-15, sur demande explicite) — actuellement utilisé
+   uniquement sur IKEA Trådfri (voir dashboard.js createModuleCard et
+   config.js, ligne .module-row-name — même classe partagée dans les 2
+   contextes). `text-transform`/`letter-spacing`/`font-weight` explicitement
+   remis à plat : `.module-title` (dashboard) impose majuscules + lettres
+   espacées + gras à TOUS ses descendants par défaut, ce qui aurait sinon
+   donné "BÊTA" en gras espacé au lieu du discret "Bêta" italique demandé.
+   Non alarmant par design : mêmes teintes que `.module-badge`
+   (fond/texte "muted"), juste plus petit et en italique pour rester secondaire
+   à côté du vrai titre. */
+.beta-badge {
+  font-size: 10px;
+  font-weight: 400;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-muted);
+  background: var(--bg-panel-alt);
+  padding: 1px 6px;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+.module-content { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+
+/* Contenu compact (2026-08-11, sur demande explicite) — posé par
+   dashboard.js (placeCard/listener resize) dès qu'une carte descend sous 85%
+   de sa largeur par défaut, que ce soit via Réorganiser ou un redimensionnement
+   manuel. `zoom` (PAS `transform: scale`, qui ne fait que redimensionner
+   visuellement sans reflow) réduit RÉELLEMENT le texte de chaque module sans
+   toucher au JS d'aucun d'entre eux — fonctionne quel que soit le contenu
+   interne, `zoom` étant nativement supporté par Chromium (seul moteur de rendu
+   possible ici, Electron). */
+.module-card.module-compact .module-content { zoom: 0.85; }
+.module-card.module-compact .module-title { font-size: 12px; }
+.module-card.module-compact .module-icon { font-size: 12px; }
+.module-card.module-compact .module-badge { font-size: 9px; padding: 1px 5px; }
+
+/* Paliers de taille extrême (2026-08-15, sur demande explicite — abaisse
+   MIN_WIDTH/MIN_HEIGHT de 260×160 à 80×40, voir dashboard.js) — posés/
+   retirés par updateSizeTier (dashboard.js), à CHAQUE placement ET à chaque
+   frame de redimensionnement manuel, DISTINCTS de `.module-compact`
+   ci-dessus (seuil 85% de largeur par défaut, déjà existant) : ces 2 paliers
+   se déclenchent sur une taille ABSOLUE (px), pas relative au defaultSize du
+   module, et se cumulent avec `.module-compact` plutôt que le remplacer.
+   Impossible de cacher individuellement le contenu "secondaire" de chaque
+   module (~30 modules, classes toutes différentes) sans les reprendre un par
+   un — solution générique à la place : `overflow: hidden` sur la carte
+   ENTIÈRE (demandé explicitement, "clip proprement plutôt que casser la mise
+   en page") + un `zoom` plus fort que `.module-compact` sur `.size-compact-
+   content` (0.7 contre 0.85) — réduit le texte ET, combiné à la hauteur
+   réelle disponible désormais trop courte pour tout afficher, ne laisse
+   visible que le début du contenu (le plus "essentiel" par construction :
+   c'est toujours ce que chaque module rend EN PREMIER). */
+.module-card.size-compact-content,
+.module-card.size-icon-only {
+  overflow: hidden;
+}
+.module-card.size-compact-content .module-content { zoom: 0.7; }
+.module-card.size-icon-only {
+  padding: 8px 10px;
+  gap: 4px;
+}
+/* `.module-content` masqué entièrement (demandé explicitement, "seulement
+   l'icône + le titre") — universel, ne dépend d'aucune classe propre à un
+   module en particulier puisque TOUS les modules rendent leur contenu dans
+   ce même conteneur. */
+.module-card.size-icon-only .module-content { display: none; }
+.module-card.size-icon-only .module-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0.5;
+  background:
+    linear-gradient(135deg, transparent 0 46%, var(--text-muted) 46% 54%, transparent 54% 100%),
+    linear-gradient(135deg, transparent 0 71%, var(--text-muted) 71% 79%, transparent 79% 100%);
+  transition: opacity 0.15s;
+}
+.resize-handle:hover { opacity: 1; }
+/* Cartes à hauteur auto (ETF/Crypto, voir dashboard.js isAutoHeightKey) : le
+   bord bas du redimensionnement est désactivé, seule la largeur reste
+   modifiable à la souris — curseur ↔ plutôt que ↘ pour refléter ça. */
+.module-card.auto-height .resize-handle { cursor: ew-resize; }
+
+/* ─── Module : Météo ─────────────────────────────────────────── */
+.weather-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.weather-temp {
+  font-size: 42px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.weather-unit { font-size: 20px; color: var(--text-secondary); }
+.weather-desc { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+.weather-forecast {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.weather-day {
+  flex: 1;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 12px;
+}
+.weather-day-name { color: var(--text-muted); margin-bottom: 2px; }
+.weather-day-temp { font-weight: 500; }
+
+/* ─── Modules : France / Tech / Bourse (flux RSS) ─────────────────────────
+   Ticker vertical défilant — voir .sports-ticker-v* plus bas (portée
+   générique malgré le nom historique, réutilisées ici comme etf-* l'est par
+   crypto.js) pour la structure/l'animation, partagée avec le module Sports. */
+
+/* ─── Module : ETF (portefeuille multi-lignes groupé par ISIN) ──────── */
+.etf-module { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.etf-empty { font-size: 14px; color: var(--text-muted); padding: 8px 0; }
+
+.etf-header {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.etf-header-block {
+  flex: 1 1 0;
+  min-width: 100px;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+}
+.etf-header-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etf-header-value {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.2;
+  /* Gras retiré du bloc header générique (2026-08-11, sur demande explicite,
+     couvre Cours/Portefeuille/Investi/Gains réalisés dans ETF ET Crypto,
+     partagés via cette même classe) — seul le bloc +/- Value garde le gras,
+     voir .etf-header-value.etf-gain juste en dessous. */
+  font-weight: normal;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etf-header-value.etf-gain { font-weight: 600; }
+.etf-header-value.etf-gain.up   { color: var(--accent-green); }
+.etf-header-value.etf-gain.down { color: var(--accent-red); }
+.etf-header-sub {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etf-header-sub.up   { color: var(--accent-green); }
+.etf-header-sub.down { color: var(--accent-red); }
+
+/* Bloc "Cours" réduit à un décompte (2026-08-10, sur demande explicite,
+   remplace l'ancienne liste ticker/prix/variation par ETF — voir etf.js,
+   etfRenderModule) : plus léger que .etf-header-value (money, mono, gras),
+   simple texte pour rester compact. */
+.etf-header-count {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.etf-privacy-btn {
+  align-self: center;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 15px;
+  padding: 5px 9px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.etf-privacy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.etf-privacy-on .etf-money { filter: blur(6px); user-select: none; }
+
+.etf-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.etf-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.etf-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-panel-alt);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.etf-group-header:hover { background: var(--bg-hover); }
+.etf-group-chevron {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.etf-group-chevron.expanded { transform: rotate(90deg); }
+/* Wrapper flex:1 (2026-08-10, sur demande explicite) — le nom ET la
+   variation journalière (.etf-group-daily) partagent maintenant cet espace
+   flexible, plutôt que .etf-group-name seul : la variation reste collée au
+   nom (ellipsis sur le nom en priorité si trop long) au lieu d'être poussée
+   loin à droite, alors que le prix/+‑value restent positionnés à droite
+   comme avant (siblings flex-shrink:0 inchangés en dehors de ce wrapper). */
+.etf-group-name-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+.etf-group-name {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.etf-group-daily {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.etf-group-daily.up   { color: var(--accent-green); }
+.etf-group-daily.down { color: var(--accent-red); }
+.etf-group-price {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.etf-group-gain {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 400;
+  flex-shrink: 0;
+  min-width: 130px;
+  text-align: right;
+}
+.etf-group-gain.up   { color: var(--accent-green); }
+.etf-group-gain.down { color: var(--accent-red); }
+
+.etf-group-body { padding: 12px; border-top: 1px solid var(--border); }
+
+.etf-chart-wrap { margin-bottom: 10px; }
+.etf-chart-svg { width: 100%; height: 70px; display: block; }
+.etf-chart-marker-line { stroke: var(--accent-yellow); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+.etf-chart-marker-dot { fill: var(--accent-yellow); }
+.etf-chart-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 20px 0;
+  text-align: center;
+}
+.etf-chart-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.etf-table-wrap { max-height: 200px; overflow-y: auto; }
+.etf-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.etf-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  text-align: left;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.etf-table td {
+  padding: 4px 6px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+  font-family: var(--font-mono);
+}
+.etf-table td:first-child, .etf-table th:first-child { font-family: var(--font-ui); }
+.etf-table tr.etf-table-summary td {
+  font-weight: 600;
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+.etf-money.up   { color: var(--accent-green); }
+.etf-money.down { color: var(--accent-red); }
+.etf-line-gain-pct {
+  font-size: 12px;
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.etf-type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-family: var(--font-ui);
+}
+.etf-type-badge.buy  { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+.etf-type-badge.sell { background: rgba(167, 139, 250, 0.15); color: var(--accent-purple); }
+.etf-table tr.etf-row-sell { background: rgba(167, 139, 250, 0.06); }
+
+.etf-closed-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.etf-group-closed .etf-group-name { color: var(--text-secondary); }
+
+.etf-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.etf-refresh-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.etf-refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ─── Module : Calendar ──────────────────────────────────────── */
+.cal-events { display: flex; flex-direction: column; gap: 6px; }
+.cal-event {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+}
+.cal-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 40px;
+  padding-top: 1px;
+}
+.cal-title { font-size: 14px; color: var(--text-primary); line-height: 1.4; }
+.cal-color-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+/* ─── Module : Gmail ─────────────────────────────────────────── */
+.gmail-list { display: flex; flex-direction: column; gap: 5px; }
+.gmail-item {
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gmail-item:hover { background: var(--bg-hover); }
+.gmail-item.unread .gmail-sender { font-weight: 600; color: var(--text-primary); }
+.gmail-sender { font-size: 12px; color: var(--text-secondary); margin-bottom: 2px; }
+.gmail-subject { font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ─── Module : Crypto ────────────────────────────────────────── */
+.crypto-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.crypto-item {
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.crypto-name { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.crypto-price {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+.crypto-change { font-family: var(--font-mono); font-size: 12px; margin-top: 2px; }
+
+/* ─── Module : Sports ────────────────────────────────────────── */
+.sports-module { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+
+.sports-results-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sports-result-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.sports-result-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+.sports-result-pill.result-win  { color: var(--accent-green); background: rgba(52,211,153,0.1); }
+.sports-result-pill.result-loss { color: var(--accent-red);   background: rgba(248,113,113,0.1); }
+.sports-result-pill.result-draw { color: var(--text-muted);   background: var(--bg-panel-alt); }
+.sports-result-opp {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.sports-next {
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+.sports-next-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+.sports-next-detail {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.sports-next-opp {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sports-no-data { font-size: 12px; color: var(--text-muted); }
+
+/* ─── Module : Mon Équipe (2026-08-15, sur demande explicite) ───────────────
+   Réutilise .sports-module/.sports-next/.sports-next-label/-detail/-opp/
+   .sports-no-data tels quels (voir plus haut) pour "Prochain match"/"Dernier
+   résultat" — même langage visuel que Sports/LIVE! (thème 'other-sports'
+   partagé, voir dashboard.js). Seules les 2 listes "Prochains matchs"/
+   "Derniers résultats" ci-dessous sont propres à ce module. */
+.monequipe-module { gap: 8px; }
+.monequipe-list-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+/* Hauteur plafonnée + défilement propre (demandé explicitement) même si le
+   contenu tient généralement en 3 lignes sans avoir besoin de défiler —
+   redimensionner la carte plus petite (voir MIN_WIDTH/MIN_HEIGHT réduits le
+   2026-08-15, dashboard.js) peut faire déborder ces 3 lignes du panneau. */
+.monequipe-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 90px;
+  overflow-y: auto;
+}
+.monequipe-list-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.monequipe-list-date {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.monequipe-list-opp {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.monequipe-list-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
+   Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
+   malgré le nom historique "sports-" : Sports (ol.js) réutilise ces mêmes
+   classes pour son propre ticker d'actualités, `.sports-ticker-source`
+   servant de libellé SOIT à l'heure relative (RSS) SOIT au nom de la source
+   (Sports) selon le module — jamais les deux en même temps. Tailles
+   standardisées à 13px (titre)/11px (source ou heure) le 2026-08-11, sur
+   demande explicite ("même taille partout") — un seul jeu de règles, donc
+   déjà cohérent par construction pour tous les modules qui les réutilisent. */
+.sports-ticker-vwrap {
+  overflow: hidden;
+  border-top: 1px solid var(--border-light);
+  padding-top: 6px;
+  flex: 1;
+  min-height: 0;
+}
+.sports-ticker-vtrack {
+  display: flex;
+  flex-direction: column;
+  animation-name: sports-ticker-v;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.sports-ticker-vwrap:hover .sports-ticker-vtrack { animation-play-state: paused; }
+.sports-ticker-vitem {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  cursor: pointer;
+  /* Padding vertical porté à 12px (2026-08-05, sur demande explicite) et
+     line-clamp 2 → 3 : les titres plus longs se faisaient couper avant la
+     fin faute d'assez de place — jusqu'à 3 lignes tiennent maintenant
+     entièrement avant que l'item suivant ne commence. min-height recalculée
+     pour 3 lignes pleines à la taille de police actuelle (13px, voir
+     "Standardisation des tailles de police RSS/Sports" du 2026-08-11) ×
+     1.4 × 3 ≈ 55px + le padding (24px), arrondie avec une petite marge. */
+  padding: 12px 2px;
+  min-height: 80px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color 0.15s;
+}
+.sports-ticker-vitem:hover { color: var(--accent); }
+.sports-ticker-source {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-right: 5px;
+}
+@keyframes sports-ticker-v {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+
+/* ─── Modules : Loto / EuroMillions / EuroDreams (FDJ, scindés en 3 modules
+   indépendants le 2026-08-04 — voir fdj-common.js) ───────────────────────
+   Réutilise volontairement .etf-privacy-btn / .etf-refresh-btn / .etf-footer
+   (même logique visuelle qu'ETF/Crypto : bouton confidentialité + bouton
+   rafraîchir + horodatage) plutôt que de dupliquer ces règles — même
+   convention que crypto.js. */
+.fdj-module { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.fdj-header { display: flex; align-items: center; justify-content: space-between; }
+.fdj-game-next { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+
+.fdj-game-body {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* flex-shrink:0 : le bloc tirage et le bloc codes gardent toujours leur
+   taille naturelle — c'est .fdj-grids-section (ci-dessous) qui absorbe seul
+   le rétrécissement quand la carte est petite, jamais eux. */
+.fdj-draw-block { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.fdj-draw-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.fdj-draw-balls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fdj-stale-notice {
+  font-size: 12px;
+  color: var(--accent-yellow);
+  background: rgba(251, 191, 36, 0.1);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
+
+.fdj-ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.fdj-ball.loto         { background: var(--accent-red); }
+.fdj-ball.euromillions { background: var(--accent-yellow); color: #241a00; }
+.fdj-ball.eurodreams   { background: var(--accent); }
+.fdj-ball.special      { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55); }
+.fdj-ball.matched      { background: var(--accent-green) !important; color: #06210f; box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.4); }
+.fdj-ball.placeholder  { background: var(--bg-panel-alt); color: var(--text-muted); box-shadow: inset 0 0 0 1px var(--border); }
+
+.fdj-grids-summary { display: flex; }
+
+/* Section grilles — seule partie de la carte qui rétrécit (voir flex-shrink:0
+   sur .fdj-draw-block/.fdj-codes-block). Repliée : garde sa taille naturelle
+   (juste la ligne resumé) pour ne pas créer de vide entre elle et le bloc
+   codes. Dépliée (.expanded) : flex:1 pour utiliser tout l'espace restant
+   dans la carte — grandit avec elle si elle est redimensionnée plus grande
+   (2026-08-04, sur demande explicite), sans jamais dépasser cet espace grâce
+   à min-height:0 en cascade sur toute la chaîne flex/grid ci-dessous. */
+.fdj-grids-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.fdj-grids-section.expanded { flex: 1 1 auto; min-height: 0; }
+
+.fdj-grids-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.fdj-grids-toggle:hover { background: var(--bg-hover); }
+.fdj-grids-chevron { font-size: 9px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Animation d'expansion fluide via grid-template-rows 0fr → 1fr (plutôt qu'un
+   max-height fixe qu'il faudrait animer vers une valeur en dur) : permet de
+   transitionner vers une hauteur "auto", bornée par l'espace réellement
+   disponible dans la carte (voir .fdj-grids-section.expanded ci-dessus), sans
+   JS pour mesurer scrollHeight. Le rétrécissement se répercute jusqu'à
+   .fdj-grids-list plus bas grâce à min-height:0 en cascade. */
+.fdj-grids-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms ease;
+  min-height: 0;
+}
+.fdj-grids-section.expanded .fdj-grids-collapse {
+  grid-template-rows: 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Plus de max-height fixe (200px) : la liste affiche toutes les grilles à
+   hauteur pleine quand la carte est assez grande, et ne scrolle en interne
+   (overflow-y:auto) que si l'espace réellement disponible (donné par la
+   chaîne flex/grid ci-dessus) est trop petit pour toutes les montrer. */
+.fdj-grids-list { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.fdj-grid-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+}
+.fdj-grid-balls { display: flex; gap: 4px; flex-wrap: wrap; }
+.fdj-grid-rank {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.fdj-grid-rank.hit  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
+.fdj-grid-rank.miss { color: var(--text-muted); background: var(--bg-panel); }
+
+.fdj-codes-block { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+
+.fdj-winning-codes { display: flex; flex-direction: column; gap: 4px; }
+.fdj-code-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  color: var(--text-secondary);
+}
+
+.fdj-code-indicator {
+  display: block;
+  width: fit-content;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+.fdj-code-indicator.win  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
+.fdj-code-indicator.lose { color: var(--accent-red); background: rgba(248, 113, 113, 0.1); }
+
+.fdj-empty { font-size: 12px; color: var(--text-muted); padding: 4px 0; }
+
+.fdj-privacy-on .fdj-ball,
+.fdj-privacy-on .fdj-code-pill { filter: blur(5px); user-select: none; }
+
+/* ─── Module : Maps (recherche → ouvre Google Maps dans le navigateur) ── */
+.maps-module {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+.maps-search-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: 15px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.maps-search-input:focus { outline: none; border-color: var(--accent); }
+.maps-search-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.15s;
+}
+.maps-search-btn:hover { opacity: 0.9; }
+
+/* ─── Module : Change (convertisseur de devises, open.er-api.com) ──────── */
+.currency-module {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  justify-content: center;
+}
+.currency-row { display: flex; align-items: center; gap: 8px; }
+.currency-amount-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  color-scheme: dark;
+}
+.currency-amount-input:focus { outline: none; border-color: var(--accent); }
+.currency-select {
+  flex-shrink: 0;
+  width: 78px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  color-scheme: dark;
+}
+.currency-select:focus { outline: none; border-color: var(--accent); }
+.currency-swap-btn {
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.currency-swap-btn:hover { border-color: var(--accent); background: var(--bg-hover); }
+.currency-row-result .currency-result {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--accent-green);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.currency-meta { font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* ─── Module : Tâches Google ────────────────────────────────── */
+.gtasks-module { display: flex; flex-direction: column; height: 100%; gap: 8px; }
+.gtasks-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.gtasks-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  transition: opacity 0.4s;
+}
+.gtasks-checkbox { flex-shrink: 0; width: 15px; height: 15px; accent-color: var(--accent-green); cursor: pointer; }
+.gtasks-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Coché → raie le titre puis la ligne disparaît (voir setTimeout côté
+   google-tasks.js, laisse le temps de voir le raturé avant de retirer). */
+.gtasks-row-done { opacity: 0.4; }
+.gtasks-row-done .gtasks-title { text-decoration: line-through; }
+.gtasks-delete-btn {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--accent-red);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.gtasks-row:hover .gtasks-delete-btn { opacity: 1; }
+.gtasks-delete-btn:hover { background: rgba(248, 113, 113, 0.15); }
+.gtasks-add-form { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.gtasks-add-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.gtasks-add-input:focus { outline: none; border-color: var(--accent); }
+.gtasks-add-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.15s;
+}
+.gtasks-add-btn:hover { opacity: 0.9; }
+
+/* ─── États ──────────────────────────────────────────────────── */
+/* .loading-screen (placeholder "Chargement du dashboard…") retiré le
+   2026-08-06 — remplacé par l'overlay plein écran .splash-* ci-dessous.
+   .loading-spinner reste : toujours utilisé pour le spinner interne de
+   chaque module pendant son propre fetch (voir dashboard.js/createModuleCard
+   et de nombreux modules). */
+.loading-spinner {
+  width: 24px; height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.module-error { color: var(--accent-red); font-size: 12px; }
+.module-empty { color: var(--text-muted); font-size: 12px; }
+
+/* ─── Overlay de démarrage/rafraîchissement — soleil qui se lève ──────────
+   Version 2 (2026-08-06, sur demande explicite — révise la version
+   précédente du même jour : soleil 100% SVG/CSS — dégradé + rayons en
+   triangles + halo pulsé — pas un `<img>`). Séquence pilotée par
+   dashboard.js (playSplashAnimation) : le soleil monte depuis sous l'écran ;
+   le fondu de l'overlay est déclenché dès que le HAUT du soleil atteint 50%
+   de la hauteur de l'écran — mesuré en direct (`getBoundingClientRect`, voir
+   dashboard.js), pas après un délai fixe, pour rester correct même si la
+   durée/le easing changent ou si la fenêtre est redimensionnée en cours de
+   route. Durée de la montée retenue (`6s linear`, voir plus bas — ajustée
+   empiriquement en direct par itérations successives, voir CONTEXT.md) pour
+   que ce déclenchement par position tombe vers 2,3-2,5s dans une fenêtre
+   typique — + 1s de fondu ≈ 3,3-3,5s au total (mesuré : 2348ms + 1000ms =
+   3348ms lors du dernier test).
+   Ne se joue plus qu'au VRAI lancement de l'app (2026-08-07, sur demande
+   explicite) — le bouton "Actualiser" ne recharge PLUS DU TOUT la page
+   (voir dashboard.js, `btnRefresh` appelle `renderModuleOnce` en place),
+   donc cet overlay ne peut plus jamais se redéclencher après le premier
+   chargement de la fenêtre. Un 1er essai avait gardé `location.reload()` +
+   un garde-fou `sessionStorage` pour sauter l'overlay au rechargement —
+   abandonné, causait un vrai bug (cartes bloquées invisibles après
+   Actualiser, voir le commentaire détaillé au-dessus de playSplashAnimation
+   dans dashboard.js). */
+.splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  /* Fond SOLIDE #0f1117, ne change plus pendant l'animation (2026-08-06, sur
+     demande explicite — remplace la transition vers un bleu de crépuscule de
+     la version précédente). Cause du bug de "seam" signalé : la bande de
+     contrôles natifs Windows (minimize/maximize/close, `titleBarOverlay` dans
+     main.js) est un calque composité par l'OS, PAS par ce CSS — sa couleur
+     est fixée une fois à la création de la fenêtre et ne peut pas suivre une
+     transition CSS côté page ; un fond de page qui change de couleur créait
+     donc un écart visible avec cette bande, qui elle restait toujours
+     #0f1117. En gardant le fond de la page également fixe à #0f1117 (la même
+     valeur que `titleBarOverlay.color`), les deux zones restent identiques
+     du début à la fin — plus de solution de contournement complexe
+     (synchroniser dynamiquement `titleBarOverlay` via IPC) nécessaire. */
+  background: #0f1117;
+  transition: opacity 1s ease-in;
+}
+.splash-overlay.splash-fade-out { opacity: 0; pointer-events: none; }
+.splash-overlay.splash-done { display: none; }
+
+/* ─── Mode auto luminosité (2026-08-08, sur demande explicite) ───────────
+   Calque plein écran AU-DESSUS de tout le contenu (titlebar comprise, comme
+   l'overlay de démarrage ci-dessus) mais SOUS lui (z-index 9999 < 10000) :
+   l'animation de lever de soleil au lancement ne doit jamais être vue à
+   travers un voile sombre. `pointer-events: none` — ne doit jamais
+   intercepter un clic/glisser-déposer destiné aux cartes en dessous (seul
+   son rôle est visuel). Transparent par défaut (aucune classe .brightness-*
+   posée) : mode auto désactivé, ou tranche matin/journée (pas
+   d'assombrissement demandé pour ces 2 tranches). */
+.brightness-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: transparent;
+  transition: background-color 1.5s ease;
+}
+.brightness-overlay.brightness-soiree { background: rgba(0, 0, 0, 0.15); }
+/* Nuit : plus sombre QUE le calque du soir, teinté bleu/violet plutôt que
+   noir pur (demandé explicitement) — un seul rgba avec R/G abaissés et B
+   conservé rend cette teinte directement, sans superposer 2 calques. */
+.brightness-overlay.brightness-nuit { background: rgba(20, 10, 45, 0.35); }
+
+/* ─── Fond personnalisé du dashboard (2026-08-11, sur demande explicite) ────
+   Voir "🎨 Personnaliser" dans Paramètres (config.js) + dashboard.js
+   (applyAppBackground). Calque fixe, 1er enfant de body (voir index.html) —
+   pas de z-index nécessaire pour rester SOUS titlebar/dashboard, l'ordre du
+   DOM suffit puisqu'aucun des deux ne pose position:fixed+z-index inférieur.
+   `pointer-events: none` : purement décoratif, ne doit jamais intercepter un
+   clic/glisser-déposer destiné aux cartes. Une seule classe `bg-<clé>` à la
+   fois, posée/retirée par applyAppBackground — transparent par défaut
+   (app.background === 'none'). */
+.app-background-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.app-background-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ⭐ Fond étoilé (sombre) — canvas peuplé/animé par dashboard.js
+   (startStarsBackground), scintillement en sinus par étoile. */
+.app-background-layer.bg-stars { background: radial-gradient(ellipse at 50% 0%, #0d1424 0%, var(--bg-base) 60%); }
+
+/* 🌌 Aurore boréale (sombre) — pur CSS, 2 nappes dégradées vert/violet qui
+   dérivent lentement en opacité/position, superposées en 'screen' pour un
+   effet lumineux plutôt qu'un simple fondu de couleur plate. */
+.app-background-layer.bg-aurora {
+  background: var(--bg-base);
+}
+.app-background-layer.bg-aurora::before,
+.app-background-layer.bg-aurora::after {
+  content: '';
+  position: absolute;
+  left: -20%; right: -20%;
+  height: 60%;
+  filter: blur(40px);
+  mix-blend-mode: screen;
+  opacity: 0.35;
+  animation: app-bg-aurora-drift 22s ease-in-out infinite alternate;
+}
+.app-background-layer.bg-aurora::before {
+  top: -10%;
+  background: linear-gradient(120deg, transparent 0%, var(--accent-green) 35%, transparent 70%);
+}
+.app-background-layer.bg-aurora::after {
+  top: 10%;
+  background: linear-gradient(120deg, transparent 10%, var(--accent-purple) 45%, transparent 80%);
+  animation-duration: 28s;
+  animation-delay: -6s;
+}
+@keyframes app-bg-aurora-drift {
+  0%   { transform: translateX(-6%) translateY(0) scaleY(1); }
+  100% { transform: translateX(6%) translateY(4%) scaleY(1.15); }
+}
+
+/* ✨ Particules flottantes (sombre) — divs `.app-bg-particle` générés par
+   dashboard.js (startParticlesBackground), montent lentement en boucle avec
+   un fondu d'entrée/sortie, taille/délai/durée randomisés en style inline. */
+.app-background-layer.bg-particles { background: var(--bg-base); }
+.app-bg-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  opacity: 0;
+  animation: app-bg-particle-float linear infinite;
+}
+@keyframes app-bg-particle-float {
+  0%   { opacity: 0; transform: translateY(0) scale(0.8); }
+  10%  { opacity: 0.5; }
+  90%  { opacity: 0.35; }
+  100% { opacity: 0; transform: translateY(-100vh) scale(1.1); }
+}
+
+/* 🌧️ Pluie (sombre) — divs `.app-bg-raindrop` générées par dashboard.js
+   (startRainBackground), traînées fines gris/bleu qui tombent tout droit,
+   taille/durée/délai randomisés en style inline. */
+.app-background-layer.bg-rain { background: var(--bg-base); }
+.app-bg-raindrop {
+  position: absolute;
+  top: -20px;
+  width: 1.5px;
+  background: linear-gradient(to bottom, transparent, rgba(148, 163, 184, 0.45), transparent);
+  animation: app-bg-rain-fall linear infinite;
+}
+@keyframes app-bg-rain-fall {
+  0%   { transform: translateY(0); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateY(105vh); opacity: 0; }
+}
+
+/* ❄️ Neige (sombre) — redessinée en canvas (2026-08-11, sur demande
+   explicite, remplace les divs `.app-bg-snowflake`/`@keyframes
+   app-bg-snow-fall` ci-dessus, retirées : de simples cercles CSS ne
+   ressemblaient pas à de vrais flocons) — voir dashboard.js
+   startSnowBackground, même famille technique que startStarsBackground
+   (canvas + rAF, chaque flocon un astérisque à 6 branches dessiné au
+   `stroke()`). Seule la couleur de fond du calque reste ici, le rendu des
+   flocons eux-mêmes est entièrement piloté par JS (canvas). */
+.app-background-layer.bg-snow { background: var(--bg-base); }
+
+/* 💊 Matrix (sombre) — canvas peuplé/animé par dashboard.js
+   (startMatrixBackground), voir son commentaire pour le détail (fondu par
+   rectangle semi-transparent plutôt que clearRect, cadence volontairement
+   ralentie). */
+.app-background-layer.bg-matrix { background: var(--bg-base); }
+
+/* 🌌 Nébuleuse (sombre) — pur CSS, 2 nappes dégradées MULTI-couleurs
+   (violet→bleu→rose DANS un même blob, pas 1 couleur par blob comme
+   l'aurore boréale) qui dérivent très lentement, superposées en 'screen'.
+   Blobs plus grands/plus flous/plus lents que l'aurore : effet "nuage
+   cosmique" diffus plutôt que les 2 bandes nettes de l'aurore. */
+.app-background-layer.bg-nebula { background: var(--bg-base); }
+.app-background-layer.bg-nebula::before,
+.app-background-layer.bg-nebula::after {
+  content: '';
+  position: absolute;
+  width: 140%;
+  height: 140%;
+  filter: blur(70px);
+  mix-blend-mode: screen;
+  opacity: 0.3;
+  border-radius: 50%;
+  animation: app-bg-nebula-drift 48s ease-in-out infinite alternate;
+}
+.app-background-layer.bg-nebula::before {
+  top: -30%;
+  left: -30%;
+  background: radial-gradient(circle at 30% 30%, rgba(167, 139, 250, 0.8) 0%, rgba(79, 142, 247, 0.5) 45%, transparent 75%);
+}
+.app-background-layer.bg-nebula::after {
+  bottom: -30%;
+  right: -30%;
+  background: radial-gradient(circle at 70% 70%, rgba(236, 72, 153, 0.7) 0%, rgba(167, 139, 250, 0.4) 50%, transparent 75%);
+  animation-duration: 60s;
+  animation-delay: -12s;
+}
+@keyframes app-bg-nebula-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(6%, 5%) scale(1.12); }
+}
+
+/* 🏖️ Plage au lever du soleil (sombre) — scène entièrement peinte en
+   canvas par dashboard.js (startBeachBackground), voir sa doc pour le
+   détail (ciel/soleil/mer/sable statiques sur un canvas hors écran, seuls
+   nuages/vagues/scintillement redessinés à chaque frame). Le fond CSS ici
+   n'est qu'un filet de sécurité pendant la 1re frame avant que le canvas ne
+   soit peint. */
+.app-background-layer.bg-beach { background: #0f1117; }
+
+/* 📄 Grain de papier (clair) — texture bruitée en SVG turbulence encodé
+   data-URI, tuilée, très subtile (opacity faible plutôt qu'un filtre coûteux
+   en JS/canvas pour un effet purement statique). */
+.app-background-layer.bg-paper {
+  background-color: var(--bg-base);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+  opacity: 1;
+}
+
+/* 📐 Lignes géométriques (clair) — fines diagonales répétées, gris très clair. */
+.app-background-layer.bg-geometric {
+  background-color: var(--bg-base);
+  background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.035) 0, rgba(0,0,0,0.035) 1px, transparent 1px, transparent 26px);
+}
+
+/* 🌫️ Dégradé doux (clair) — blanc vers gris clair, direction fixe. */
+.app-background-layer.bg-gradient {
+  background: linear-gradient(160deg, #ffffff 0%, #eef0f4 55%, #dfe3e9 100%);
+}
+
+/* ─── Toast "⊞ Réorganiser" (2026-08-10, sur demande explicite) ─────────────
+   Masqué par défaut via opacity/pointer-events (PAS display:none, pour que
+   la transition d'apparition/disparition sur `opacity` joue à chaque fois —
+   display:none ne peut pas être animé). `.show` ajoutée/retirée par
+   dashboard.js (autoArrangeModules), jamais affichée plus de 2s. Centré en
+   haut, sous la barre de titre, au-dessus de tout (z-index au-delà même du
+   voile de luminosité auto et de l'overlay de démarrage — un message de
+   confirmation ne doit jamais être masqué par eux). */
+.autoarrange-notice {
+  position: fixed;
+  top: calc(var(--titlebar-h) + 12px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-green);
+  border-radius: var(--radius-md);
+  color: var(--accent-green);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.autoarrange-notice.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  /* Le bouton "Annuler" doit rester cliquable pendant que la notice est
+     visible — désactivé (repli) le reste du temps pour ne jamais laisser une
+     zone cliquable invisible traîner en haut de l'écran. */
+  pointer-events: auto;
+}
+/* Bouton "Annuler" DANS la notice (2026-08-10, sur demande explicite) —
+   restaure la disposition juste précédente (voir dashboard.js,
+   lastAutoArrangeSnapshot) tant que la notice de confirmation est affichée. */
+.autoarrange-notice-undo {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--accent-green);
+  border-radius: var(--radius-sm);
+  color: var(--accent-green);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.autoarrange-notice-undo:hover { background: rgba(52, 211, 153, 0.15); }
+
+/* Popup de confirmation "⊞ Réorganiser" (2026-08-10, sur demande explicite)
+   — même mécanisme .open que la popup Sauvegardes de Paramètres
+   (config.html), adapté ici dans le style.css PARTAGÉ puisque cette popup
+   vit dans le dashboard (index.html), pas Paramètres. */
+.autoarrange-confirm-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  align-items: center;
+  justify-content: center;
+  z-index: 10100;
+}
+.autoarrange-confirm-overlay.open { display: flex; }
+.autoarrange-confirm-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 90%;
+  max-width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 22px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.autoarrange-confirm-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: center;
+}
+.autoarrange-confirm-actions { display: flex; gap: 10px; }
+.autoarrange-confirm-btn {
+  flex: 1;
+  padding: 9px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  transition: background 0.15s, border-color 0.15s;
+}
+.autoarrange-confirm-btn:hover { background: var(--bg-hover); }
+.autoarrange-confirm-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.autoarrange-confirm-btn-primary:hover { background: var(--accent); opacity: 0.9; }
+
+/* Glissement visible vers la nouvelle position pendant "⊞ Réorganiser" (voir
+   dashboard.js) — classe posée juste avant de changer left/top, retirée
+   ~350ms après (durée de la transition + marge) pour ne jamais s'appliquer
+   pendant un glisser-déposer manuel ultérieur, où left/top changent en
+   continu suivant le curseur : une transition dessus y introduirait un
+   retard perceptible entre le curseur et la carte. */
+.module-card.autoarrange-move { transition: left 0.3s ease, top 0.3s ease; }
+
+/* ─── Bandeau Alertes (2026-08-08, sur demande explicite) ───────────────────
+   Fixe, juste sous la barre de titre, au-dessus de TOUTES les cartes (z-index
+   confortablement au-dessus de topZ dans dashboard.js, qui part de 10 et
+   n'incrémente que de 1 par mise au premier plan — 1000 ne sera jamais
+   atteint en usage normal) mais sous les calques luminosité/splash (9999/
+   10000, purement visuels et volontairement au-dessus de tout). Caché par
+   défaut (`display:none`, pas juste transparent : ne doit reprendre AUCUN
+   espace tant qu'il n'y a aucune alerte, voir renderAlertsBanner qui remet
+   #dashboard à son `top` normal en absence de `.visible`). */
+.alerts-banner {
+  position: fixed;
+  top: var(--titlebar-h);
+  left: 0; right: 0;
+  z-index: 1000;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+.alerts-banner.visible { display: flex; }
+/* Couleur du bandeau = gravité la PIRE parmi les alertes actives (voir
+   renderAlertsBanner) — rouge pour enlèvement/vigilance rouge, orange/or
+   pour le reste, comme demandé explicitement ("Gold/red border theme"). */
+.alerts-banner.severity-red {
+  background: linear-gradient(90deg, #7f1d1d, #991b1b);
+  border-bottom: 2px solid var(--accent-red);
+}
+.alerts-banner.severity-orange {
+  background: linear-gradient(90deg, #78350f, #92400e);
+  border-bottom: 2px solid #f59e0b;
+}
+.alerts-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.alerts-banner-icon { font-size: 16px; flex-shrink: 0; }
+.alerts-banner-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ffffff;
+  flex: 1;
+  min-width: 0;
+}
+.alerts-banner-link {
+  font-size: 11px;
+  color: #ffffff;
+  opacity: 0.85;
+  flex-shrink: 0;
+  text-decoration: underline;
+}
+.alerts-banner-item:hover .alerts-banner-link { opacity: 1; }
+
+/* Soleil à 70% de la largeur de l'écran (demandé explicitement) — en `vw`
+   sur les deux dimensions (pas juste `width`) pour rester un cercle parfait
+   quel que soit le ratio largeur/hauteur de la fenêtre. `translateY(100vh)`
+   au départ : le pousse d'une pleine hauteur d'écran SOUS sa position de
+   repos (déjà calée au bas de l'écran par le conteneur flex,
+   `align-items:flex-end`) — le garantit hors champ quelle que soit la
+   relation entre sa taille (fonction de la largeur) et la hauteur de la
+   fenêtre, sans avoir à calculer un décalage exact en JS.
+   `linear` plutôt que le `cubic-bezier` très "front-loaded" de la version
+   précédente (0.22, 0.9, ...) — vérifié en direct que cette courbe faisait
+   parcourir ~90% du trajet dans les 22% premiers % du temps, donc le
+   déclenchement par position (à 50% de hauteur d'écran) arrivait presque
+   instantanément (~200ms) quelle que soit la durée déclarée. `linear` répartit
+   le mouvement proportionnellement au temps, ce qui permet de VRAIMENT régler
+   le moment du déclenchement via la durée totale (6s, voir plus haut) —
+   ajusté par 2 itérations mesurées en direct : 4s → fondu à 1930ms, 5,2s →
+   fondu à 2168ms, 6s → fondu à 2348ms (proche du palier visé de ~2,5s ; le
+   rapport temps-de-déclenchement/durée-déclarée n'est pas parfaitement
+   constant d'un essai à l'autre — bruit de mesure normal d'une fenêtre à
+   l'autre plutôt qu'un vrai défaut de proportionnalité de l'easing
+   `linear`). */
+.splash-sun-wrap {
+  width: 70vw;
+  height: 70vw;
+  transform: translateY(100vh);
+  transition: transform 6s linear;
+}
+.splash-overlay.splash-sky-rise .splash-sun-wrap { transform: translateY(0); }
+
+.splash-rays {
+  transform-origin: 100px 100px;
+  animation: splash-rays-spin 8s linear infinite; /* 1 tour / 8s, demandé explicitement */
+}
+@keyframes splash-rays-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* Rayons = polygones (triangles allongés), pas des <line> — "CSS shapes, not
+   emoji or images", demandé explicitement. Même couleur plate que le disque
+   (#fbbf24, voir index.html) pour un ensemble cohérent. */
+.splash-rays polygon {
+  fill: #fbbf24;
+  opacity: 0.7;
+}
+/* Halo pulsé (`filter: drop-shadow`) RETIRÉ le 2026-08-07, sur demande
+   explicite — la zone d'effet du filtre (rayon jusqu'à 95px) dépassait les
+   limites du viewBox SVG et se faisait couper net par le clipping par défaut
+   du navigateur sur les filtres SVG, au lieu de s'estomper progressivement :
+   ce bord de coupure net produisait un artefact carré/rectangulaire visible
+   derrière le soleil. Le disque est désormais une couleur plate (#fbbf24,
+   voir index.html, plus de dégradé radial non plus — même cause potentielle
+   de bord visible) sans transformation animée sur .splash-sun. */
+
+/* ─── Module : Spotify ───────────────────────────────────────── */
+.spotify-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  height: 100%;
+  justify-content: center;
+}
+.spotify-connect-btn {
+  background: var(--spotify-green);
+  border: none;
+  border-radius: 99px;
+  color: #06120a;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.15s;
+}
+.spotify-connect-btn:hover { opacity: 0.9; transform: scale(1.02); }
+.spotify-connect-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+/* Le contenu ne doit jamais être coupé : pas de hauteur fixe/overflow:hidden
+   ici — la carte grandit (voir defaultSize dans dashboard.js) et
+   .module-content (overflow:auto) prend le relais en dernier recours si
+   l'utilisateur redimensionne la carte plus petite que son contenu. */
+.spotify-player { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+
+/* 3 rangées (2026-08-10, 2e révision, sur demande explicite — remplace la
+   rangée unique de la révision précédente) :
+   1) .spotify-top-row : pochette 45px + titre/artiste
+   2) .spotify-controls-row : contrôles à gauche, volume prenant le reste
+      de la largeur à droite
+   3) .spotify-progress : barre + temps, pleine largeur (inchangée)
+   Repère "en écoute" (.spotify-live-badge/-bar) retiré : demande explicite
+   "no other elements". */
+.spotify-top-row { display: flex; align-items: center; gap: 12px; }
+.spotify-cover {
+  width: 45px;
+  height: 45px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.spotify-cover-empty { background: var(--bg-panel-alt); }
+.spotify-meta { min-width: 0; flex: 1 1 auto; }
+.spotify-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spotify-artist {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.spotify-controls-row { display: flex; align-items: center; gap: 10px; }
+
+.spotify-progress { display: flex; flex-direction: column; gap: 6px; }
+.spotify-progress-bar {
+  height: 4px;
+  background: var(--bg-panel-alt);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.spotify-progress-fill { height: 100%; background: var(--spotify-green); border-radius: 99px; }
+.spotify-progress-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Contrôles à gauche de .spotify-controls-row (voir spotify.js
+   spotifyPlayerHtml) — compacts, gap:4px, jamais d'espacement excessif
+   (demandé explicitement). */
+.spotify-controls-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.spotify-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  transition: color 0.15s, transform 0.1s, background 0.15s;
+}
+.spotify-btn:hover { color: var(--text-primary); }
+.spotify-btn:active { transform: scale(0.92); }
+.spotify-btn-play {
+  color: #06120a;
+  background: var(--spotify-green);
+  width: 40px;
+  height: 40px;
+}
+.spotify-btn-play:hover { color: #06120a; background: var(--spotify-green); transform: scale(1.05); }
+/* flex:1 (2026-08-10, 2e révision, sur demande explicite, remplace
+   flex:0 0 40%) — .spotify-volume est maintenant SEUL sur sa ligne à droite
+   des contrôles (voir .spotify-controls-row), prend donc tout l'espace
+   restant plutôt qu'une part fixe du module entier. */
+.spotify-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.spotify-volume-slider {
+  flex: 1;
+  min-width: 0;
+  width: 0; /* + flex:1 : empêche l'input[type=range] d'imposer sa largeur intrinsèque et de provoquer un débordement horizontal */
+  accent-color: var(--spotify-green);
+  cursor: pointer;
+}
+
+.spotify-idle { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.spotify-idle-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.spotify-recent-list { display: flex; flex-direction: column; gap: 10px; }
+.spotify-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.spotify-recent-item:hover { background: var(--bg-hover); }
+.spotify-recent-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+.spotify-recent-meta { min-width: 0; }
+.spotify-recent-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spotify-recent-artist {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* ─── Module : Qualité de l'air ──────────────────────────────── */
+.aq-module { display: flex; flex-direction: column; gap: 16px; height: 100%; justify-content: center; }
+.aq-index { display: flex; align-items: center; gap: 14px; }
+.aq-index-value {
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+}
+.aq-index-meta { display: flex; flex-direction: column; gap: 3px; }
+.aq-index-label { font-size: 15px; font-weight: 600; }
+.aq-index-city { font-size: 12px; color: var(--text-muted); }
+.aq-green  { color: var(--accent-green); }
+.aq-yellow { color: var(--accent-yellow); }
+.aq-red    { color: var(--accent-red); }
+.aq-unknown { color: var(--text-muted); }
+
+.aq-pollutants { display: flex; gap: 10px; }
+.aq-pollutant {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.aq-pollutant-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.aq-pollutant-value { font-family: var(--font-mono); font-size: 14px; color: var(--text-primary); }
+
+/* ─── Module : Philips Hue ───────────────────────────────────── */
+.hue-module { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.hue-groups { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.hue-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+}
+.hue-toggle { flex-shrink: 0; }
+.hue-group-main { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hue-group-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hue-bri-slider { width: 100%; accent-color: var(--accent-yellow); cursor: pointer; }
+.hue-bri-slider:disabled { opacity: 0.35; cursor: not-allowed; }
+.hue-color-picker {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.hue-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.hue-color-picker::-webkit-color-swatch { border: none; border-radius: 50%; }
+
+.hue-setup-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  height: 100%;
+  padding: 12px;
+  color: var(--text-secondary);
+}
+.hue-setup-icon { font-size: 22px; }
+.hue-setup-prompt p { font-size: 14px; margin: 0; }
+.hue-setup-hint { font-size: 12px; color: var(--text-muted); }
+
+
+/* ─── Module : TP-Link Kasa (2026-08-10) ─────────────────────────
+   Réutilise .hue-setup-prompt tel quel pour l'état "aucun appareil". Groupé
+   par TYPE d'appareil (pas par pièce, voir kasa.js) : 3 sections possibles
+   (Prises/Ampoules/Multiprises), chacune masquée si vide. */
+.kasa-module { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.kasa-quick-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.kasa-quick-actions button {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.kasa-quick-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.kasa-quick-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.kasa-sections { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; min-height: 0; }
+.kasa-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.kasa-devices { display: flex; flex-direction: column; gap: 6px; }
+.kasa-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+}
+.kasa-device-unreachable { opacity: 0.5; }
+.kasa-device-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kasa-device-watts { font-family: var(--font-mono); font-size: 12px; color: var(--accent-yellow); flex-shrink: 0; }
+.kasa-device-offline { font-size: 12px; color: var(--accent-red); flex-shrink: 0; }
+
+.kasa-bulb-main { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kasa-bri-slider { width: 100%; accent-color: var(--accent-yellow); cursor: pointer; }
+.kasa-bri-slider:disabled { opacity: 0.35; cursor: not-allowed; }
+.kasa-color-picker {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.kasa-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.kasa-color-picker::-webkit-color-swatch { border: none; border-radius: 50%; }
+.kasa-color-picker:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Interrupteur dédié — PAS .toggle/.toggle-slider (celui-ci n'est stylé que
+   dans config.html, voir son <style> interne : un module de la fenêtre
+   dashboard qui le réutiliserait afficherait une case à cocher nue, sans le
+   rendu "pilule" attendu — bug pré-existant du module Hue, signalé
+   séparément, non corrigé ici pour rester dans le périmètre demandé). */
+.kasa-switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
+.kasa-switch input { opacity: 0; width: 0; height: 0; }
+.kasa-switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.kasa-switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  left: 3px; top: 3px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.kasa-switch input:checked + .kasa-switch-slider { background: var(--accent); }
+.kasa-switch input:checked + .kasa-switch-slider::before { transform: translateX(14px); background: white; }
+.kasa-switch input:disabled + .kasa-switch-slider { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Module : IKEA Trådfri (2026-08-11) ─────────────────────────
+   Réutilise .kasa-switch/.kasa-power-toggle/.kasa-bri-slider/.kasa-device*/
+   .kasa-quick-actions/.kasa-section* tels quels (même besoin visuel que
+   Kasa) — seul le regroupement PAR PIÈCE (.tradfri-room*) et les scènes
+   (.tradfri-scene-btn) sont propres à ce module. */
+.tradfri-module { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.tradfri-rooms { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; min-height: 0; }
+.tradfri-room-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.tradfri-room + .tradfri-room { margin-top: 2px; }
+.tradfri-room .kasa-section + .kasa-section { margin-top: 8px; }
+.tradfri-scenes { display: flex; flex-wrap: wrap; gap: 6px; }
+.tradfri-scene-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tradfri-scene-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tradfri-scene-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Config ETF/Crypto — lignes du portefeuille (page Paramètres, config.js,
+   meta.linesField, réutilisé tel quel par les deux modules). N'avait jusqu'ici
+   AUCUNE règle CSS (confirmé en grep) : la ligne s'affichait au fil de l'eau
+   selon la taille par défaut de chaque <input>/<select>, ce qui décalait le
+   bouton "×" au lieu de le coller à droite et coupait/écrasait des colonnes
+   (Frais € notamment) au lieu de leur laisser une largeur dédiée — bug réel
+   corrigé le 2026-08-05 en donnant enfin une grille de colonnes explicite à
+   la ligne d'en-tête ET à chaque ligne de saisie (mêmes largeurs, sinon les
+   colonnes ne s'alignent pas). ETF a une colonne "Type" (Achat/Vente) en plus
+   de Crypto (voir .has-type, posé côté JS uniquement quand
+   meta.linesField.hasType — voir renderer/config.js) : deux gabarits de
+   grille distincts plutôt qu'un seul, pour ne pas casser Crypto au passage. */
+.etf-lines-field { display: flex; flex-direction: column; gap: 6px; }
+.etf-lines-header {
+  display: grid;
+  gap: 6px;
+  /* Crypto (pas de colonne Type) — largeurs resserrées le 2026-08-06 sur
+     demande explicite : Crypto 80px, Qté 100px (élargie), Prix 120px
+     (élargie), Frais 70px (resserrée) ; × inchangée. Date portée de 110 à
+     120px (pas demandé, corrigé au passage) : sous ce seuil, un
+     input[type=date] natif tronque visuellement l'année ("03/07/202" au lieu
+     de "03/07/2026") — même bug déjà rencontré et corrigé sur les Rappels le
+     même jour, voir plus haut dans ce fichier. */
+  grid-template-columns: 80px 120px 100px 120px 70px 22px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+/* ETF (colonne Type en plus) — resserrées le 2026-08-06 sur demande
+   explicite : la somme précédente (100+130+110+60+90+80+30=600px +6×6 de
+   gap=636px) dépassait la largeur utile de la fenêtre Paramètres et
+   masquait le bouton × derrière un scroll horizontal — vérifié en direct.
+   Date demandée à 100px, portée à 120px (même correctif qu'au-dessus pour
+   Crypto — 100px tronquait l'année, vérifié en direct) ; la somme reste bien
+   sous la largeur disponible malgré les +20px (525px + gaps, contre 636px
+   avant correctif), le bouton × reste visible sans scroll. */
+.etf-lines-header.has-type { grid-template-columns: 80px 110px 120px 55px 80px 60px 20px; }
+.etf-lines-list { display: flex; flex-direction: column; gap: 6px; }
+.etf-line-row {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  grid-template-columns: 80px 120px 100px 120px 70px 22px;
+}
+.etf-line-row.has-type { grid-template-columns: 80px 110px 120px 55px 80px 60px 20px; }
+
+/* Prêts — config de CHAQUE prêt d'un groupe (page Paramètres), RECONSTRUIT le
+   2026-08-08 pour les paliers de remboursement : un simple ligne de grille
+   (l'ancienne .prets-loan-row) ne suffisait plus dès qu'un prêt peut avoir sa
+   PROPRE sous-liste de paliers imbriquée — chaque prêt est maintenant un petit
+   bloc bordé (.prets-loan-config) avec un en-tête à 7 colonnes (Nom Emprunté
+   Taux Début Fin Type ×) puis un corps qui affiche SOIT un champ Mensualité
+   unique (type Fixe) SOIT la sous-liste de paliers (type Paliers). */
+.prets-loan-config {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prets-loan-config-header {
+  display: grid;
+  gap: 6px;
+  /* Nom | Emprunté | Taux | Début | Fin | Type | × — largeurs figées
+     explicitement (2026-08-09, sur demande explicite) plutôt qu'un mélange
+     de `fr`/px : Nom élargi (160px), Emprunté légèrement réduit (90px), le
+     reste inchangé. Jour de prélèvement déplacé sur sa propre ligne
+     (.prets-loan-line2, voir plus bas) — n'est plus dans cette grille. */
+  grid-template-columns: 160px 90px 55px 110px 110px 80px 20px;
+  align-items: center;
+}
+.prets-loan-config-header input,
+.prets-loan-config-header select {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.prets-loan-config-header input:focus,
+.prets-loan-config-header select:focus { outline: none; border-color: var(--accent); }
+.prets-loan-config-header .row-delete-btn { justify-self: center; }
+
+/* Ligne 2 — "Prélevé le" + jour + "Mensualité" (Fixe uniquement, voir
+   config.js renderLine2) — en retrait et en texte réduit pour bien la
+   distinguer de la ligne d'en-tête (2026-08-09, sur demande explicite). */
+.prets-loan-line2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  font-size: 10px;
+}
+.prets-loan-line2-label { color: var(--text-muted); white-space: nowrap; }
+.prets-loan-line2 .prets-loan-debit-day {
+  width: 45px;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: 10px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  text-align: center;
+}
+.prets-loan-line2 .prets-loan-payment {
+  width: 90px;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: 10px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.prets-loan-line2 input:focus { outline: none; border-color: var(--accent); }
+
+/* Paliers — sous-liste imbriquée d'UN prêt (Début/Fin/Mensualité/×), max 5
+   (voir MAX_PALIERS_PER_LOAN dans config.js). Indentée pour rester visuellement
+   rattachée à son prêt plutôt que confondue avec un autre prêt du groupe. */
+.prets-paliers-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+.prets-paliers-header,
+.prets-palier-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr 110px 22px;
+}
+.prets-paliers-header {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+.prets-palier-row { align-items: center; }
+.prets-palier-row input {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.prets-palier-row input:focus { outline: none; border-color: var(--accent); }
+.prets-palier-row .row-delete-btn { justify-self: center; }
+.etf-line-row input,
+.etf-line-row select {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  /* `color`/`color-scheme` suivent --text-primary/--color-scheme (voir :root
+     en tête de fichier) — plus une couleur figée sur le clair depuis que
+     Paramètres suit lui aussi le thème choisi (2026-08-08). */
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.etf-line-row input:focus,
+.etf-line-row select:focus { outline: none; border-color: var(--accent); }
+.etf-line-row .row-delete-btn { justify-self: center; }
+.row-delete-btn {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.row-delete-btn:hover { border-color: var(--accent-red); color: var(--accent-red); }
+.etf-add-line-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed var(--text-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.etf-add-line-btn:hover { border-color: var(--accent); color: var(--accent); }
+.etf-add-line-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Config Hue (page Paramètres) */
+.module-config-field.hue-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+.hue-config-row { display: flex; align-items: center; gap: 8px; }
+.hue-config-row label { flex: none; width: 130px; font-size: 11px; color: var(--text-secondary); }
+.hue-config-row input {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-size: 12px;
+  /* `color`/`color-scheme` suivent --text-primary/--color-scheme (voir :root
+     en tête de fichier) — plus une couleur figée sur le clair depuis que
+     Paramètres suit lui aussi le thème choisi (2026-08-08). */
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+.hue-config-row input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
+.hue-config-row input[readonly] { color: var(--text-secondary); }
+.hue-config-status { font-size: 11px; color: var(--accent-yellow); min-height: 14px; }
+.hue-config-hint { font-size: 10px; color: var(--text-muted); }
+
+/* Config Colis (page Paramètres) */
+.module-config-field.parcels-config-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
+.parcels-list { display: flex; flex-direction: column; gap: 6px; }
+/* label | n° de suivi | transporteur détecté | supprimer — plus de <select>
+   transporteur depuis le passage à la détection automatique (2026-08-05,
+   voir parcels-carriers.js) : .parcels-carrier-hint prend sa place, purement
+   informatif (rien n'est stocké en config). */
+.parcels-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.8fr 22px;
+  gap: 6px;
+  align-items: center;
+}
+.parcels-row input {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  /* `color`/`color-scheme` suivent --text-primary/--color-scheme (voir :root
+     en tête de fichier) — plus une couleur figée sur le clair depuis que
+     Paramètres suit lui aussi le thème choisi (2026-08-08). */
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.parcels-row input:focus { outline: none; border-color: var(--accent); }
+.parcels-carrier-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.parcels-carrier-hint.unknown { color: var(--accent-yellow); }
+
+/* Config Rappels (page Paramètres) */
+.module-config-field.reminders-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+.module-config-field.prets-loans-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
+.prets-loans-list { display: flex; flex-direction: column; gap: 6px; }
+/* minmax (pas juste des fr) sur date/heure/récurrence : ces contrôles natifs
+   ont une largeur de contenu minimale non compressible (dd/mm/yyyy + icône
+   calendrier ≈120px, hh:mm + icône horloge ≈95px) — en fr pur, une fenêtre
+   Paramètres redimensionnée plus étroite (désormais resizable, voir main.js)
+   tronquait silencieusement l'année affichée ("05/08/20" au lieu de
+   "05/08/2026", repéré en vérifiant une vraie ligne en direct) sans jamais
+   remonter d'erreur puisqu'un input[type=date] tronqué visuellement garde sa
+   vraie valeur en mémoire — bug purement visuel, trompeur à l'usage. */
+.reminders-config-header {
+  display: grid;
+  grid-template-columns: 90px minmax(100px, 1.2fr) minmax(120px, 0.9fr) minmax(95px, 0.75fr) minmax(110px, 0.95fr) 22px;
+  gap: 6px;
+  padding: 0 2px;
+}
+.reminders-config-header span {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.reminders-config-list { display: flex; flex-direction: column; gap: 10px; }
+.reminders-config-item { display: flex; flex-direction: column; gap: 4px; }
+.reminders-config-row {
+  display: grid;
+  grid-template-columns: 90px minmax(100px, 1.2fr) minmax(120px, 0.9fr) minmax(95px, 0.75fr) minmax(110px, 0.95fr) 22px;
+  gap: 6px;
+  align-items: center;
+}
+/* Contraste renforcé sur demande explicite (2026-08-06) — bordure 2px bien
+   visible (var(--accent), pas var(--text-secondary) trop discret) et police
+   agrandie de 11px à 13px, notamment pour les champs date/heure natifs dont
+   les segments internes (jour/mois/heure/minute) sont les plus sensibles à
+   un mauvais contraste (voir color-scheme: dark plus haut dans ce fichier —
+   nécessaire mais pas toujours suffisant visuellement selon la densité de
+   l'info affichée par le contrôle natif). */
+.reminders-config-row input,
+.reminders-config-row select {
+  width: 100%;
+  background: var(--bg-base);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  /* `color`/`color-scheme` suivent --text-primary/--color-scheme (voir :root
+     en tête de fichier) — plus une couleur figée sur le clair depuis que
+     Paramètres suit lui aussi le thème choisi (2026-08-08). */
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.reminders-config-row input:focus,
+.reminders-config-row select:focus { outline: none; border-color: var(--accent-green); background: var(--bg-hover); }
+/* Résumé lisible du rappel tel qu'il sera affiché sur le dashboard (icône +
+   titre + heure) au-dessus de sa ligne de champs éditables — demandé en
+   complément des champs (pas à leur place) : la grille compacte (6 colonnes)
+   reste peu lisible d'un coup d'œil, ce résumé donne le rendu final sans
+   avoir à décoder chaque petit champ. Recalculé à chaque frappe (voir
+   config.js, updateRemindersPreview). */
+.reminders-config-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0 2px;
+}
+.reminders-config-preview strong { color: var(--text-primary); font-weight: 600; }
+.reminders-config-preview .reminders-preview-time { color: var(--accent-green); font-family: var(--font-mono); }
+
+/* ─── Module : Carburants ────────────────────────────────────── */
+.fuel-module { height: 100%; }
+.fuel-stations { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
+.fuel-station-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+.fuel-station-row.cheapest {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel-alt));
+}
+.fuel-station-row.cheapest .fuel-station-city { color: var(--accent); }
+.fuel-station-main { display: flex; flex-direction: column; gap: 1px; }
+.fuel-station-address {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fuel-station-city { font-size: 12px; color: var(--text-muted); }
+.fuel-station-prices { display: flex; gap: 8px; flex-wrap: wrap; }
+.fuel-price { display: flex; flex-direction: column; gap: 1px; }
+.fuel-price-label {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.fuel-price-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
+
+/* ─── Module : Promos Steam ───────────────────────────────────── */
+/* Liste déroulante plutôt qu'une grille (2026-08-10, sur demande explicite) :
+   max-height calé sur 5 lignes (~44px chacune + gap) — la 6e ligne et
+   suivantes ne sont accessibles qu'au scroll, pas de pagination. */
+.sp-list {
+  height: 100%;
+  max-height: 236px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-alt);
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.sp-item:hover { background: var(--bg-hover); }
+.sp-thumb {
+  width: 60px;
+  height: 28px;
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-panel);
+  flex-shrink: 0;
+}
+.sp-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sp-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-prices { display: flex; gap: 6px; align-items: baseline; font-family: var(--font-mono); font-size: 12px; }
+.sp-price-original { color: var(--text-muted); text-decoration: line-through; }
+.sp-price-final { color: var(--accent-green); font-weight: 600; }
+.sp-discount {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-green);
+  background: rgba(52, 211, 153, 0.15);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Module : Colis ─────────────────────────────────────────── */
+.parcels-module { height: 100%; }
+.parcels-list-display { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
+.parcels-row-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+}
+.parcels-row-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.parcels-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.parcels-row-carrier { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+.parcels-row-event {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.parcels-row-eta { font-size: 12px; color: var(--text-muted); }
+.parcels-status-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.parcels-green  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
+.parcels-yellow { color: var(--accent-yellow); background: rgba(251, 191, 36, 0.12); }
+.parcels-red    { color: var(--accent-red); background: rgba(248, 113, 113, 0.12); }
+
+/* ─── Module : Cinéma — 3 sections (2026-08-10 → 2026-08-11 → 2026-08-15 →
+   2026-08-15, sur demande explicite à chaque révision) : actus statiques
+   (4 visibles + tiroir "Voir plus") en haut, films actuellement en salle
+   (ticker compact, hauteur fixe 2 lignes) au milieu, sorties de la semaine
+   prochaine (diaporama 1 film à la fois) en bas — séparateur entre chaque
+   section. Voir renderer/modules/cinema.js pour la logique complète. */
+.cinema-module { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+.cinema-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Section 1 : Actus (statique, jamais de défilement) ────────────────
+   Taille fixée par son contenu (flex-shrink:0). */
+.cinema-news-section { flex-shrink: 0; }
+.cinema-news-list { display: flex; flex-direction: column; gap: 2px; }
+.cinema-news-item {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  padding: 5px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+.cinema-news-item:hover { color: var(--accent); }
+
+/* "Voir plus ▼" — bouton texte discret, même convention que .fdj-grids-toggle. */
+.cinema-news-toggle {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.cinema-news-toggle:hover { color: var(--accent); }
+/* Animation d'expansion fluide via grid-template-rows 0fr → 1fr — même
+   principe que .fdj-grids-collapse (voir plus haut dans ce fichier) : permet
+   de transitionner vers une hauteur "auto" sans JS pour mesurer scrollHeight.
+   `.open` posée/retirée par cinema.js (classList.toggle), aucun re-render. */
+.cinema-news-dropdown {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms ease;
+}
+.cinema-news-dropdown.open { grid-template-rows: 1fr; }
+.cinema-news-dropdown-inner {
+  overflow: hidden;
+  min-height: 0;
+  /* Défilement interne si les items restants dépassent la hauteur dispo
+     (demandé explicitement "scrollable dropdown") — plafonné à ~5 items
+     visibles avant de scroller, cohérent avec les autres popups déroulantes
+     de l'app. */
+  max-height: 180px;
+}
+.cinema-news-dropdown.open .cinema-news-dropdown-inner { overflow-y: auto; }
+.cinema-news-dropdown .cinema-news-list { padding-top: 2px; }
+
+/* Séparateur — ligne fine + espacement, entre chaque section (réutilisé
+   2 fois : actus↔en salle, en salle↔sorties à venir). */
+.cinema-separator {
+  flex-shrink: 0;
+  height: 1px;
+  background: var(--border);
+  margin: 10px 0;
+}
+
+/* Placeholder poster générique (lettre initiale) — combiné avec la classe
+   de taille du contexte (.cinema-nowplaying-poster ou .cinema-upcoming-poster)
+   pour hériter ses dimensions, voir cinemaPlaceholderHtml dans cinema.js. */
+.cinema-poster-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ── Section 2 : Films actuellement en salle (ticker compact, hauteur FIXE
+   à exactement 2 lignes visibles — demandé explicitement, le 3e film
+   apparaît en défilant plutôt que d'agrandir la carte) ───────────────── */
+.cinema-nowplaying-section { flex-shrink: 0; }
+/* .sports-ticker-vwrap a `flex:1` par défaut (occupe tout l'espace
+   restant) — écrasé ici par une hauteur fixe : 2 × (54px vignette + 6px de
+   marge verticale) = 120px pile. */
+.cinema-nowplaying-vwrap {
+  border-top: none;
+  padding-top: 0;
+  flex: none;
+  height: 120px;
+}
+.cinema-nowplaying-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  min-height: 0;
+  -webkit-line-clamp: unset;
+}
+.cinema-nowplaying-poster {
+  width: 40px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+  font-size: 16px;
+}
+.cinema-nowplaying-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.cinema-nowplaying-genre {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Section 3 : Sorties de la semaine prochaine (diaporama, 1 film à la
+   fois — voir cinemaStartUpcomingSlideshow dans cinema.js) ─────────────
+   Seule section qui absorbe l'espace restant de la carte (flex:1) : les 2
+   sections au-dessus ont une taille fixe/liée à leur contenu. */
+.cinema-upcoming-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cinema-upcoming-slideshow {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.cinema-upcoming-track {
+  display: flex;
+  height: 100%;
+  /* `transform`/`transition` posés dynamiquement par cinema.js à chaque
+     avancée du diaporama (transform: translateX(-N*100%)) — pas de valeur
+     ici, juste la disposition en piste horizontale. */
+}
+.cinema-upcoming-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  padding-right: 2px;
+}
+/* Grande vignette "bandeau" — pleine largeur de la carte, hauteur modérée
+   (pas le ratio portrait naturel de l'affiche, qui prendrait toute la place
+   verticale disponible dans une carte compacte) : object-fit:cover recadre
+   proprement plutôt que déformer. */
+.cinema-upcoming-poster {
+  width: 100%;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+  font-size: 28px;
+}
+.cinema-upcoming-meta { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+.cinema-upcoming-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cinema-upcoming-genre {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.cinema-upcoming-synopsis {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── Module : Rappels ───────────────────────────────────────── */
+.reminders-module { display: flex; flex-direction: column; gap: 10px; height: 100%; overflow-y: auto; }
+.reminders-section { display: flex; flex-direction: column; gap: 4px; }
+.reminders-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+.reminders-section-title-late { color: var(--accent-red); }
+.reminders-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+}
+.reminders-row-late { border-left-color: var(--accent-red); background: rgba(248, 113, 113, 0.08); }
+.reminders-row-icon { font-size: 15px; flex-shrink: 0; }
+.reminders-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.reminders-row-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reminders-row-late .reminders-row-title { color: var(--accent-red); }
+.reminders-row-meta { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+/* ─── Module : Anniversaires ─────────────────────────────────── */
+.birthdays-list { display: flex; flex-direction: column; gap: 6px; height: 100%; overflow-y: auto; }
+.birthdays-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+}
+.birthdays-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.birthdays-row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
+.birthdays-row-date { font-size: 12px; color: var(--text-muted); }
+.birthdays-row-days { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+/* J-1/J-0 rouge (urgent), J-7 et en dessous orange (à prévoir) — demandé
+   explicitement. */
+.birthdays-row-orange { border-left-color: var(--accent-yellow); }
+.birthdays-row-orange .birthdays-row-days { color: var(--accent-yellow); }
+.birthdays-row-red { border-left-color: var(--accent-red); background: rgba(248, 113, 113, 0.08); }
+.birthdays-row-red .birthdays-row-days { color: var(--accent-red); }
+
+/* ─── Module : Indices boursiers ────────────────────────────────
+   Grille compacte, une tuile par indice — largeur minimale par tuile
+   (auto-fill) plutôt qu'un nombre de colonnes fixe : s'adapte à la fois au
+   nombre d'indices sélectionnés (voir Paramètres) et à la largeur de la
+   carte (redimensionnable comme tous les modules). */
+.indices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  height: 100%;
+  align-content: start;
+  overflow-y: auto;
+}
+.indices-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.indices-tile-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.indices-tile-value { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.indices-tile-pct { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.indices-tile-pct.up   { color: var(--accent-green); }
+.indices-tile-pct.down { color: var(--accent-red); }
+
+/* Liste à cocher générique "sources" (page Paramètres) — utilisée par les
+   sources Sport ET Indices (voir renderer/config.js). N'avait jusqu'ici
+   AUCUNE règle CSS (même lacune que .etf-line-row avant son correctif du
+   2026-08-05 — vérifié en grep avant d'écrire ces règles cette fois) :
+   ajoutée ici plutôt que de continuer à supposer qu'elle existait déjà. */
+.sports-sources-list { display: flex; flex-direction: column; gap: 4px; }
+.sports-source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.sports-source-item input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.sports-source-note { color: var(--text-muted); font-size: 12px; }
+
+/* Config Indices (page Paramètres) — RETIRÉ le 2026-08-08 : remplacé par de
+   vrais interrupteurs à bascule (.indices-toggle-row, voir config.html, même
+   fichier que .toggle/.toggle-slider qu'ils réutilisent) plutôt que de simples
+   cases à cocher, sur demande explicite. */
+
+/* ─── Module : Podcasts (2026-08-08) ────────────────────────────
+   Mêmes classes .parcels-row-display/.parcels-row-main/.parcels-row-label
+   que Colis pour la ligne (même besoin visuel : libellé + 2 lignes de
+   détail), juste un wrapper/nom de liste propres et 2 classes de contenu
+   dédiées (titre d'épisode + date/durée). */
+.podcast-module { height: 100%; }
+.podcast-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
+.podcast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.podcast-row:hover { background: var(--bg-hover); }
+.podcast-row-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.podcast-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.podcast-row-episode {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.podcast-row-meta { font-size: 12px; color: var(--text-muted); }
+
+/* ─── Module : YouTube Notifications (2026-08-15, sur demande explicite) ────
+   Grille compacte d'avatars (pas une liste comme Podcasts) : chaque chaîne
+   n'a qu'une seule info utile à montrer d'un coup d'œil ("y a-t-il du
+   nouveau ?"), une grille de cartes rondes s'y prête mieux qu'une liste de
+   lignes. Badge positionné en absolu sur le coin de l'avatar plutôt qu'à
+   côté du nom, pour rester lisible même très petit (voir .size-icon-only). */
+.youtube-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 12px;
+  padding: 4px 2px;
+  overflow-y: auto;
+  height: 100%;
+  align-content: start;
+}
+.youtube-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.youtube-cell-clickable { cursor: pointer; }
+.youtube-cell-avatar-wrap { position: relative; width: 40px; height: 40px; }
+.youtube-cell-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.youtube-cell-avatar-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-panel-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+/* Anneau rouge discret en plus du badge numérique quand il y a du nouveau —
+   reste visible même si le badge est masqué en mode carte minuscule
+   (.size-icon-only cache .module-content en entier de toute façon, donc sans
+   effet à cette taille, mais utile dès qu'un peu d'espace revient). */
+.youtube-cell-new .youtube-cell-avatar,
+.youtube-cell-new .youtube-cell-avatar-fallback {
+  box-shadow: 0 0 0 2px #ef4444;
+}
+.youtube-cell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 2px solid var(--bg-panel);
+}
+.youtube-cell-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 72px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Config YouTube (page Paramètres) — même grille .parcels-row que Colis/
+   Podcasts pour label+action, avatar (résolu ou de repli, voir config.js —
+   TOUJOURS rendu, jamais omis) en 1re colonne, statut de résolution
+   ("Résolution…" / "✓ Nom" / "⚠ erreur") sous le champ.
+   CORRIGÉ le 2026-08-15 (sur demande explicite, champ signalé illisible) :
+   `config.js` omettait l'avatar tant qu'aucune chaîne n'était résolue (le cas
+   le plus courant, juste après avoir tapé un nom) — avec seulement 2 enfants
+   réels pour une grille à 3 colonnes (28px/1fr/22px), le navigateur plaçait
+   le bloc champ+statut dans la 1re colonne étroite (28px) au lieu de la
+   colonne centrale extensible, écrasant le texte au point de le rendre
+   illisible. `config.js` rend maintenant TOUJOURS un avatar (image ou cercle
+   de repli 🔔, `.youtube-channel-avatar-fallback`), donc la grille reçoit
+   systématiquement ses 3 enfants dans le bon ordre. */
+.youtube-channel-row {
+  grid-template-columns: 32px 1fr 22px;
+  align-items: center;
+  gap: 10px;
+}
+.youtube-channel-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.youtube-channel-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel-alt);
+  font-size: 14px;
+}
+.youtube-channel-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Champ de saisie — taille/contraste relevés explicitement (demande
+   explicite 2026-08-15) au-delà des 11px/6px 8px hérités de `.parcels-row
+   input` : c'est le SEUL champ de tout Paramètres où l'utilisateur tape un
+   nom en pleine confiance qu'il sera résolu correctement (aucun aperçu
+   visuel avant résolution), la lisibilité y compte donc plus qu'ailleurs. */
+.youtube-channel-input {
+  font-size: 13px !important;
+  padding: 8px !important;
+  border: 1.5px solid var(--text-secondary);
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+.youtube-channel-input:focus { outline: none; border-color: var(--accent); }
+.youtube-channel-status {
+  font-size: 11px;
+  /* `--text-muted` (contraste ~2.8:1 sur le fond sombre) jugé insuffisant
+     ici — ce statut porte une info potentiellement importante (erreur de
+     résolution), `--text-secondary` (~6.6:1) reste discret tout en restant
+     lisible sans effort. */
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Module : Photo du jour NASA (APOD, 2026-08-08) ────────────
+   Image pleine largeur + texte en dessous — carte cliquable dans son
+   ensemble (ouvre la page NASA de l'image du jour), pas de bouton dédié.
+   BUG CORRIGÉ LE 2026-08-08 — l'image était systématiquement rognée : l'ancien
+   `.nasa-image` combinait `max-height: 55%` (un pourcentage d'une hauteur de
+   carte fixée par l'utilisateur, arbitraire) avec `object-fit: cover`, qui
+   REMPLIT ce cadre en coupant tout ce qui dépasse plutôt que de le montrer en
+   entier. `.nasa-media` passe de `flex-shrink: 0` à `flex: 1` (priorité sur
+   l'espace vertical disponible, `.nasa-body` — description tronquée par
+   caractères avec bouton "Lire plus" plutôt qu'un `-webkit-line-clamp` fixe,
+   voir plus bas — se contente de sa taille naturelle en dessous) et
+   `object-fit: contain` (jamais de recadrage, l'image entière tient toujours
+   dans son cadre, quitte à laisser des bandes vides si le ratio ne correspond
+   pas exactement — pas de vrai "redimensionnement de la carte" au sens
+   strict, cette app n'a pas de mécanisme de carte auto-dimensionnée au
+   contenu, seulement un redimensionnement manuel par glisser — mais l'image
+   utilise désormais TOUT l'espace vertical que la carte lui laisse, au lieu
+   d'être plafonnée à 55% par une valeur arbitraire). */
+.nasa-module { height: 100%; display: flex; flex-direction: column; cursor: pointer; }
+.nasa-media {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-panel-alt);
+}
+.nasa-image { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+/* Vidéo (media_type "video") — vraie <iframe> YouTube en 16:9 (aspect-ratio
+   natif, supporté par le Chromium embarqué dans Electron 31) plutôt qu'un
+   simple lien, comme demandé. `width:100%` + `aspect-ratio` calcule la
+   hauteur automatiquement à partir de la largeur disponible — jamais rognée
+   non plus, contrairement à l'image avant ce correctif. */
+.nasa-video-wrap { width: 100%; aspect-ratio: 16 / 9; }
+.nasa-video { width: 100%; height: 100%; display: block; border: none; }
+.nasa-video-placeholder {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.nasa-body { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 8px; overflow: hidden; }
+.nasa-date { font-size: 12px; color: var(--text-muted); text-transform: capitalize; }
+.nasa-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+/* Troncature par nombre de caractères en JS (voir nasa.js,
+   NASA_EXPLANATION_PREVIEW_LEN) — remplace le `-webkit-line-clamp: 3` fixe
+   du 2026-08-08 (2026-08-10, sur demande explicite) : celui-ci coupait
+   TOUJOURS à 3 lignes sans aucun moyen de lire la suite, quelle que soit la
+   longueur réelle du texte. Plus de contrainte de hauteur ici : le texte
+   affiché (complet ou aperçu à 300 caractères) s'affiche en entier, quitte à
+   agrandir `.nasa-body` (flex-shrink:0, voir plus haut) au détriment de
+   l'image au-dessus. */
+.nasa-explanation { font-size: 12px; color: var(--text-secondary); }
+.nasa-read-more {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.nasa-read-more:hover { text-decoration: underline; }
+
+/* Résilience panne NASA (2026-08-10, sur demande explicite) — voir nasa.js,
+   nasaRenderModule(opts.stale)/nasaRenderFallback. */
+.nasa-stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--accent-yellow);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.nasa-retry-btn-inline {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+.nasa-retry-btn-inline:hover { background: rgba(251, 191, 36, 0.2); }
+/* Aucune photo du tout (échec + pas de cache) — message centré façon
+   .module-empty plutôt qu'une carte vide, avec un vrai bouton d'action. */
+.nasa-fallback {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 12px;
+}
+.nasa-fallback-msg { font-size: 14px; color: var(--text-secondary); }
+.nasa-retry-btn {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.nasa-retry-btn:hover { background: var(--bg-hover); }
+
+/* ─── Module : Prêts immobiliers ─────────────────────────────────
+   Une carte par groupe (instances multiples, voir prets.js/dashboard.js) —
+   liste de prêts + ligne récap en bas, blur de confidentialité scopé PAR
+   INSTANCE (voir prets.js, clé localStorage dérivée de container.id) mais
+   même classe .etf-money/.etf-privacy-btn que ETF/Crypto pour réutiliser le
+   bouton déjà stylé. */
+.prets-module { display: flex; flex-direction: column; height: 100%; }
+/* En-tête de groupe TOUJOURS visible — replié : nom + CRD total + mensualités
+   + flèche. Déplié : idem, en plus du détail des prêts en dessous
+   (2026-08-09, sur demande explicite). État persisté par groupe dans
+   electron-store (voir prets.js, pretsPersistCollapsed/config.collapsed) —
+   PAS localStorage comme la confidentialité, demandé explicitement "per
+   group" dans le store partagé. */
+.prets-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding-bottom: 8px;
+}
+.prets-group-chevron {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 300ms ease;
+  flex-shrink: 0;
+}
+.prets-module:not(.prets-collapsed) .prets-group-chevron { transform: rotate(90deg); }
+.prets-group-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prets-group-total {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+/* Grille 1fr/0fr (PAS `max-height`, valeur arbitraire qui tronquerait un
+   groupe avec beaucoup de prêts OU laisserait un espace vide en trop pour un
+   petit groupe) — anime une hauteur "auto" proprement même dans un parent
+   flex, `.prets-group-body-inner` (overflow:hidden) masque le contenu de la
+   piste de grille pendant qu'elle se réduit à 0. `flex: 0 0 auto` replié
+   évite que `flex-grow` (hérité de `.prets-module` en colonne) ne réserve
+   quand même tout l'espace restant de la carte malgré une piste de grille à
+   0 — sans ça, la carte semblerait avoir un grand vide sous l'en-tête replié. */
+.prets-group-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  flex: 1 1 auto;
+  transition: grid-template-rows 300ms ease;
+}
+.prets-collapsed .prets-group-body { grid-template-rows: 0fr; flex: 0 0 auto; }
+.prets-group-body-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+.prets-loans { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; min-height: 0; }
+.prets-loan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+}
+.prets-loan-header { display: flex; align-items: baseline; gap: 8px; }
+.prets-loan-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prets-loan-rate { font-size: 12px; font-family: var(--font-mono); color: var(--accent-yellow); flex-shrink: 0; }
+.prets-loan-end { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+/* 2×2 (pas une rangée flex comme avant) — RECONSTRUIT le 2026-08-08 : 4
+   statistiques désormais (CRD, mensualité actuelle, intérêts payés, intérêts
+   restants) au lieu de 2, une rangée flex aurait débordé de la largeur par
+   défaut de la carte (360px, voir dashboard.js MODULE_REGISTRY.prets). */
+.prets-loan-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.prets-loan-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.prets-loan-stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.prets-loan-stat-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: normal;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prets-progress-row { display: flex; align-items: center; gap: 8px; }
+.prets-progress-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-panel);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.prets-progress-fill { height: 100%; background: #f59e0b; border-radius: 99px; }
+.prets-progress-pct { font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); flex-shrink: 0; }
+/* Pied de carte — temps restant + prochain changement de palier (2026-08-08,
+   nouveau) : colonne plutôt que ligne, le texte du changement de palier peut
+   être assez long ("dans 5 mois, mensualité → 600 €") pour vouloir sa propre
+   ligne plutôt que de se faire tronquer à côté du temps restant. */
+.prets-loan-remaining { font-size: 12px; color: var(--text-muted); }
+.prets-loan-footer { display: flex; flex-direction: column; gap: 2px; }
+.prets-loan-next-change { font-size: 12px; color: var(--accent-yellow); }
+
+.prets-privacy-on .etf-money { filter: blur(6px); user-select: none; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+/* Piste resserrée (2026-08-16, sur demande explicite) — largeur totale
+   ramenée de 6px à 4px (plus fine, se lit comme une piste plus précise dans
+   les listes compactes des cartes) et `margin`/`border-radius` du POUCE
+   explicitement remis à 0/2px pour qu'il occupe toute la largeur de sa
+   piste sans espace mort résiduel de chaque côté. Voir aussi
+   initPreciseScrolling (dashboard.js) pour le pas de défilement réduit à la
+   molette — les 2 changements visent le même objectif : un défilement plus
+   "fin" et contrôlé. */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; margin: 0; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; margin: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }

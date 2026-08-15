@@ -1,0 +1,48 @@
+{
+  "name": "matin-windows",
+  "version": "0.1.0",
+  "description": "Matin!* — Dashboard personnel du matin pour Windows",
+  "main": "main/main.js",
+  "author": "Sylvain Antequera",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:msix": "electron-builder --win appx"
+  },
+  "dependencies": {
+    "dotenv": "^9.0.2",
+    "electron-store": "^8.2.0",
+    "interactjs": "^1.10.27",
+    "node-tradfri-client": "^3.2.0",
+    "tplink-smarthome-api": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sylvainantequera.matin",
+    "productName": "Matin",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "appx",
+        "nsis"
+      ],
+      "icon": "renderer/assets/icons/icon.ico"
+    },
+    "appx": {
+      "applicationId": "MatinDashboard",
+      "backgroundColor": "#0f1117",
+      "displayName": "Matin — Dashboard du matin",
+      "identityName": "MatinDashboard",
+      "publisher": "CN=SylvainAntequera",
+      "publisherDisplayName": "Sylvain Antequera"
+    }
+  }
+}
