@@ -142,6 +142,64 @@ let tabOrder = DEFAULT_TAB_ORDER.slice();
 let activeTabId = tabOrder[0];
 let tabDragSrc = null;
 
+// ─── Sections repliables réutilisables (2026-08-16, sur demande explicite) ──
+// Appliqué à 4 sections de Paramètres pouvant contenir beaucoup de lignes
+// (YouTube jusqu'à 10 chaînes, ETF/Crypto jusqu'à N lignes de portefeuille,
+// Prêts jusqu'à 5 prêts par groupe) : REPLIÉES PAR DÉFAUT, un en-tête
+// cliquable affiche un compte dynamique + une flèche ▶ qui pivote à 90°
+// (▶ → visuellement ▼) en 300ms. Même mécanique CSS que
+// .prets-group-body/.fdj-grids-section déjà utilisée ailleurs dans l'app
+// (grid-template-rows 0fr→1fr + transition, voir style.css) — PAS un
+// display:none, qui ne peut pas s'animer. `storeKey` doit être unique par
+// section (voir chaque appelant) pour que l'état replié/déplié de chacune
+// des 4 sections soit sauvegardé et restauré INDÉPENDAMMENT des 3 autres,
+// via le chemin étroit `window.matin.store` (jamais `modules.update`, qui
+// recharge toute la fenêtre à chaque clic sur une flèche).
+function wrapCollapsibleSection(contentEl, { storeKey, labelFor }) {
+  const wrap = document.createElement('div');
+  wrap.className = 'config-collapsible';
+  wrap.innerHTML = `
+    <div class="config-collapsible-header">
+      <span class="config-collapsible-label"></span>
+      <span class="config-collapsible-arrow">▶</span>
+    </div>
+    <div class="config-collapsible-body">
+      <div class="config-collapsible-body-inner"></div>
+    </div>
+  `;
+
+  const header = wrap.querySelector('.config-collapsible-header');
+  const labelEl = wrap.querySelector('.config-collapsible-label');
+  const body = wrap.querySelector('.config-collapsible-body');
+  wrap.querySelector('.config-collapsible-body-inner').appendChild(contentEl);
+
+  function refreshLabel() {
+    labelEl.textContent = labelFor();
+  }
+
+  function setExpanded(expanded) {
+    header.classList.toggle('expanded', expanded);
+    body.classList.toggle('expanded', expanded);
+  }
+
+  header.addEventListener('click', () => {
+    const expanded = !header.classList.contains('expanded');
+    setExpanded(expanded);
+    window.matin.store.set(storeKey, expanded)
+      .catch(err => console.error('[Config] Échec sauvegarde état repli', storeKey, err));
+  });
+
+  refreshLabel();
+  // Repliée par défaut tant que l'état sauvegardé n'est pas encore connu
+  // (évite un flash "dépliée" pendant l'aller-retour IPC ci-dessous).
+  setExpanded(false);
+  window.matin.store.get(storeKey).then((saved) => {
+    if (saved === true) setExpanded(true);
+  }).catch(() => {});
+
+  return { wrap, refreshLabel };
+}
+
 // ─── Groupe FDJ (Loto/EuroMillions/EuroDreams) ─────────────────────────────
 // 3 modules dashboard indépendants, mais toujours affichés ENSEMBLE ici (pas
 // dispersés, ni draggables individuellement) — voir createFdjGroup.
@@ -603,7 +661,6 @@ function createModuleRow(key, mod, meta) {
     const linesWrap = document.createElement('div');
     linesWrap.className = 'module-config-field etf-lines-field';
     linesWrap.innerHTML = `
-      <label>${lf.title}</label>
       <div class="etf-lines-header ${lf.hasType ? 'has-type' : ''}">
         ${lf.hasType ? '<span>Type</span>' : ''}<span>${lf.idLabel}</span><span>Date</span><span>Qté</span><span>Prix €</span><span>Frais €</span><span></span>
       </div>
@@ -612,6 +669,11 @@ function createModuleRow(key, mod, meta) {
     `;
 
     const listEl = linesWrap.querySelector('.etf-lines-list');
+    // Assignée après le 1er renderLines() (voir wrapCollapsibleSection plus
+    // bas) — `renderLines` n'y accède que via `collapsible?.` (jamais avant
+    // qu'un événement utilisateur, ex. suppression d'une ligne, ne le
+    // déclenche, donc toujours défini à ce moment-là).
+    let collapsible;
 
     function renderLines() {
       listEl.innerHTML = '';
@@ -653,6 +715,7 @@ function createModuleRow(key, mod, meta) {
 
         listEl.appendChild(lineRow);
       });
+      collapsible?.refreshLabel();
     }
 
     linesWrap.querySelector('.etf-add-line-btn').addEventListener('click', () => {
@@ -663,7 +726,15 @@ function createModuleRow(key, mod, meta) {
     });
 
     renderLines();
-    wrapper.appendChild(linesWrap);
+
+    // Repliable (2026-08-16, sur demande explicite) — voir
+    // wrapCollapsibleSection. `storeKey` inclut `key` (etf/crypto) : les 2
+    // sections gardent un état replié/déplié INDÉPENDANT l'une de l'autre.
+    collapsible = wrapCollapsibleSection(linesWrap, {
+      storeKey: `app.configCollapsed.${key}.lines`,
+      labelFor: () => `${lines.length} ligne${lines.length !== 1 ? 's' : ''} configurée${lines.length !== 1 ? 's' : ''}`,
+    });
+    wrapper.appendChild(collapsible.wrap);
   }
 
   if (meta.parcelsField) {
@@ -1365,13 +1436,16 @@ function renderYoutubeConfigSection(mod) {
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field parcels-config-field';
   wrap.innerHTML = `
-    <label>Mes chaînes YouTube (max ${MAX_YOUTUBE_CHANNELS})</label>
     <div class="youtube-channels-list"></div>
     <button type="button" class="etf-add-line-btn youtube-add-btn">+ Ajouter une chaîne</button>
   `;
 
   const listEl = wrap.querySelector('.youtube-channels-list');
   const addBtn = wrap.querySelector('.youtube-add-btn');
+  // Assignée après renderChannels (voir tout en bas) — les fonctions
+  // ci-dessous n'y accèdent que dans des gestionnaires d'événements,
+  // jamais avant que `collapsible` soit réellement défini.
+  let collapsible;
 
   function statusText(channel) {
     if (channel.resolving) return 'Résolution…';
@@ -1442,6 +1516,7 @@ function renderYoutubeConfigSection(mod) {
 
       listEl.appendChild(row);
     });
+    collapsible?.refreshLabel();
   }
 
   function syncAddBtn() {
@@ -1460,7 +1535,12 @@ function renderYoutubeConfigSection(mod) {
   renderChannels();
   syncAddBtn();
 
-  return wrap;
+  // Repliable (2026-08-16, sur demande explicite) — voir wrapCollapsibleSection.
+  collapsible = wrapCollapsibleSection(wrap, {
+    storeKey: 'app.configCollapsed.youtube.channels',
+    labelFor: () => `Mes chaînes YouTube — ${channels.length} configurée${channels.length !== 1 ? 's' : ''}`,
+  });
+  return collapsible.wrap;
 }
 
 // ─── Philips Hue (IP du pont + appairage) ───────────────────────────────────
@@ -1856,13 +1936,16 @@ function renderPretsLoansSection(key, mod) {
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field prets-loans-field';
   wrap.innerHTML = `
-    <label>Prêts de ce groupe (max ${MAX_LOANS_PER_GROUP})</label>
     <div class="prets-loans-list"></div>
     <button type="button" class="etf-add-line-btn prets-add-loan-btn">+ Ajouter un prêt</button>
   `;
 
   const listEl = wrap.querySelector('.prets-loans-list');
   const addBtn = wrap.querySelector('.prets-add-loan-btn');
+  // Assignée après le 1er renderLoans() (voir wrapCollapsibleSection tout en
+  // bas) — accédée uniquement via `collapsible?.` dans les gestionnaires
+  // d'événements ci-dessous.
+  let collapsible;
 
   function renderPaliers(loan, listEl2, addBtn2) {
     if (!Array.isArray(loan.paliers)) loan.paliers = [];
@@ -2007,6 +2090,7 @@ function renderPretsLoansSection(key, mod) {
       renderBody();
       listEl.appendChild(box);
     });
+    collapsible?.refreshLabel();
   }
 
   function syncAddBtn() {
@@ -2025,7 +2109,15 @@ function renderPretsLoansSection(key, mod) {
   renderLoans();
   syncAddBtn();
 
-  return wrap;
+  // Repliable (2026-08-16, sur demande explicite) — voir
+  // wrapCollapsibleSection. `storeKey` inclut `key` (prets/prets_2..prets_5,
+  // voir isPretsKey) : chaque GROUPE de prêts garde son propre état
+  // replié/déplié indépendant des autres.
+  collapsible = wrapCollapsibleSection(wrap, {
+    storeKey: `app.configCollapsed.${key}.loans`,
+    labelFor: () => `${loans.length} prêt${loans.length !== 1 ? 's' : ''} configuré${loans.length !== 1 ? 's' : ''}`,
+  });
+  return collapsible.wrap;
 }
 
 // ─── Google Auth ──────────────────────────────────────────────────────────────
@@ -2199,6 +2291,7 @@ const PERSONNALISER_OPTIONS = [
   { key: 'matrix',    emoji: '💊', label: 'Matrix', theme: 'dark' },
   { key: 'nebula',    emoji: '🌌', label: 'Nébuleuse', theme: 'dark' },
   { key: 'beach',     emoji: '🏖️', label: 'Plage au lever du soleil', theme: 'dark' },
+  { key: 'mountain',  emoji: '🏔️', label: 'Lever de soleil en montagne', theme: 'dark' },
   { key: 'paper',     emoji: '📄', label: 'Grain de papier', theme: 'light' },
   { key: 'geometric', emoji: '📐', label: 'Lignes géométriques', theme: 'light' },
   { key: 'gradient',  emoji: '🌫️', label: 'Dégradé doux', theme: 'light' },

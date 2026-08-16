@@ -16,10 +16,83 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-// Doit correspondre exactement à un URI de redirection autorisé du client OAuth.
-const REDIRECT_PORT = 42813;
+// Port de secours ajouté le 2026-08-16 (sur demande explicite, bug rapporté :
+// ERR_CONNECTION_REFUSED au retour de Google, symptôme typique d'un serveur
+// de callback qui n'écoute plus/jamais sur le port attendu — voir
+// startCallbackServer ci-dessous). 42813 reste essayé EN PREMIER (comporte-
+// ment inchangé dans le cas normal), 42814 uniquement si 42813 est occupé
+// (EADDRINUSE). IMPORTANT — ce fichier ne peut PAS modifier la configuration
+// Google Cloud Console à distance : chaque port de cette liste doit avoir
+// son URI de redirection complète enregistrée EXACTEMENT dans le client
+// OAuth (Google Cloud Console → APIs & Services → Identifiants → ce client
+// "Application de bureau" → "URI de redirection autorisés"), sinon Google
+// répond "redirect_uri_mismatch" si jamais la bascule vers 42814 survient —
+// un échec différent et plus clair qu'ERR_CONNECTION_REFUSED, mais un échec
+// quand même tant que ce 2e URI n'est pas ajouté côté Google. L'URI RÉELLEMENT
+// utilisée est loguée à chaque tentative de connexion (voir plus bas) —
+// comparez-la caractère pour caractère à ce qui est enregistré dans la
+// Console : un simple / final en trop/manquant, http vs https, ou un port
+// différent suffit à faire échouer l'échange de token même si le serveur
+// local, lui, fonctionne parfaitement.
+const REDIRECT_PORTS = [42813, 42814];
 const REDIRECT_PATH = '/oauth/callback';
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}${REDIRECT_PATH}`;
+
+function redirectUriFor(port) {
+  return `http://localhost:${port}${REDIRECT_PATH}`;
+}
+
+// Démarre le serveur HTTP de callback OAuth, port par port dans l'ordre de
+// REDIRECT_PORTS, et s'arrête au premier qui réussit. Résout avec
+// { server, port } — le port RÉELLEMENT obtenu peut différer de
+// REDIRECT_PORTS[0] si celui-ci était occupé. Rejette seulement si TOUS les
+// ports de la liste échouent (EADDRINUSE ou toute autre erreur de liaison,
+// ex. permissions). Chaque tentative (succès, port occupé, ou autre erreur)
+// est explicitement loguée — répond aux points 1/2/4 de la demande de debug.
+function startCallbackServer(requestHandler) {
+  return new Promise((resolve, reject) => {
+    let index = 0;
+
+    function tryNext() {
+      if (index >= REDIRECT_PORTS.length) {
+        const err = new Error(`Aucun port disponible parmi ${REDIRECT_PORTS.join(', ')} pour le serveur de callback OAuth`);
+        console.error('[Google OAuth]', err.message);
+        reject(err);
+        return;
+      }
+      const port = REDIRECT_PORTS[index];
+      index++;
+
+      const server = http.createServer(requestHandler);
+
+      const onError = (err) => {
+        server.removeListener('error', onError);
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`[Google OAuth] Port ${port} déjà utilisé (EADDRINUSE)` + (index < REDIRECT_PORTS.length ? ` — tentative sur le port de secours ${REDIRECT_PORTS[index]}...` : ' — plus aucun port de secours disponible.'));
+          tryNext();
+        } else {
+          console.error(`[Google OAuth] Échec du démarrage du serveur de callback sur le port ${port} :`, err.code || err.message, err);
+          reject(err);
+        }
+      };
+
+      server.once('error', onError);
+      // `server.listen(...)` avec callback : ce callback ne se déclenche QUE
+      // si la liaison réussit RÉELLEMENT (jamais en cas d'EADDRINUSE, géré
+      // par 'error' ci-dessus à la place) — c'est ce qui garantit
+      // structurellement que le navigateur n'est ouvert qu'APRÈS un serveur
+      // qui écoute vraiment (point 3 de la demande) : `shell.openExternal`
+      // (voir runGoogleAuthFlow) n'est appelé que dans le `.then()` de la
+      // Promise retournée ici, jamais avant.
+      server.listen(port, '127.0.0.1', () => {
+        server.removeListener('error', onError);
+        console.log(`[Google OAuth] Serveur de callback démarré sur http://127.0.0.1:${port}${REDIRECT_PATH}`);
+        resolve({ server, port });
+      });
+    }
+
+    tryNext();
+  });
+}
 
 const SCOPES = [
   'openid',
@@ -64,7 +137,14 @@ function renderPage(title, message, ok) {
 <body><div class="box"><h1>${title}</h1><p>${message}</p></div></body></html>`;
 }
 
-async function exchangeCodeForTokens(code, codeVerifier) {
+// `redirectUri` passé en paramètre (plus une constante fixe) — doit être
+// EXACTEMENT celui envoyé dans l'URL de consentement initiale (voir
+// runGoogleAuthFlow), lui-même dépendant du port RÉELLEMENT obtenu par
+// startCallbackServer (42813 normalement, 42814 en secours) : un URI
+// différent entre les 2 appels fait échouer Google avec
+// "redirect_uri_mismatch" même si les 2 valeurs semblent correctes prises
+// séparément.
+async function exchangeCodeForTokens(code, codeVerifier, redirectUri) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -72,7 +152,7 @@ async function exchangeCodeForTokens(code, codeVerifier) {
       code,
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code',
       code_verifier: codeVerifier,
     }),
@@ -119,9 +199,12 @@ async function refreshAccessToken(refreshToken) {
   };
 }
 
-// Tentative en cours : évite de relancer un 2e serveur sur le même port
-// (EADDRINUSE) si l'utilisateur clique plusieurs fois avant d'avoir terminé
-// le consentement dans le navigateur — on rouvre simplement l'onglet.
+// Tentative en cours : évite de relancer un 2e serveur (et un 2e essai de
+// port) si l'utilisateur clique plusieurs fois avant d'avoir terminé le
+// consentement dans le navigateur — on rouvre simplement l'onglet, SAUF si
+// le serveur de callback n'a pas encore fini de démarrer (`authUrl` encore
+// `null` : voir plus bas), auquel cas on attend juste la même promesse sans
+// tenter d'ouvrir une URL qui n'existe pas encore.
 let activeFlow = null;
 
 /**
@@ -129,7 +212,7 @@ let activeFlow = null;
  */
 function runGoogleAuthFlow() {
   if (activeFlow) {
-    shell.openExternal(activeFlow.authUrl);
+    if (activeFlow.authUrl) shell.openExternal(activeFlow.authUrl);
     return activeFlow.promise;
   }
 
@@ -137,29 +220,34 @@ function runGoogleAuthFlow() {
     return Promise.reject(new Error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET manquants dans .env'));
   }
 
-  let authUrl;
+  const state = base64url(crypto.randomBytes(16));
+  const codeVerifier = base64url(crypto.randomBytes(32));
+  const codeChallenge = base64url(crypto.createHash('sha256').update(codeVerifier).digest());
+
+  let settled = false;
+  let timeoutHandle;
+  let server = null;
 
   const promise = new Promise((resolve, reject) => {
-    const state = base64url(crypto.randomBytes(16));
-    const codeVerifier = base64url(crypto.randomBytes(32));
-    const codeChallenge = base64url(crypto.createHash('sha256').update(codeVerifier).digest());
-    authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      response_type: 'code',
-      scope: SCOPES,
-      access_type: 'offline',
-      prompt: 'consent',
-      state,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-    }).toString();
+    const finish = (err, tokenData) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      if (server) server.close();
+      activeFlow = null;
+      if (err) reject(err);
+      else resolve(tokenData);
+    };
 
-    let settled = false;
-    let timeoutHandle;
+    // Fixé une fois le port RÉEL connu (voir .then ci-dessous) — utilisé à
+    // la fois pour router la requête entrante (comparaison de `pathname`,
+    // insensible au port donc sans risque même avant d'être fixé) et pour
+    // l'échange de token, qui doit envoyer EXACTEMENT le même `redirect_uri`
+    // que celui reçu par Google dans l'URL de consentement initiale.
+    let redirectUri = redirectUriFor(REDIRECT_PORTS[0]);
 
-    const server = http.createServer(async (req, res) => {
-      const url = new URL(req.url, REDIRECT_URI);
+    const handleCallbackRequest = async (req, res) => {
+      const url = new URL(req.url, redirectUri);
       if (url.pathname !== REDIRECT_PATH) {
         res.writeHead(404).end();
         return;
@@ -168,16 +256,6 @@ function runGoogleAuthFlow() {
       const returnedState = url.searchParams.get('state');
       const error = url.searchParams.get('error');
       const code = url.searchParams.get('code');
-
-      const finish = (err, tokenData) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutHandle);
-        server.close();
-        activeFlow = null;
-        if (err) reject(err);
-        else resolve(tokenData);
-      };
 
       if (error) {
         res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -194,7 +272,7 @@ function runGoogleAuthFlow() {
       }
 
       try {
-        const tokens = await exchangeCodeForTokens(code, codeVerifier);
+        const tokens = await exchangeCodeForTokens(code, codeVerifier, redirectUri);
         const email = await fetchUserEmail(tokens.access_token);
 
         res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -211,30 +289,54 @@ function runGoogleAuthFlow() {
           .end(renderPage('Erreur', 'Échec de la connexion. Vous pouvez fermer cet onglet.', false));
         finish(err);
       }
-    });
+    };
 
-    server.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      activeFlow = null;
-      clearTimeout(timeoutHandle);
-      reject(err);
-    });
+    startCallbackServer(handleCallbackRequest)
+      .then(({ server: startedServer, port }) => {
+        server = startedServer;
+        redirectUri = redirectUriFor(port);
+        console.log(`[Google OAuth] URI de redirection utilisée pour cette tentative (comparez-la EXACTEMENT à "URI de redirection autorisés" dans Google Cloud Console) : ${redirectUri}`);
 
-    server.listen(REDIRECT_PORT, '127.0.0.1', () => {
-      shell.openExternal(authUrl);
-    });
+        const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+          client_id: CLIENT_ID,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: SCOPES,
+          access_type: 'offline',
+          prompt: 'consent',
+          state,
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+        }).toString();
 
-    timeoutHandle = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      server.close();
-      activeFlow = null;
-      reject(new Error('Délai d\'authentification dépassé'));
-    }, AUTH_TIMEOUT_MS);
+        // Le serveur écoute déjà RÉELLEMENT à ce stade (on est dans le
+        // `.then()` de startCallbackServer, qui ne résout qu'après un
+        // `listen()` réussi) — le navigateur ne peut donc jamais être ouvert
+        // sur une URL de redirection que rien n'écoute encore.
+        activeFlow.authUrl = authUrl;
+        shell.openExternal(authUrl);
+
+        timeoutHandle = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          server.close();
+          activeFlow = null;
+          reject(new Error('Délai d\'authentification dépassé'));
+        }, AUTH_TIMEOUT_MS);
+      })
+      .catch((err) => {
+        console.error('[Google OAuth] Impossible de démarrer le serveur de callback OAuth — le navigateur ne sera pas ouvert :', err.message);
+        activeFlow = null;
+        reject(err);
+      });
   });
 
-  activeFlow = { promise, authUrl };
+  // Posé de façon SYNCHRONE ici (avant tout retour à la boucle d'événements)
+  // — `authUrl: null` marque "tentative en cours, serveur pas encore prêt" :
+  // un 2e appel concurrent (double-clic) attrape ce garde-fou tout de suite
+  // et attend simplement la même promesse, sans risquer de démarrer un 2e
+  // serveur en parallèle avant que celui-ci ait fini de se lier à son port.
+  activeFlow = { promise, authUrl: null };
   return promise;
 }
 

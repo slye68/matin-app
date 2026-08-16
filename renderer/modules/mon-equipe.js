@@ -12,7 +12,11 @@
  */
 window.MatinModules = window.MatinModules || {};
 
-const MON_EQUIPE_VENUE_LABEL = { home: 'D', away: 'E' };
+// Libellés complets à l'affichage (2026-08-16, sur demande explicite) — le
+// <select> de configuration (config.js, monEquipeVenueOptionsHtml) garde lui
+// "D"/"E" (compact, changé fréquemment en saisie), seul l'affichage carte
+// passe au mot complet.
+const MON_EQUIPE_VENUE_LABEL = { home: 'Domicile', away: 'Extérieur' };
 const MON_EQUIPE_LIST_SIZE = 3;
 
 function monEquipeFormatDate(dateStr) {
@@ -31,41 +35,50 @@ function monEquipeDateTimeValue(item) {
   return Number.isNaN(t) ? 0 : t;
 }
 
+// Couleurs dédiées par type d'info (2026-08-16, sur demande explicite) —
+// date/type/heure/domicile-extérieur/adversaire ont chacun leur propre
+// classe `.monequipe-info-*` (voir style.css), en couleurs fixes (pas de
+// variable de thème) puisque demandées comme valeurs hex précises.
 function monEquipeNextMatchHtml(item) {
   if (!item) return '<span class="sports-no-data">Aucun match prévu</span>';
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'D';
-  const meta = [monEquipeFormatDate(item.date), item.time, venue, item.competition].filter(Boolean).join(' · ');
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  const meta = [
+    item.date ? `<span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>` : '',
+    item.time ? `<span class="monequipe-info-time">${item.time}</span>` : '',
+    `<span class="monequipe-info-venue">${venue}</span>`,
+    item.competition ? `<span class="monequipe-info-type">${item.competition}</span>` : '',
+  ].filter(Boolean).join(' · ');
   return `
     <div class="sports-next-detail">${meta}</div>
-    <div class="sports-next-opp">${item.opponent || ''}</div>
+    <div class="sports-next-opp"><span class="monequipe-info-opponent">${item.opponent || ''}</span></div>
   `;
 }
 
 function monEquipeLastResultHtml(item) {
   if (!item) return '<span class="sports-no-data">Aucun résultat</span>';
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'D';
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
   return `
     <div class="sports-next-detail">${item.score || '—'}</div>
-    <div class="sports-next-opp">${venue} ${item.opponent || ''} · ${monEquipeFormatDate(item.date)}</div>
+    <div class="sports-next-opp"><span class="monequipe-info-venue">${venue}</span> ${item.opponent || ''} · <span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>
   `;
 }
 
 function monEquipeUpcomingRowHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'D';
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
   return `
     <div class="monequipe-list-row">
-      <span class="monequipe-list-date">${monEquipeFormatDate(item.date)}${item.time ? ' ' + item.time : ''}</span>
-      <span class="monequipe-list-opp">${venue} · ${item.opponent || ''}</span>
-      ${item.competition ? `<span class="monequipe-list-meta">${item.competition}</span>` : ''}
+      <span class="monequipe-list-date"><span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>${item.time ? ` <span class="monequipe-info-time">${item.time}</span>` : ''}</span>
+      <span class="monequipe-list-opp"><span class="monequipe-info-venue">${venue}</span> · <span class="monequipe-info-opponent">${item.opponent || ''}</span></span>
+      ${item.competition ? `<span class="monequipe-list-meta monequipe-info-type">${item.competition}</span>` : ''}
     </div>`;
 }
 
 function monEquipeResultRowHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'D';
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
   return `
     <div class="monequipe-list-row">
-      <span class="monequipe-list-date">${monEquipeFormatDate(item.date)}</span>
-      <span class="monequipe-list-opp">${venue} · ${item.opponent || ''}</span>
+      <span class="monequipe-list-date monequipe-info-date">${monEquipeFormatDate(item.date)}</span>
+      <span class="monequipe-list-opp"><span class="monequipe-info-venue">${venue}</span> · ${item.opponent || ''}</span>
       <span class="monequipe-list-meta">${item.score || ''}</span>
     </div>`;
 }
@@ -109,8 +122,11 @@ window.MatinModules.monEquipe = {
         </div>
         <div class="monequipe-list-label">Prochains matchs</div>
         <div class="monequipe-list">${
-          upcoming.slice(0, MON_EQUIPE_LIST_SIZE).map(monEquipeUpcomingRowHtml).join('')
-          || '<span class="sports-no-data">Aucun match à venir</span>'
+          // slice(1, …) : exclut le match déjà affiché juste au-dessus dans
+          // "Prochain match" (upcoming[0]) — sans ce décalage il apparaît
+          // deux fois (bug corrigé le 2026-08-16, signalé explicitement).
+          upcoming.slice(1, 1 + MON_EQUIPE_LIST_SIZE).map(monEquipeUpcomingRowHtml).join('')
+          || '<span class="sports-no-data">Aucun autre match à venir</span>'
         }</div>
         <div class="monequipe-list-label">Derniers résultats</div>
         <div class="monequipe-list">${

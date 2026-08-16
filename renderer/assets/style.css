@@ -1138,6 +1138,19 @@ body.ultrawide .module-card { max-width: 500px; }
   white-space: nowrap;
 }
 
+/* Couleurs dédiées par type d'info sur les lignes de match (2026-08-16, sur
+   demande explicite) — appliquées via des <span> imbriqués dans les blocs
+   "Prochain match"/"Prochains matchs" (voir mon-equipe.js). Même
+   spécificité (une seule classe) que les règles ci-dessus qu'elles
+   remplacent (date/type) ou complètent (venue/heure) : venant après dans ce
+   fichier, elles l'emportent en cas d'égalité — ordre de déclaration
+   important, ne pas déplacer avant .monequipe-list-date/-meta. */
+.monequipe-info-date  { color: #4f8ef7; }
+.monequipe-info-type  { color: #34d399; }
+.monequipe-info-time  { color: #8b95a8; }
+.monequipe-info-venue { color: #fbbf24; }
+.monequipe-info-opponent { color: #e8eaf0; }
+
 /* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
    Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
    malgré le nom historique "sports-" : Sports (ol.js) réutilise ces mêmes
@@ -1772,6 +1785,7 @@ body.ultrawide .module-card { max-width: 500px; }
    n'est qu'un filet de sécurité pendant la 1re frame avant que le canvas ne
    soit peint. */
 .app-background-layer.bg-beach { background: #0f1117; }
+.app-background-layer.bg-mountain { background: #0a0a1a; }
 
 /* 📄 Grain de papier (clair) — texture bruitée en SVG turbulence encodé
    data-URI, tuilée, très subtile (opacity faible plutôt qu'un filtre coûteux
@@ -2615,6 +2629,52 @@ body.ultrawide .module-card { max-width: 500px; }
 .etf-add-line-btn:hover { border-color: var(--accent); color: var(--accent); }
 .etf-add-line-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ─── Sections repliables de Paramètres (2026-08-16, sur demande explicite) ──
+   Réutilisée par 4 sections (YouTube/ETF/Crypto/Prêts, voir config.js
+   wrapCollapsibleSection) pouvant contenir beaucoup de lignes — REPLIÉES PAR
+   DÉFAUT. Même mécanique que .prets-group-body/.fdj-grids-section plus haut
+   dans ce fichier (grid-template-rows 0fr→1fr + transition 300ms, PAS
+   display:none qui ne peut pas s'animer) et .prets-group-chevron pour la
+   flèche (rotate(90deg), ▶ tournée devient visuellement ▼). */
+.config-collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 2px;
+  user-select: none;
+}
+.config-collapsible-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-collapsible-arrow {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: transform 300ms ease;
+}
+.config-collapsible-header.expanded .config-collapsible-arrow { transform: rotate(90deg); }
+.config-collapsible-header:hover .config-collapsible-label,
+.config-collapsible-header:hover .config-collapsible-arrow { color: var(--accent); }
+.config-collapsible-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  transition: grid-template-rows 300ms ease;
+}
+.config-collapsible-body.expanded { grid-template-rows: 1fr; }
+.config-collapsible-body-inner { overflow: hidden; min-height: 0; }
+/* Marge du haut posée sur le CONTENU (pas le wrapper) : nulle tant que
+   replié (rien à espacer), présente une fois déplié — évite un espace vide
+   avant même le 1er affichage du contenu. */
+.config-collapsible-body.expanded .config-collapsible-body-inner { padding-top: 6px; }
+
 /* Config Hue (page Paramètres) */
 .module-config-field.hue-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
 .hue-config-row { display: flex; align-items: center; gap: 8px; }
@@ -3251,6 +3311,26 @@ body.ultrawide .module-card { max-width: 500px; }
    nouveau ?"), une grille de cartes rondes s'y prête mieux qu'une liste de
    lignes. Badge positionné en absolu sur le coin de l'avatar plutôt qu'à
    côté du nom, pour rester lisible même très petit (voir .size-icon-only). */
+/* Conteneur + bouton "Vérifier maintenant" (2026-08-16, sur demande
+   explicite, pour tester la détection sans attendre un créneau planifié) —
+   élément STATIQUE (voir youtube.js) : reste affiché/cliquable pendant que
+   `.youtube-module-grid-wrap` seul est reconstruit à chaque vérification. */
+.youtube-module { display: flex; flex-direction: column; gap: 6px; height: 100%; }
+.youtube-check-now-btn {
+  align-self: flex-start;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px dashed var(--text-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.youtube-check-now-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.youtube-check-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.youtube-module-grid-wrap { flex: 1; min-height: 0; }
 .youtube-module-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));

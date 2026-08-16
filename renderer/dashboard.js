@@ -343,7 +343,7 @@ function initThemeSync() {
 // APP_BACKGROUND_DARK_KEYS/LIGHT_KEYS) : une clé qui ne correspond pas au
 // thème affiché en ce moment ne rend rien plutôt que de s'afficher hors
 // contexte (ex. après un changement de thème sans repasser par Personnaliser).
-const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach'];
+const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain'];
 const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient'];
 const APP_BACKGROUND_STAR_COUNT = 140;
 const APP_BACKGROUND_PARTICLE_COUNT = 26;
@@ -354,6 +354,8 @@ const APP_BACKGROUND_MATRIX_CHARS = 'アイウエオカキクケコサシスセ�
 const APP_BACKGROUND_MATRIX_COL_WIDTH = 16;
 const APP_BACKGROUND_BEACH_CLOUD_COUNT = 5;
 const APP_BACKGROUND_BEACH_GRAIN_COUNT = 1400; // demandé "densément" (2026-08-15), depuis 900
+const APP_BACKGROUND_MOUNTAIN_STAR_COUNT = 3;
+const APP_BACKGROUND_MOUNTAIN_BIRD_COUNT = 2;
 
 let appBackgroundAnimId = null;
 let appBackgroundResizeHandler = null;
@@ -847,6 +849,204 @@ function startBeachBackground(layer) {
   appBackgroundAnimId = requestAnimationFrame(frame);
 }
 
+// Lever de soleil en montagne (2026-08-16, sur demande explicite) — même
+// principe statique+rAF que la plage (voir startBeachBackground juste
+// au-dessus) : le ciel/étoiles/2 couches de montagnes lointaines/proches ne
+// bougent JAMAIS, peints une seule fois sur `staticCanvas` au resize.
+// Contrairement à la plage, le soleil/sa lueur/ses rayons/la montagne du
+// PREMIER PLAN sont eux redessinés à CHAQUE frame (pas dans le statique) :
+// la lueur doit "pulser" (opacité qui varie dans le temps, demandé
+// explicitement), et la montagne du premier plan doit rester peinte
+// PAR-DESSUS le soleil (occultation) — un ordre qu'un simple drawImage
+// statique ne permettrait pas de faire varier frame par frame.
+function mountainProfileY(t, baseY, amp, freq, jagAmp, jagFreq, centerBoost, centerWidth) {
+  const wave = Math.sin(t * Math.PI * freq) * amp;
+  const jag = jagAmp ? Math.sin(t * Math.PI * jagFreq + 0.6) * jagAmp : 0;
+  const center = centerBoost ? centerBoost * Math.exp(-(((t - 0.5) * centerWidth) ** 2)) : 0;
+  return baseY - wave - jag - center;
+}
+
+function mountainDrawLayer(ctx, w, h, color, opts) {
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  const step = 6;
+  for (let x = 0; x <= w; x += step) {
+    ctx.lineTo(x, mountainProfileY(x / w, opts.baseY, opts.amp, opts.freq, opts.jagAmp, opts.jagFreq, opts.centerBoost, opts.centerWidth));
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+// Ciel + étoiles + les 2 couches de montagnes les plus ÉLOIGNÉES (jamais
+// occultées par le soleil, donc safe à peindre une fois pour toutes ici) —
+// la 3e couche (premier plan, celle qui cache le soleil) est peinte à
+// chaque frame par mountainDrawForeground, PAS ici.
+function mountainDrawStaticScene(staticCanvas, w, h) {
+  const sctx = staticCanvas.getContext('2d');
+  staticCanvas.width = w;
+  staticCanvas.height = h;
+
+  // Ciel — bleu profond en haut (0-60%), se réchauffe en orange/rose en
+  // approchant l'horizon derrière la montagne (demandé explicitement).
+  const skyGrad = sctx.createLinearGradient(0, 0, 0, h * 0.6);
+  skyGrad.addColorStop(0, '#0a0a1a');
+  skyGrad.addColorStop(0.55, '#1a2a4a');
+  skyGrad.addColorStop(0.85, '#e8703a');
+  skyGrad.addColorStop(1, '#f9a978');
+  sctx.fillStyle = skyGrad;
+  sctx.fillRect(0, 0, w, h);
+
+  // Étoiles — 2-3 points ténus tout en haut seulement, opacité dégressive
+  // (celle du haut la plus visible) pour suggérer qu'elles s'effacent à
+  // mesure que le soleil se lève, sans animation de disparition réelle.
+  sctx.save();
+  const starSpots = [[0.18, 0.05], [0.62, 0.03], [0.85, 0.08]];
+  starSpots.slice(0, APP_BACKGROUND_MOUNTAIN_STAR_COUNT).forEach(([sx, sy], i) => {
+    sctx.globalAlpha = 0.5 - i * 0.12;
+    sctx.fillStyle = '#e8eaf0';
+    sctx.beginPath();
+    sctx.arc(w * sx, h * sy, 1.3, 0, Math.PI * 2);
+    sctx.fill();
+  });
+  sctx.restore();
+
+  // Montagnes lointaines — silhouette lisse (une seule sinusoïde, pas de
+  // bruit secondaire), pleine largeur, la plus petite/claire des 3. Pics
+  // volontairement plus hauts (y plus petit) que le premier plan HORS de son
+  // pic central : en peinture par couches façon parallaxe, la couche la
+  // plus proche (premier plan) est la plus LARGE/imposante à l'écran mais
+  // ses propres pics restent plus bas que les couches lointaines, dont les
+  // sommets dépassent dans les creux du premier plan — c'est ce qui rend
+  // les 2 couches lointaines réellement visibles (silhouette "en dents de
+  // scie" qui dépasse) plutôt que totalement cachées dessous.
+  mountainDrawLayer(sctx, w, h, '#1a2a3a', { baseY: h * 0.72, amp: h * 0.06, freq: 2.2, jagAmp: 0, jagFreq: 0, centerBoost: 0, centerWidth: 0 });
+
+  // Montagnes intermédiaires — plus déchiquetées (bruit secondaire
+  // superposé à la sinusoïde de base), légèrement plus hautes/foncées.
+  mountainDrawLayer(sctx, w, h, '#0f1a2a', { baseY: h * 0.77, amp: h * 0.1, freq: 3.4, jagAmp: h * 0.025, jagFreq: 9, centerBoost: 0, centerWidth: 0 });
+}
+
+// Montagne du premier plan — silhouette la plus sombre/déchiquetée, avec un
+// pic CENTRAL surélevé (`centerBoost`, gaussienne) qui vient juste recouvrir
+// le bas du soleil (voir calcul de `centerBoost` dans startMountainBackground,
+// basé sur `apexY` = juste sous le sommet du disque solaire) — c'est cette
+// occultation qui produit "seul l'arc supérieur du soleil visible".
+function mountainDrawForeground(ctx, w, h, centerBoost) {
+  mountainDrawLayer(ctx, w, h, '#0a0f1a', {
+    baseY: h * 0.85, amp: h * 0.045, freq: 2.6, jagAmp: h * 0.025, jagFreq: 11,
+    centerBoost, centerWidth: 5.5,
+  });
+}
+
+// Lueur radiale derrière le pic — pulse lentement (opacité modulée par
+// `pulse`, un sinus lent calculé dans la boucle d'animation) plutôt que
+// rester fixe, demandé explicitement ("glow brightens/dims slowly").
+function mountainDrawGlow(ctx, w, sunCenterY, sunRadius, pulse) {
+  const glow = ctx.createRadialGradient(w / 2, sunCenterY, 0, w / 2, sunCenterY, sunRadius * 5);
+  glow.addColorStop(0, `rgba(245, 158, 11, ${(0.5 + pulse * 0.25).toFixed(2)})`);
+  glow.addColorStop(0.4, `rgba(249, 115, 22, ${(0.22 + pulse * 0.1).toFixed(2)})`);
+  glow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, sunCenterY - sunRadius * 5, w, sunRadius * 6);
+}
+
+function mountainDrawSun(ctx, w, sunCenterY, sunRadius) {
+  ctx.beginPath();
+  ctx.fillStyle = '#f59e0b';
+  ctx.arc(w / 2, sunCenterY, sunRadius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Rayons — même technique que la plage (startBeachBackground) : éventail de
+// traits sur le DEMI-CERCLE SUPÉRIEUR uniquement (π à 2π), ce qui donne
+// naturellement des rayons qui "partent vers la gauche et la droite" en
+// balayant par le haut, exactement la formulation demandée. Opacité liée au
+// même `pulse` que la lueur pour une pulsation cohérente.
+function mountainDrawRays(ctx, w, sunCenterY, sunRadius, pulse) {
+  ctx.save();
+  ctx.strokeStyle = `rgba(245, 158, 11, ${(0.22 + pulse * 0.12).toFixed(2)})`;
+  ctx.lineWidth = 2;
+  const rayCount = 14;
+  for (let i = 0; i < rayCount; i++) {
+    const angle = Math.PI + (Math.PI / (rayCount - 1)) * i;
+    const len = sunRadius * (2 + (i % 3) * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(w / 2 + Math.cos(angle) * sunRadius * 0.9, sunCenterY + Math.sin(angle) * sunRadius * 0.9);
+    ctx.lineTo(w / 2 + Math.cos(angle) * len, sunCenterY + Math.sin(angle) * len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function mountainMakeBird(w, h) {
+  return {
+    x: Math.random() * w,
+    y: h * 0.12 + Math.random() * h * 0.25,
+    speed: Math.random() * 0.18 + 0.08, // lent — "flying slowly" demandé explicitement
+    span: Math.random() * 4 + 8,
+  };
+}
+
+// Oiseau — simple "V" (2 segments), forme minimale demandée explicitement.
+function mountainDrawBird(ctx, b) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(232, 234, 240, 0.55)';
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(b.x - b.span, b.y + b.span * 0.4);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(b.x + b.span, b.y + b.span * 0.4);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function startMountainBackground(layer) {
+  const canvas = document.createElement('canvas');
+  layer.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const staticCanvas = document.createElement('canvas');
+
+  let birds = [];
+  let sunCenterY = 0, sunRadius = 0, foregroundCenterBoost = 0;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    sunCenterY = canvas.height * 0.56;
+    sunRadius = Math.min(canvas.width, canvas.height) * 0.09;
+    // Le pic central doit atteindre juste sous le sommet du soleil (25% du
+    // rayon visible au-dessus, voir commentaire de mountainDrawForeground) —
+    // recalculé ici (dépend de sunCenterY/sunRadius, eux-mêmes dépendants de
+    // la taille de fenêtre) plutôt que codé en dur dans mountainDrawForeground.
+    const apexY = sunCenterY - sunRadius * 0.75;
+    foregroundCenterBoost = canvas.height * 0.85 - apexY;
+    mountainDrawStaticScene(staticCanvas, canvas.width, canvas.height);
+    birds = Array.from({ length: APP_BACKGROUND_MOUNTAIN_BIRD_COUNT }, () => mountainMakeBird(canvas.width, canvas.height));
+  }
+  resize();
+  appBackgroundResizeHandler = resize;
+  window.addEventListener('resize', appBackgroundResizeHandler);
+
+  function frame(t) {
+    ctx.drawImage(staticCanvas, 0, 0);
+    const pulse = Math.sin(t * 0.0005) * 0.5 + 0.5; // 0..1, lent — "slowly" demandé explicitement
+    mountainDrawGlow(ctx, canvas.width, sunCenterY, sunRadius, pulse);
+    mountainDrawSun(ctx, canvas.width, sunCenterY, sunRadius);
+    mountainDrawRays(ctx, canvas.width, sunCenterY, sunRadius, pulse);
+    mountainDrawForeground(ctx, canvas.width, canvas.height, foregroundCenterBoost);
+    for (const b of birds) {
+      b.x += b.speed;
+      if (b.x - b.span > canvas.width) b.x = -b.span; // ressort à gauche, dérive gauche→droite en boucle
+      mountainDrawBird(ctx, b);
+    }
+    appBackgroundAnimId = requestAnimationFrame(frame);
+  }
+  appBackgroundAnimId = requestAnimationFrame(frame);
+}
+
 function applyAppBackground(key) {
   const layer = document.getElementById('appBackgroundLayer');
   if (!layer) return;
@@ -865,6 +1065,7 @@ function applyAppBackground(key) {
   else if (key === 'snow') startSnowBackground(layer);
   else if (key === 'matrix') startMatrixBackground(layer);
   else if (key === 'beach') startBeachBackground(layer);
+  else if (key === 'mountain') startMountainBackground(layer);
   // aurora/nebula/paper/geometric/gradient : pur CSS via la classe bg-<clé> posée ci-dessus, rien d'autre à faire.
 }
 

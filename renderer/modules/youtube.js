@@ -125,9 +125,38 @@ window.MatinModules.youtube = {
       return;
     }
 
+    // Bouton "Vérifier maintenant" (2026-08-16, sur demande explicite, pour
+    // pouvoir tester la détection sans attendre un des 6 créneaux fixes ni
+    // relancer toute l'app) — élément STATIQUE en dehors de la grille (qui,
+    // elle, est reconstruite à chaque vérification) pour rester cliquable
+    // pendant tout le cycle de vie du module, pas juste après le 1er rendu.
+    container.innerHTML = `
+      <div class="youtube-module">
+        <button type="button" class="youtube-check-now-btn" title="Vérifier maintenant, sans attendre le prochain créneau planifié">🔄 Vérifier maintenant</button>
+        <div class="youtube-module-grid-wrap">
+          <div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>
+        </div>
+      </div>
+    `;
+    const gridWrap = container.querySelector('.youtube-module-grid-wrap');
+    const checkNowBtn = container.querySelector('.youtube-check-now-btn');
+
     async function loadAndRender() {
+      checkNowBtn.disabled = true;
       setBadge('…');
       const now = new Date();
+
+      // Debug ajouté le 2026-08-16 (sur demande explicite, bug signalé :
+      // badge absent malgré une nouvelle vidéo attendue) — log du créneau
+      // planifié enregistré (`lastCheckSlot`, voir ytStartScheduler) : sert
+      // UNIQUEMENT à éviter de redéclencher 2 fois le même créneau horaire,
+      // PAS de référence pour la détection "nouveau" elle-même (voir plus
+      // bas — c'est `lastSeenVideoId` + la fenêtre de 24h qui décide, pas
+      // ce créneau). Affiché ici pour lever toute ambiguïté sur ce que
+      // représente vraiment cette valeur.
+      const lastSlot = await window.matin.store.get(YT_LAST_SLOT_KEY).catch(() => null);
+      console.log(`[YouTube] Vérification lancée à ${now.toString()} — dernier créneau planifié enregistré (anti-double-déclenchement, PAS la référence de détection) : ${lastSlot || '(aucun pour l’instant)'}`);
+
       const results = await Promise.allSettled(channels.map((ch) => ytFetchLatestVideos(ch.channelId)));
       let totalNew = 0;
       let baselineChanged = false;
@@ -146,6 +175,7 @@ window.MatinModules.youtube = {
         // on pose une base silencieuse plutôt que d'afficher tout l'historique
         // récent comme "nouveau" d'un coup.
         if (!ch.lastSeenVideoId && latest) {
+          console.log(`[YouTube] ${ch.title || ch.query} — pas de référence connue, pose silencieuse de la base sur "${latest.title}" (${latest.videoId}, publiée ${latest.published})`);
           ch.lastSeenVideoId = latest.videoId;
           baselineChanged = true;
           return ytCellHtml(ch, i, 0, latest);
@@ -153,12 +183,32 @@ window.MatinModules.youtube = {
 
         const newCount = ytCountNewSince(entries, ch.lastSeenVideoId, now);
         totalNew += newCount;
+
+        // Log détaillé par chaîne (points 2/3/4 de la demande) : date de
+        // publication de la dernière vidéo, âge en heures, videoId déjà vu,
+        // et le résultat de la comparaison — permet de vérifier à l'œil que
+        // la logique "vidéo plus récente que lastSeenVideoId ET publiée il y
+        // a moins de 24h ⇒ comptée comme nouvelle" fait bien ce qu'elle dit.
+        if (latest) {
+          const publishedMs = new Date(latest.published).getTime();
+          const ageHours = Number.isNaN(publishedMs) ? null : ((now.getTime() - publishedMs) / 3600000).toFixed(1);
+          const isLatestAlreadySeen = latest.videoId === ch.lastSeenVideoId;
+          console.log(
+            `[YouTube] ${ch.title || ch.query} — dernière vidéo : "${latest.title}" (${latest.videoId}), publiée ${latest.published}` +
+            (ageHours !== null ? ` (il y a ${ageHours}h)` : ' (date illisible)') +
+            ` | lastSeenVideoId=${ch.lastSeenVideoId || '(aucun)'} ${isLatestAlreadySeen ? '(= dernière vidéo, déjà vue)' : '(≠ dernière vidéo)'}` +
+            ` | nouveau(x) détecté(s) : ${newCount}`
+          );
+        } else {
+          console.log(`[YouTube] ${ch.title || ch.query} — flux vide (0 vidéo dans le flux Atom)`);
+        }
+
         return ytCellHtml(ch, i, newCount, latest);
       }).join('');
 
-      container.innerHTML = `<div class="youtube-module-grid">${cellsHtml}</div>`;
+      gridWrap.innerHTML = `<div class="youtube-module-grid">${cellsHtml}</div>`;
 
-      container.querySelectorAll('.youtube-cell-clickable').forEach((el) => {
+      gridWrap.querySelectorAll('.youtube-cell-clickable').forEach((el) => {
         el.addEventListener('click', () => {
           const idx = Number(el.dataset.channelIdx);
           const ch = channels[idx];
@@ -179,10 +229,16 @@ window.MatinModules.youtube = {
         window.matin.store.set(YT_CHANNELS_KEY, channels);
       }
 
+      console.log(`[YouTube] Vérification terminée : ${totalNew} nouvelle(s) vidéo(s) au total sur ${channels.length} chaîne(s).`);
       setBadge(totalNew > 0 ? String(totalNew) : '—');
+      checkNowBtn.disabled = false;
     }
 
-    container.innerHTML = `<div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>`;
+    checkNowBtn.addEventListener('click', () => {
+      console.log('[YouTube] Vérification manuelle déclenchée ("Vérifier maintenant")');
+      loadAndRender().catch((err) => console.error('[YouTube] Erreur lors de la vérification manuelle', err));
+    });
+
     await loadAndRender();
 
     ytStartScheduler(loadAndRender);
