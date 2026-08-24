@@ -719,9 +719,7 @@ const SIDEBAR_STRIP_WIDTH = 20; // 12px→20px (2026-08-23, sur demande explicit
 const SUN_WINDOW_SIZE = 60;
 const sidebarState = {
   edge: 'right',
-  pinned: false,
   expanded: false,
-  collapseTimer: null,
   animTimer: null,
 };
 
@@ -1105,7 +1103,7 @@ function ensureWindowNotFullScreen(callback) {
 
 // Fait glisser mainWindow vers sa position "collapsed" (bande visible) —
 // factorisé (2026-08-24) car appelé à la fois par enterSidebarMode (1re
-// entrée en mode "sidebar") et par sidebarTogglePin (clic sur la bande) :
+// entrée en mode "sidebar") et par sidebarStripClick (clic sur la bande) :
 // les 2 doivent produire EXACTEMENT le même résultat, `ensureWindowNotFullScreen`
 // compris, pour qu'un plein écran hérité de n'importe où se réduise en un
 // seul geste peu importe son origine.
@@ -1131,11 +1129,8 @@ function enterSidebarMode() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
   sidebarState.edge = store.get('app.sidebarEdge') || 'right';
-  sidebarState.pinned = false;
   sidebarState.expanded = false;
-  clearTimeout(sidebarState.collapseTimer);
   clearInterval(sidebarState.animTimer);
-  sidebarState.collapseTimer = null;
   sidebarState.animTimer = null;
 
   if (!preSidebarBounds) preSidebarBounds = mainWindow.getBounds();
@@ -1159,11 +1154,8 @@ function enterSidebarMode() {
 }
 
 function exitSidebarMode() {
-  clearTimeout(sidebarState.collapseTimer);
   clearInterval(sidebarState.animTimer);
-  sidebarState.collapseTimer = null;
   sidebarState.animTimer = null;
-  sidebarState.pinned = false;
   sidebarState.expanded = false;
 
   // Sort du plein écran AVANT de restaurer les bornes normales (2026-08-24) —
@@ -1233,63 +1225,51 @@ function animateSidebarX(targetX) {
   }, stepMs);
 }
 
+// Survol de la bande (voir dashboard.js, mouseenter sur <html>) — ouvre le
+// volet. AUCUNE fermeture automatique n'est déclenchée ailleurs que par
+// sidebarStripClick ci-dessous (2026-08-24, sur demande explicite, suite au
+// rapport "survoler la barre des tâches Windows referme le volet") : ce
+// fichier n'enregistre plus aucun minuteur "quitter → refermer dans 1s" (voir
+// l'ancienne sidebarScheduleCollapse, supprimée), ni aucun écouteur 'blur' —
+// quitter la fenêtre avec la souris (y compris vers la barre des tâches) ne
+// referme donc plus jamais le volet tout seul.
 function sidebarExpand() {
-  if (currentDisplayMode !== 'sidebar') return;
-  // `clearTimeout` AVANT le early-return "déjà ouvert" (2026-08-23, correctif) —
-  // sinon un survol qui revient PENDANT le délai d'1s de sidebarScheduleCollapse
-  // (fenêtre encore visuellement ouverte, `expanded` toujours true à ce
-  // moment-là) ressortait immédiatement sans annuler le minuteur en cours, et
-  // le volet se refermait quand même 1s plus tard sous le curseur.
-  clearTimeout(sidebarState.collapseTimer);
-  sidebarState.collapseTimer = null;
-  if (sidebarState.expanded) return;
+  if (currentDisplayMode !== 'sidebar' || sidebarState.expanded) return;
   sidebarState.expanded = true;
   animateSidebarX(sidebarExpandedX());
 }
 
-// Appelé quand le curseur quitte la fenêtre (voir dashboard.js, mouseleave
-// sur <html>) — n'effectue rien tant que la fenêtre est épinglée ouverte
-// (voir sidebarTogglePin), reporté de 1s à chaque nouvel appel pour laisser
-// le temps à l'utilisateur de revenir sans provoquer un clignotement.
-function sidebarScheduleCollapse() {
-  if (currentDisplayMode !== 'sidebar' || sidebarState.pinned) return;
-  clearTimeout(sidebarState.collapseTimer);
-  sidebarState.collapseTimer = setTimeout(() => {
-    sidebarState.collapseTimer = null;
-    sidebarState.expanded = false;
-    animateSidebarX(sidebarCollapsedX());
-  }, 1000);
-}
-
-function sidebarTogglePin() {
+// Clic sur la bande — SEUL déclencheur de fermeture qui subsiste (voir
+// commentaire ci-dessus). Teste `expanded`, PAS un état "épinglé" séparé
+// (2026-08-24, correctif suite au rapport "il faut double-cliquer pour
+// refermer") : l'ancienne version testait `pinned`, un champ que seul UN
+// clic mettait à true — après une simple ouverture par SURVOL (sidebarExpand
+// ci-dessus, qui ne touche jamais `pinned`), `pinned` restait donc false, et
+// le 1er clic de l'utilisateur tombait dans la branche "ouvrir" (déjà
+// ouvert, donc visuellement sans effet) au lieu de refermer ; il fallait un
+// 2e clic pour que `pinned` soit enfin true et que la fermeture se déclenche
+// réellement. Se baser uniquement sur `expanded` (déjà ouvert visuellement,
+// peu importe comment) rend un simple clic TOUJOURS suffisant pour refermer.
+function sidebarStripClick() {
   if (currentDisplayMode !== 'sidebar') return;
-  clearTimeout(sidebarState.collapseTimer);
-  sidebarState.collapseTimer = null;
 
-  // Sort du plein écran AVANT tout (2026-08-24, sur demande explicite,
-  // point 1 — "the sidebar should retract in ONE click from fullscreen, not
-  // two") : c'est le clic sur la bande qui était rapporté cassé en plein
-  // écran. `ensureWindowNotFullScreen` impose désormais un délai de
-  // stabilisation FIXE après setFullScreen(false) (voir sa définition plus
-  // haut, FULLSCREEN_EXIT_SETTLE_MS) au lieu de faire la course avec
-  // l'évènement 'leave-full-screen' — c'est CE correctif-là qui rendait un
-  // 2e clic nécessaire (le setBounds du repli partait parfois trop tôt,
-  // pendant que l'OS finissait encore d'animer la sortie du plein écran, et
-  // restait donc silencieusement sans effet).
+  // Sort du plein écran AVANT tout (2026-08-24, sur demande explicite d'une
+  // session précédente, point 1 — "the sidebar should retract in ONE click
+  // from fullscreen, not two") : `ensureWindowNotFullScreen` impose un délai
+  // de stabilisation FIXE après setFullScreen(false) (voir
+  // FULLSCREEN_EXIT_SETTLE_MS plus haut) avant de continuer.
   ensureWindowNotFullScreen(() => {
     if (currentDisplayMode !== 'sidebar') return; // re-vérifié après la transition (asynchrone)
-    if (sidebarState.pinned) {
-      sidebarState.pinned = false;
+    if (sidebarState.expanded) {
       sidebarState.expanded = false;
-      // Repli en un seul geste NET (2026-08-24) — sidebarSnapToCollapsed
-      // (positionnement direct, pas d'anim de 300ms par-dessus) plutôt
-      // qu'animateSidebarX : depuis le plein écran, l'OS vient déjà d'animer
-      // la sortie ; empiler notre propre glissement dessus aurait paru
-      // saccadé/redondant. Toujours utilisé même hors plein écran (la garde
-      // ci-dessus ne coûte rien dans ce cas), pour un seul comportement.
+      // Repli en un seul geste NET — sidebarSnapToCollapsed (positionnement
+      // direct, pas d'anim de 300ms par-dessus) plutôt qu'animateSidebarX :
+      // depuis le plein écran, l'OS vient déjà d'animer la sortie ; empiler
+      // notre propre glissement dessus aurait paru saccadé/redondant.
+      // Toujours utilisé même hors plein écran (la garde ci-dessus ne coûte
+      // rien dans ce cas), pour un seul comportement.
       sidebarSnapToCollapsed();
     } else {
-      sidebarState.pinned = true;
       sidebarState.expanded = true;
       animateSidebarX(sidebarExpandedX());
     }
@@ -1443,13 +1423,15 @@ ipcMain.handle('sun:forceShow', () => { forceShowMainWindow(); return true; });
 ipcMain.handle('sun:contextMenu', () => { showSunContextMenu(); return true; });
 ipcMain.handle('dashboard:collapseToSun', () => { collapseToSun(); return true; });
 
-// Volet latéral — survol/clic sur la bande de 12px (voir dashboard.js,
-// #sidebarStrip) : ces 3 gestes vivent tous côté process main (seul endroit
-// qui peut réellement déplacer mainWindow), le renderer se contente de
-// relayer les événements souris.
+// Volet latéral — survol (ouvre)/clic (ouvre ou referme, voir
+// sidebarStripClick) sur la bande (voir dashboard.js, #sidebarStrip) : ces 2
+// gestes vivent tous côté process main (seul endroit qui peut réellement
+// déplacer mainWindow), le renderer se contente de relayer les événements
+// souris. PAS de canal "hoverLeave"/fermeture automatique (2026-08-24, sur
+// demande explicite, suite au rapport "survoler la barre des tâches Windows
+// referme le volet") — voir le commentaire au-dessus de sidebarExpand.
 ipcMain.handle('sidebar:hoverEnter', () => { sidebarExpand(); return true; });
-ipcMain.handle('sidebar:hoverLeave', () => { sidebarScheduleCollapse(); return true; });
-ipcMain.handle('sidebar:togglePin', () => { sidebarTogglePin(); return true; });
+ipcMain.handle('sidebar:togglePin', () => { sidebarStripClick(); return true; });
 
 // Modules
 //

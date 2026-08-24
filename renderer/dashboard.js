@@ -1118,21 +1118,25 @@ function initDisplayMode() {
     window.matin.displayMode.sidebarTogglePin().catch(() => {});
   });
 
-  // 'mouseenter'/'mouseleave' ne remontent pas (pas de bulle) — écoutés
-  // directement sur <html> (seul élément couvrant TOUJOURS toute la fenêtre)
-  // plutôt que sur la seule bande #sidebarStrip : repliée, la bande EST tout
-  // ce qui est visible/survolable (le reste est hors écran, voir main.js
+  // 'mouseenter' ne remonte pas (pas de bulle) — écouté directement sur
+  // <html> (seul élément couvrant TOUJOURS toute la fenêtre) plutôt que sur
+  // la seule bande #sidebarStrip : repliée, la bande EST tout ce qui est
+  // visible/survolable (le reste est hors écran, voir main.js
   // enterSidebarMode) donc ça revient au même — mais DÉPLIÉE, l'utilisateur
-  // survole le dashboard entier, pas seulement la bande de 12px devenue une
-  // simple poignée au bord ; sans ce niveau <html>, revenir sur le dashboard
-  // pendant le délai d'1s de sidebarScheduleCollapse n'annulerait pas la
-  // fermeture programmée (voir main.js sidebarExpand). Sans effet hors mode
-  // "sidebar" ou si la bande est épinglée ouverte (gardes côté main.js).
+  // survole le dashboard entier, pas seulement la bande devenue une simple
+  // poignée au bord.
+  //
+  // AUCUN écouteur 'mouseleave'/'blur' ici (2026-08-24, sur demande
+  // explicite, suite au rapport "survoler la barre des tâches Windows
+  // referme le volet") — le volet ne se referme JAMAIS automatiquement en
+  // quittant la fenêtre à la souris (ce qui se produit y compris en
+  // descendant simplement vers la barre des tâches Windows, tout en bas de
+  // l'écran) ni en perdant le focus : seul un clic explicite sur la bande
+  // (déjà câblé plus haut, `strip.addEventListener('click', ...)` →
+  // sidebarTogglePin) referme le volet. Voir main.js sidebarExpand/
+  // sidebarStripClick pour la contrepartie process main de cette règle.
   document.documentElement.addEventListener('mouseenter', () => {
     window.matin.displayMode.sidebarHoverEnter().catch(() => {});
-  });
-  document.documentElement.addEventListener('mouseleave', () => {
-    window.matin.displayMode.sidebarHoverLeave().catch(() => {});
   });
 }
 

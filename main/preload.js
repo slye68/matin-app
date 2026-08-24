@@ -54,7 +54,9 @@ contextBridge.exposeInMainWorld('matin', {
     getSunPosition:   ()     => ipcRenderer.invoke('sun:getPosition'),
     moveSunWindow:    (x, y) => ipcRenderer.send('sun:move', { x, y }),
     sidebarHoverEnter:()     => ipcRenderer.invoke('sidebar:hoverEnter'),
-    sidebarHoverLeave:()     => ipcRenderer.invoke('sidebar:hoverLeave'),
+    // Pas de sidebarHoverLeave (2026-08-24, sur demande explicite — voir
+    // main.js sidebarExpand) : le volet ne se referme plus jamais tout seul
+    // en quittant la fenêtre à la souris, seul sidebarTogglePin (clic) ferme.
     sidebarTogglePin: ()     => ipcRenderer.invoke('sidebar:togglePin'),
     onUpdated:        (cb)   => ipcRenderer.on('displayMode:updated', (_e, mode) => cb(mode)),
   },
