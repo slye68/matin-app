@@ -84,8 +84,21 @@
            date et la barre de recherche — voir .app-greeting dans style.css
            pour le petit espace supplémentaire (16px) qui la sépare de la date. -->
       <span class="app-greeting" id="headerGreeting"></span>
+      <!-- Sync Google Drive (2026-08-21, voir main.js performDriveLaunchSync,
+           dashboard.js initDriveSyncIndicator) — vide/invisible par défaut,
+           affiché 3s par JS après une synchronisation réussie au lancement. -->
+      <span class="drive-sync-indicator" id="driveSyncIndicator"></span>
     </div>
     <div class="titlebar-center">
+      <!-- Réduire en icône flottante (2026-08-23, déplacée le même jour à
+           gauche de la barre de recherche sur demande explicite — vivait
+           avant dans .titlebar-right, à côté de Paramètres) — masquée par
+           défaut, affichée par dashboard.js (initDisplayMode) UNIQUEMENT en
+           mode "floating" ; Échap fait la même chose (voir dashboard.js).
+           "☀️→🔆" (grand soleil → petit soleil) illustre "réduire en icône" ;
+           .titlebar-collapse-btn (voir style.css) porte le gap de 40px vers
+           la barre de recherche et la largeur minimale de 60px. -->
+      <button class="titlebar-btn titlebar-collapse-btn" id="btnCollapseToSun" title="Réduire en icône flottante" style="display:none">☀️→🔆</button>
       <form class="titlebar-search" id="titlebarSearch">
         <button type="submit" class="titlebar-search-icon" title="Rechercher sur Google">🔍</button>
         <input type="text" id="titlebarSearchInput" placeholder="Rechercher sur Google..." autocomplete="off">
@@ -97,6 +110,15 @@
       <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
     </div>
   </header>
+
+  <!-- Volet latéral (2026-08-23, sur demande explicite) — bande de 12px,
+       visible/active UNIQUEMENT en mode "sidebar" (voir style.css,
+       body.display-mode-sidebar .sidebar-strip, et dashboard.js
+       initDisplayMode pour le survol/clic). Position `left`/`right` posée
+       dynamiquement selon app.sidebarEdge — voir le commentaire détaillé sur
+       enterSidebarMode/sidebarExpandedX dans main.js pour la géométrie
+       (contre-intuitif : le bord "right" affiche sa bande à `left:0`). -->
+  <div class="sidebar-strip" id="sidebarStrip"><span class="sidebar-strip-sun">☀️</span></div>
 
   <!-- Popup de confirmation "⊞ Réorganiser" (2026-08-10, 2e révision, sur
        demande explicite) — boutons libellés custom demandés ("Oui,

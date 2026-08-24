@@ -34,7 +34,7 @@ const MODULE_META = {
   crypto:   { label: 'Crypto',       icon: '₿',    requiresGoogle: false,
               linesField: { idKey: 'symbol', idLabel: 'Crypto', idPlaceholder: 'BTC', title: 'Lignes du portefeuille (crypto)', datalist: 'crypto-symbols-datalist' } },
   spotify:  { label: 'Spotify',      icon: '🎵',   requiresGoogle: false },
-  // 6 modules ajoutés en autonomie (2026-08-05, voir OVERNIGHT_LOG.md)
+  // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air', icon: '🌡️', requiresGoogle: false }, // pas de config : réutilise la ville de Météo
   fuelPrices: { label: 'Carburants',  icon: '⛽', requiresGoogle: false,
                 configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' } },
@@ -57,8 +57,10 @@ const MODULE_META = {
   indices:   { label: 'Indices',       icon: '📉', requiresGoogle: false, indicesField: true },
   // 2 modules ajoutés le 2026-08-08 (sur demande explicite)
   podcast: { label: 'Podcasts', icon: '🎙️', requiresGoogle: false, podcastField: true },
-  nasa:    { label: 'Photo du jour NASA', icon: '🌍', requiresGoogle: false,
-             configField: { key: 'apiKey', label: 'Clé API NASA (api.nasa.gov)', placeholder: 'DEMO_KEY' } },
+  // Plus de `configField` (2026-08-24, sur demande explicite) — utilisait la
+  // clé publique DEMO_KEY de NASA en dur désormais (voir nasa.js), aucune clé
+  // à saisir : fonctionne dès l'installation, rien à configurer ici.
+  nasa:    { label: 'Photo du jour NASA', icon: '🌍', requiresGoogle: false },
   // Alertes (2026-08-08, sur demande explicite) — PAS un module carte comme
   // les autres (voir dashboard.js) : reste dans MODULE_META/TAB_MODULE_ORDER
   // pour son toggle global + sa config (département, types), mais son
@@ -2306,6 +2308,7 @@ async function initPersonnaliserSection() {
   const openModal = async () => {
     overlay.classList.add('open');
     await renderPersonnaliserOptions();
+    await renderDisplayModeOptions();
   };
   const closeModal = () => overlay.classList.remove('open');
 
@@ -2335,6 +2338,57 @@ async function renderPersonnaliserOptions() {
       container.querySelectorAll('.personnaliser-option').forEach(b => b.classList.toggle('selected', b === btn));
     });
   });
+}
+
+// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
+// demande explicite) — même popup Personnaliser, section distincte sous la
+// grille de fonds. S'applique instantanément au clic (window.matin.
+// displayMode.set), comme le fond ci-dessus — pas de bouton "Enregistrer"
+// dédié. Voir main.js applyDisplayMode pour l'effet réel (2e fenêtre/
+// repositionnement de mainWindow).
+const DISPLAY_MODE_OPTIONS = [
+  { key: 'fullscreen', emoji: '🖥️', label: 'Plein écran' },
+  { key: 'floating',   emoji: '🌟', label: 'Icône flottante' },
+  { key: 'sidebar',    emoji: '🎭', label: 'Volet latéral' },
+];
+
+async function renderDisplayModeOptions() {
+  const container = document.getElementById('displayModeOptions');
+  const edgeRow = document.getElementById('sidebarEdgeRow');
+  const edgeSelect = document.getElementById('sidebarEdgeSelect');
+  if (!container) return;
+
+  const current = (await window.matin.store.get('app.displayMode')) || 'fullscreen';
+  const currentEdge = (await window.matin.store.get('app.sidebarEdge')) || 'right';
+
+  container.innerHTML = DISPLAY_MODE_OPTIONS.map(opt => `
+    <button type="button" class="display-mode-option ${opt.key === current ? 'selected' : ''}" data-key="${opt.key}">
+      <span class="display-mode-option-icon">${opt.emoji}</span>
+      <span class="display-mode-option-label">${opt.label}</span>
+    </button>`).join('');
+
+  if (edgeSelect) edgeSelect.value = currentEdge;
+  if (edgeRow) edgeRow.style.display = current === 'sidebar' ? 'flex' : 'none';
+
+  container.querySelectorAll('.display-mode-option').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const key = btn.dataset.key;
+      await window.matin.displayMode.set(key);
+      container.querySelectorAll('.display-mode-option').forEach(b => b.classList.toggle('selected', b === btn));
+      if (edgeRow) edgeRow.style.display = key === 'sidebar' ? 'flex' : 'none';
+    });
+  });
+
+  // Écouteur posé une seule fois (dataset.wired) — renderDisplayModeOptions
+  // est appelée à CHAQUE ouverture de la popup (voir openModal ci-dessus),
+  // contrairement à `container` re-généré à chaque fois via innerHTML, ce
+  // <select> statique dans config.html survivrait à un 2e addEventListener.
+  if (edgeSelect && !edgeSelect.dataset.wired) {
+    edgeSelect.dataset.wired = '1';
+    edgeSelect.addEventListener('change', () => {
+      window.matin.displayMode.setSidebarEdge(edgeSelect.value);
+    });
+  }
 }
 
 function updateSpotifyUI(spotifyData, statusOverride) {

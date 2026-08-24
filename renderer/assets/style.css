@@ -208,6 +208,23 @@ html, body {
 }
 .app-greeting:empty { display: none; }
 
+/* Sync Google Drive (2026-08-21, voir main.js/dashboard.js) — masqué par
+   défaut (opacity 0, jamais display:none : garde sa place réservée dans le
+   flex du titlebar pour ne pas faire "sauter" le reste au moment où il
+   apparaît/disparaît). `.visible` posé/retiré par JS (dashboard.js,
+   initDriveSyncIndicator), 3s d'affichage. */
+.drive-sync-indicator {
+  margin-left: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-green);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.drive-sync-indicator.visible { opacity: 1; }
+
 .titlebar-search {
   /* vw et non % : à présent enfant de .titlebar-center (shrink-to-fit, largeur
      non définie), un % s'y résoudrait comme "auto" et ferait perdre le
@@ -291,6 +308,19 @@ body.ultrawide .titlebar-search { width: 40vw; }
 }
 .titlebar-btn:hover {
   background: var(--bg-hover);
+}
+
+/* Réduire en icône flottante (2026-08-23, déplacée le même jour à gauche de
+   la barre de recherche sur demande explicite, voir index.html) — largeur
+   mini 60px pour rester lisible ("☀️→🔆" tient large), marge de 40px avant
+   .titlebar-search (PAS un `gap` sur .titlebar-center, qui s'appliquerait
+   aussi entre les autres enfants de ce conteneur — un seul enfant en a
+   besoin, et seulement d'un côté). */
+.titlebar-collapse-btn {
+  min-width: 60px;
+  text-align: center;
+  margin-right: 40px;
+  flex-shrink: 0;
 }
 
 /* ─── Dashboard : zone libre (glisser-déposer + redimensionnement) ──────── */
@@ -1636,6 +1666,38 @@ body.ultrawide .module-card { max-width: 500px; }
    noir pur (demandé explicitement) — un seul rgba avec R/G abaissés et B
    conservé rend cette teinte directement, sans superposer 2 calques. */
 .brightness-overlay.brightness-nuit { background: rgba(20, 10, 45, 0.35); }
+
+/* ─── Volet latéral (2026-08-23, sur demande explicite) — bande de 20px
+   (12px→20px, 2e révision même jour, sur demande explicite — trop étroite
+   pour viser correctement, voir aussi SIDEBAR_STRIP_WIDTH dans main.js, LA
+   valeur qui compte réellement pour la géométrie de fenêtre ; celle-ci doit
+   rester en phase avec elle purement visuellement),
+   voir index.html #sidebarStrip et dashboard.js initDisplayMode (survol =
+   IPC sidebar:hoverEnter, clic = sidebar:togglePin). `position:fixed` est
+   relatif à LA FENÊTRE, pas à l'écran : quand main.js fait glisser
+   mainWindow (voir enterSidebarMode/animateSidebarX), cette bande glisse
+   avec elle et reste donc TOUJOURS au même bord logique de la fenêtre —
+   d'où le mapping contre-intuitif ci-dessous (edge-right → `left:0`) :
+   repousser une fenêtre ancrée à droite plus loin à droite laisse son bord
+   GAUCHE visible à l'écran (le reste part hors de l'écran physique), c'est
+   donc CE bord-là qui doit porter la bande. Inversement pour edge-left. */
+.sidebar-strip {
+  display: none;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-purple) 100%);
+  cursor: pointer;
+  z-index: 500;
+  -webkit-app-region: no-drag;
+}
+body.display-mode-sidebar .sidebar-strip { display: flex; }
+.sidebar-strip.edge-right { left: 0; }
+.sidebar-strip.edge-left  { right: 0; }
+.sidebar-strip-sun { font-size: 13px; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5)); }
 
 /* ─── Fond personnalisé du dashboard (2026-08-11, sur demande explicite) ────
    Voir "🎨 Personnaliser" dans Paramètres (config.js) + dashboard.js

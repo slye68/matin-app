@@ -15,17 +15,23 @@
  * affichable" uniquement si `media_type` est ni "image" ni "video" avec une
  * URL exploitable (cas non rencontré en pratique, mais l'API ne garantit rien).
  *
- * Clé API : lue depuis config.apiKey (voir Paramètres → onglet Services),
- * pré-remplie par défaut avec NASA_API_KEY (.env) au premier lancement — voir
- * main.js DEFAULT_MODULES. DEMO_KEY (repli NASA si aucune clé) est très
- * limitée (30 req/h, 50/j) : avec un refresh journalier ce n'est un souci que
- * si l'utilisateur vide le champ, d'où un message d'erreur dédié sur 403/429
- * plutôt qu'une erreur générique.
+ * Clé API : DEMO_KEY intégrée en dur (2026-08-24, sur demande explicite —
+ * remplace l'ancien champ `config.apiKey` configurable dans Paramètres →
+ * Services, pré-rempli depuis NASA_API_KEY du .env) : zéro configuration
+ * requise, fonctionne dès l'installation. DEMO_KEY reste limitée (30 req/h,
+ * 50/j) — largement suffisant pour un refresh journalier de ce module, d'où
+ * le message d'erreur dédié sur 403/429 plutôt qu'une erreur générique en cas
+ * de dépassement exceptionnel (quota NASA partagé entre tous les usages de
+ * DEMO_KEY dans le monde, pas seulement cette app).
  */
 window.MatinModules = window.MatinModules || {};
 
 const NASA_REFRESH_MS = 24 * 60 * 60 * 1000;
 const NASA_APOD_URL = 'https://api.nasa.gov/planetary/apod';
+// Clé publique NASA officielle, sans inscription (2026-08-24, sur demande
+// explicite — voir le commentaire d'en-tête) : plus de champ configurable,
+// cette clé est toujours celle utilisée.
+const NASA_DEMO_KEY = 'DEMO_KEY';
 
 // "2026-08-08" → "https://apod.nasa.gov/apod/ap260808.html" (format officiel
 // de la page NASA : ap + AAMMJJ, année sur 2 chiffres) — construit localement
@@ -212,14 +218,8 @@ function nasaRenderFallback(container, onRetry) {
 }
 
 window.MatinModules.nasa = {
-  async render(container, config, _google, setBadge) {
-    const apiKey = (config?.apiKey || '').trim();
-
-    if (!apiKey) {
-      container.innerHTML = `<div class="module-empty">Ajoutez votre clé API NASA dans Paramètres → Services (gratuite sur api.nasa.gov).</div>`;
-      setBadge('—');
-      return;
-    }
+  async render(container, _config, _google, setBadge) {
+    const apiKey = NASA_DEMO_KEY;
 
     // Nouvelle tentative après un délai COURT en cas d'échec (5 min), plutôt
     // que de rester bloqué en erreur jusqu'au refresh planifié suivant (24h,

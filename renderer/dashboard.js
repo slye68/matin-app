@@ -45,7 +45,7 @@ const MODULE_REGISTRY = {
   crypto:   { label: 'Crypto',     icon: '₿',   requiresGoogle: false, defaultSize: { w: 700, h: 420 }, theme: 'finance' }, // auto-refresh géré en interne (voir crypto.js)
   spotify:  { label: 'Spotify',    icon: '🎵',  requiresGoogle: false, defaultSize: { w: 440, h: 320 }, theme: 'musique' }, // auto-refresh géré en interne (voir spotify.js), auth Spotify indépendante de requiresGoogle
   maps:     { label: 'Maps',       icon: '🗺️',  requiresGoogle: false, defaultSize: { w: 300, h: 130 }, theme: 'services' }, // pas d'auto-refresh : pas de données à rafraîchir, juste un champ de recherche
-  // 6 modules ajoutés en autonomie (2026-08-05, voir OVERNIGHT_LOG.md)
+  // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air',   icon: '🌡️', requiresGoogle: false, defaultSize: { w: 300, h: 200 }, refreshMs: 30 * 60 * 1000, theme: 'maison' },
   fuelPrices: { label: 'Carburants',    icon: '⛽', requiresGoogle: false, defaultSize: { w: 360, h: 320 }, refreshMs: 2 * 60 * 60 * 1000, theme: 'services' },
   parcels:    { label: 'Colis',         icon: '📦', requiresGoogle: false, defaultSize: { w: 340, h: 300 }, refreshMs: 60 * 60 * 1000, theme: 'services' },
@@ -1074,6 +1074,68 @@ function initAppBackground() {
   window.matin.background.onUpdated((key) => applyAppBackground(key));
 }
 
+// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
+// demande explicite, voir Paramètres → Personnaliser → "Mode d'affichage")
+// ────────────────────────────────────────────────────────────────────────────
+// Tout le déplacement/masquage RÉEL des fenêtres vit côté process main (voir
+// main.js applyDisplayMode et alentours) — ce module ne fait que : afficher/
+// masquer le bouton "Réduire" + gérer Échap (mode "floating"), et relayer les
+// événements souris de la bande #sidebarStrip vers les IPC dédiés (mode
+// "sidebar"). Aucune position de fenêtre n'est calculée ici.
+function initDisplayMode() {
+  const collapseBtn = document.getElementById('btnCollapseToSun');
+  const strip = document.getElementById('sidebarStrip');
+
+  function applyModeUI(mode) {
+    document.body.classList.toggle('display-mode-sidebar', mode === 'sidebar');
+    document.body.classList.toggle('display-mode-floating', mode === 'floating');
+    if (collapseBtn) collapseBtn.style.display = mode === 'floating' ? 'inline-flex' : 'none';
+  }
+
+  window.matin.store.get('app.displayMode').then((mode) => applyModeUI(mode || 'fullscreen'));
+  window.matin.displayMode.onUpdated((mode) => applyModeUI(mode));
+
+  window.matin.store.get('app.sidebarEdge').then((edge) => {
+    if (!strip) return;
+    const safeEdge = edge === 'left' ? 'left' : 'right';
+    strip.classList.toggle('edge-left', safeEdge === 'left');
+    strip.classList.toggle('edge-right', safeEdge === 'right');
+  });
+
+  collapseBtn?.addEventListener('click', () => {
+    window.matin.displayMode.collapseToSun().catch(err => console.error('[Matin] Échec réduction en icône flottante', err));
+  });
+
+  // Échap réduit en icône flottante (2026-08-23) — collapseToSun() est un
+  // no-op côté main.js hors mode "floating" (voir main.js collapseToSun),
+  // donc pas besoin de vérifier le mode courant ici.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    window.matin.displayMode.collapseToSun().catch(() => {});
+  });
+
+  strip?.addEventListener('click', () => {
+    window.matin.displayMode.sidebarTogglePin().catch(() => {});
+  });
+
+  // 'mouseenter'/'mouseleave' ne remontent pas (pas de bulle) — écoutés
+  // directement sur <html> (seul élément couvrant TOUJOURS toute la fenêtre)
+  // plutôt que sur la seule bande #sidebarStrip : repliée, la bande EST tout
+  // ce qui est visible/survolable (le reste est hors écran, voir main.js
+  // enterSidebarMode) donc ça revient au même — mais DÉPLIÉE, l'utilisateur
+  // survole le dashboard entier, pas seulement la bande de 12px devenue une
+  // simple poignée au bord ; sans ce niveau <html>, revenir sur le dashboard
+  // pendant le délai d'1s de sidebarScheduleCollapse n'annulerait pas la
+  // fermeture programmée (voir main.js sidebarExpand). Sans effet hors mode
+  // "sidebar" ou si la bande est épinglée ouverte (gardes côté main.js).
+  document.documentElement.addEventListener('mouseenter', () => {
+    window.matin.displayMode.sidebarHoverEnter().catch(() => {});
+  });
+  document.documentElement.addEventListener('mouseleave', () => {
+    window.matin.displayMode.sidebarHoverLeave().catch(() => {});
+  });
+}
+
 // ─── Alertes — bandeau plein écran (2026-08-08, sur demande explicite) ─────
 // PAS un module carte : contourne délibérément MODULE_REGISTRY/
 // createModuleCard, voir index.html (#alertsBanner, fixe, au-dessus de
@@ -1186,281 +1248,153 @@ function computeDefaultLayout(keys, containerWidth) {
   return layouts;
 }
 
-// ─── "⊞ Réorganiser" — bin-packing par catégorie (2026-08-10, sur demande
-// explicite) ─────────────────────────────────────────────────────────────
-// Contrairement à computeDefaultLayout ci-dessus (simple empilement en
-// étagères, AUCUNE compaction — une carte plus courte que sa voisine de
-// rangée laisse un vrai trou en dessous), ceci implémente un algorithme de
-// bin-packing "skyline" classique : traite les modules du plus haut au plus
-// bas, et pour chacun cherche la position la plus BASSE possible en balayant
-// l'horizon déjà occupé ("skyline", une liste de segments {x, largeur,
-// hauteur}) plutôt que de simplement continuer la rangée courante — comble
-// activement les creux au lieu de les ignorer.
-//
-// Groupé par CATÉGORIE d'abord (thème réel de chaque carte, lu sur
-// `card.dataset.theme` — pas `MODULE_REGISTRY[key].theme`, qui pour Sports
-// (ol) n'est qu'une valeur de départ avant résolution du sport réel, voir
-// olThemeForSport) : chaque catégorie occupe sa propre "bande" horizontale
-// empilée verticalement, le bin-packing skyline ne s'exécutant QU'À
-// L'INTÉRIEUR d'une bande — garantit que les catégories restent groupées
-// visuellement (demandé explicitement : "Finance together, Actualités
-// together, Sports together") plutôt que mélangées par un bin-packing global
-// qui optimiserait la compaction au détriment du regroupement. Les 3 thèmes
-// de sport (football/basket/other-sports) sont volontairement adjacents dans
-// CATEGORY_ORDER pour former UNE seule bande "Sports" visuelle malgré leurs
-// 3 valeurs de thème distinctes.
+// ─── "⊞ Réorganiser" — remplissage en rangées pleine largeur (2026-08-24,
+// réécriture complète sur demande explicite, remplace l'ancien bin-packing
+// "skyline" par catégorie/colonnes) ─────────────────────────────────────────
+// PRINCIPE UNIQUE, partagé par les 6 styles ci-dessous : chaque module GARDE
+// sa taille ACTUELLE (jamais redimensionné, ni en largeur ni — sauf exception
+// ponctuelle documentée plus bas — en hauteur) et vient simplement se ranger
+// à la SUITE du précédent sur la rangée courante, de gauche à droite ; une
+// nouvelle rangée ne démarre que quand le module suivant ne tient plus dans
+// la largeur restante de la rangée en cours. Aucune grille de colonnes fixe,
+// aucune notion de région/colonne comme l'ancien système : la largeur
+// d'écran est occupée au fil de l'eau par les modules tels qu'ils sont.
+// Les 6 styles nommés (voir AUTOARRANGE_STYLES plus bas) ne diffèrent donc
+// plus QUE par l'ORDRE dans lequel les modules sont fournis à ce remplisseur
+// (+ l'espacement, normal pour 3 d'entre eux / resserré pour les 3
+// "Compact", seul paramètre à varier en dehors du tri) — jamais par une
+// logique de remplissage différente.
 const AUTOARRANGE_CATEGORY_ORDER = [
   'finance', 'football', 'basket', 'other-sports', 'actualites',
   'fdj', 'musique', 'maison', 'services', 'perso',
 ];
 const AUTOARRANGE_GAP = 16;
-
-// Cherche la position la plus basse (puis la plus à gauche en cas d'égalité)
-// où un rectangle de largeur `width` peut se poser sur le skyline actuel.
-// Les positions candidates sont TOUJOURS le début d'un segment existant —
-// suffisant pour un skyline correctement fusionné (voir skylineInsert), pas
-// besoin de tester des positions arbitraires.
-function skylineFindPosition(skyline, width, containerWidth) {
-  let bestY = Infinity, bestX = 0, found = false;
-  for (const segment of skyline) {
-    const startX = segment.x;
-    if (startX + width > containerWidth + 0.5) continue;
-    let y = 0, covered = 0;
-    for (const s of skyline) {
-      if (s.x + s.width <= startX || s.x >= startX + width) continue;
-      y = Math.max(y, s.y);
-      covered += Math.min(s.x + s.width, startX + width) - Math.max(s.x, startX);
-    }
-    if (covered + 0.5 < width) continue; // le skyline s'arrête avant la fin du rectangle
-    if (y < bestY - 0.01 || (Math.abs(y - bestY) < 0.01 && startX < bestX)) {
-      bestY = y; bestX = startX; found = true;
-    }
-  }
-  if (!found) return { x: 0, y: Math.max(...skyline.map(s => s.y)) };
-  return { x: bestX, y: bestY };
-}
-
-// Remplace la portion du skyline couverte par [x, x+width] par un unique
-// nouveau segment à `y` — les segments partiellement recouverts sont
-// tronqués (pas supprimés), jamais étendus au-delà de ce qu'ils couvraient
-// déjà. Fusionne ensuite les segments adjacents de même hauteur : sans ça,
-// le skyline se fragmenterait indéfiniment au fil des insertions, ce qui
-// n'affecterait pas la correction de l'algorithme mais ferait grandir son
-// coût sans raison sur un dashboard à beaucoup de modules.
-function skylineInsert(skyline, x, width, y) {
-  const x2 = x + width;
-  const next = [];
-  for (const seg of skyline) {
-    const segX2 = seg.x + seg.width;
-    if (segX2 <= x || seg.x >= x2) { next.push(seg); continue; }
-    if (seg.x < x) next.push({ x: seg.x, width: x - seg.x, y: seg.y });
-    if (segX2 > x2) next.push({ x: x2, width: segX2 - x2, y: seg.y });
-  }
-  next.push({ x, width, y });
-  next.sort((a, b) => a.x - b.x);
-  const merged = [];
-  for (const seg of next) {
-    const last = merged[merged.length - 1];
-    if (last && Math.abs(last.y - seg.y) < 0.01 && Math.abs(last.x + last.width - seg.x) < 0.5) {
-      last.width += seg.width;
-    } else {
-      merged.push({ ...seg });
-    }
-  }
-  return merged;
-}
-
-// `cardsInfo` : [{ key, width, height, theme }] — tailles ACTUELLES lues sur
-// les cartes réelles (respecte la taille de chaque module, jamais touchée par
-// aucun des styles ci-dessous). Regroupe par catégorie réelle (thème de la
-// carte), 'perso' en repli pour tout thème non listé dans
-// AUTOARRANGE_CATEGORY_ORDER — brique partagée par les 5 styles de
-// disposition (2026-08-10, sur demande explicite, remplace l'unique
-// autoArrangeLayout d'origine).
-function buildCategoryMap(cardsInfo) {
-  const byCategory = new Map(AUTOARRANGE_CATEGORY_ORDER.map(c => [c, []]));
-  for (const info of cardsInfo) {
-    const cat = byCategory.has(info.theme) ? info.theme : 'perso';
-    byCategory.get(cat).push(info);
-  }
-  return byCategory;
-}
-
-// Empile les catégories données (dans l'ordre reçu) en bandes verticales par
-// bin-packing skyline, confiné à une région horizontale [regionX,
-// regionX+regionWidth] plutôt que toute la largeur du conteneur — permet de
-// composer plusieurs colonnes/zones (voir les 5 fonctions autoArrangeLayoutX
-// ci-dessous). Empaqueté en coordonnées LOCALES (0..regionWidth) puis
-// translaté de regionX à la fin, pour réutiliser skylineFindPosition/
-// skylineInsert tels quels (ils supposent un skyline démarrant à x:0).
-// Une carte plus large que sa région (ex. ETF/Crypto, 700px, dans une
-// colonne compacte) n'est JAMAIS rétrécie (la taille des modules doit rester
-// intacte) : skylineFindPosition ne trouvera aucune position valide et
-// retombera sur son repli (x:0 local, sous tout le reste de la région) —
-// dégradation gracieuse acceptée plutôt qu'un système multi-colonnes
-// pleinement "overflow-safe", hors de proportion pour un simple confort de
-// réorganisation.
-function packCategoriesInRegion(byCategory, categories, regionX, regionWidth, startY, gap = AUTOARRANGE_GAP) {
-  const layouts = {};
-  let bandY = startY;
-  for (const cat of categories) {
-    const items = byCategory.get(cat);
-    if (!items || !items.length) continue;
-    const sorted = [...items].sort((a, b) => b.height - a.height);
-    let skyline = [{ x: 0, width: regionWidth, y: bandY }];
-    let bandBottom = bandY;
-    for (const item of sorted) {
-      const { x, y } = skylineFindPosition(skyline, item.width, regionWidth);
-      layouts[item.key] = { x: regionX + x, y, width: item.width, height: item.height, z: 10 };
-      skyline = skylineInsert(skyline, x, item.width, y + item.height + gap);
-      bandBottom = Math.max(bandBottom, y + item.height);
-    }
-    bandY = bandBottom + gap;
-  }
-  return { layouts, bottom: bandY };
-}
-
-// Regroupement nommé utilisé par Éditorial ci-dessous (seul style à isoler
-// une catégorie unique dans sa propre région) — les autres styles retenus
-// dans la réduction à 6 dispositions (2026-08-11) travaillent tous
-// directement sur AUTOARRANGE_CATEGORY_ORDER.
-const AUTOARRANGE_GROUP = {
-  actualites: ['actualites'],
-};
-
-// 6 dispositions nommées (2026-08-11, sur demande explicite — réduit de 5
-// dispositions non nommées A-E à 6 dispositions nommées : 3 "aléatoires"
-// reprises/renommées depuis B/D/E ci-dessous, qui couvraient déjà bien ces 3
-// intentions, + 3 nouvelles "compactes" plus denses, gap réduit — A et C
-// retirées, redondantes avec les autres) — tirées au sort à chaque clic sur
-// "⊞ Réorganiser" (jamais 2 fois de suite la même, voir
-// pickRandomAutoArrangeStyle), chacune respecte le regroupement par catégorie
-// (aucun module ne se retrouve isolé de sa catégorie).
-
-// Prioritaire — Modules prioritaires (ETF, Gmail, Agenda) côte à côte en haut
-// à leur taille réelle, reste du dashboard en bandes classiques pleine
-// largeur en dessous. `remainingByCategory` retire les 3 clés prioritaires de
-// leur groupe pour ne jamais les dupliquer dans la passe du bas.
-const AUTOARRANGE_PRIORITY_KEYS = ['etf', 'gmail', 'calendar'];
-
-function autoArrangeLayoutPrioritaire(cardsInfo, byCategory, containerWidth) {
-  const priorityInfo = AUTOARRANGE_PRIORITY_KEYS
-    .map(key => cardsInfo.find(c => c.key === key))
-    .filter(Boolean);
-
-  const layouts = {};
-  let x = 0, rowBottom = 0;
-  for (const info of priorityInfo) {
-    layouts[info.key] = { x, y: 0, width: info.width, height: info.height, z: 10 };
-    x += info.width + AUTOARRANGE_GAP;
-    rowBottom = Math.max(rowBottom, info.height);
-  }
-  const startY = priorityInfo.length ? rowBottom + AUTOARRANGE_GAP : 0;
-
-  const remainingByCategory = new Map();
-  for (const [cat, items] of byCategory) {
-    remainingByCategory.set(cat, items.filter(i => !AUTOARRANGE_PRIORITY_KEYS.includes(i.key)));
-  }
-  const rRest = packCategoriesInRegion(remainingByCategory, AUTOARRANGE_CATEGORY_ORDER, 0, containerWidth, startY);
-
-  return { ...layouts, ...rRest.layouts };
-}
-
-// Éditorial — Grande zone Actualités à gauche (60% de la largeur), tout le
-// reste empilé en colonne compacte à droite (40%).
-function autoArrangeLayoutEditorial(byCategory, containerWidth) {
-  const leftWidth = Math.round(containerWidth * 0.6) - AUTOARRANGE_GAP / 2;
-  const rightX = leftWidth + AUTOARRANGE_GAP;
-  const rightWidth = containerWidth - rightX;
-  const rightCats = ['finance', 'football', 'basket', 'other-sports', 'fdj', 'musique', 'maison', 'services', 'perso'];
-
-  const rLeft = packCategoriesInRegion(byCategory, AUTOARRANGE_GROUP.actualites, 0, leftWidth, 0);
-  const rRight = packCategoriesInRegion(byCategory, rightCats, rightX, rightWidth, 0);
-  return { ...rLeft.layouts, ...rRight.layouts };
-}
-
-// Équilibré — Disposition symétrique : 3 colonnes égales, catégories
-// réparties en tour de table (round-robin) entre les 3, dans l'ordre
-// AUTOARRANGE_CATEGORY_ORDER.
-function autoArrangeLayoutEquilibre(byCategory, containerWidth) {
-  const colWidth = (containerWidth - AUTOARRANGE_GAP * 2) / 3;
-  const colsX = [0, colWidth + AUTOARRANGE_GAP, (colWidth + AUTOARRANGE_GAP) * 2];
-  const colCats = [[], [], []];
-  AUTOARRANGE_CATEGORY_ORDER.forEach((cat, i) => colCats[i % 3].push(cat));
-
-  let layouts = {};
-  for (let i = 0; i < 3; i++) {
-    const r = packCategoriesInRegion(byCategory, colCats[i], colsX[i], colWidth, 0);
-    layouts = { ...layouts, ...r.layouts };
-  }
-  return layouts;
-}
-
-// Gap réduit pour les 3 dispositions "compactes" ci-dessous — c'est ce qui
-// les distingue avant tout des 3 "aléatoires" : moins d'espace perdu entre
-// les cartes, dashboard plus dense verticalement.
 const AUTOARRANGE_GAP_COMPACT = 8;
 
-// Compact Thèmes — une seule colonne pleine largeur, catégories empilées en
-// bandes successives dans AUTOARRANGE_CATEGORY_ORDER, gap resserré : la
-// disposition la plus dense en largeur (chaque bande profite de toute la
-// largeur disponible pour son bin-packing).
-function autoArrangeLayoutCompactThemes(byCategory, containerWidth) {
-  const r = packCategoriesInRegion(byCategory, AUTOARRANGE_CATEGORY_ORDER, 0, containerWidth, 0, AUTOARRANGE_GAP_COMPACT);
-  return r.layouts;
-}
+// Remplisseur en rangées — LE seul algorithme de placement, utilisé par les 6
+// styles. `cardsInfo` doit déjà être dans l'ordre voulu (voir les fonctions
+// autoArrangeOrderX plus bas) ; ce remplisseur ne trie rien lui-même, il se
+// contente d'empiler dans l'ordre reçu.
+//
+// Alignement des bas de rangée (dernier point demandé) : une fois une rangée
+// posée, les modules à hauteur FIXE (jamais ceux à hauteur auto — voir
+// isAutoHeightKey, leur hauteur réelle suit toujours leur contenu, l'imposer
+// ici casserait leur affichage) dont la hauteur est déjà PROCHE de la plus
+// haute de leur rangée (tolérance ci-dessous) sont étirés pour matcher
+// exactement — un alignement visuel propre pour des voisins presque égaux,
+// jamais un redimensionnement arbitraire de modules de tailles franchement
+// différentes (ex. jamais une carte de 120px étirée à 400px).
+const AUTOARRANGE_ROW_ALIGN_TOLERANCE_RATIO = 0.1;
+const AUTOARRANGE_ROW_ALIGN_TOLERANCE_MIN = 20;
 
-// Compact Colonnes — 4 colonnes étroites (contre 3 pour Équilibré), mêmes
-// catégories réparties en tour de table, gap resserré : plus de colonnes +
-// gap réduit = hauteur totale généralement plus courte qu'Équilibré.
-function autoArrangeLayoutCompactColonnes(byCategory, containerWidth) {
-  const colCount = 4;
-  const colWidth = (containerWidth - AUTOARRANGE_GAP_COMPACT * (colCount - 1)) / colCount;
-  const colsX = Array.from({ length: colCount }, (_, i) => i * (colWidth + AUTOARRANGE_GAP_COMPACT));
-  const colCats = Array.from({ length: colCount }, () => []);
-  AUTOARRANGE_CATEGORY_ORDER.forEach((cat, i) => colCats[i % colCount].push(cat));
+function packModulesIntoRows(orderedCardsInfo, containerWidth, gap) {
+  const rows = [];
+  let currentRow = [];
+  let rowWidth = 0;
+  for (const info of orderedCardsInfo) {
+    const nextWidth = currentRow.length ? rowWidth + gap + info.width : info.width;
+    if (currentRow.length && nextWidth > containerWidth) {
+      rows.push(currentRow);
+      currentRow = [];
+      rowWidth = 0;
+    }
+    currentRow.push(info);
+    rowWidth = currentRow.length === 1 ? info.width : rowWidth + gap + info.width;
+  }
+  if (currentRow.length) rows.push(currentRow);
 
-  let layouts = {};
-  for (let i = 0; i < colCount; i++) {
-    const r = packCategoriesInRegion(byCategory, colCats[i], colsX[i], colWidth, 0, AUTOARRANGE_GAP_COMPACT);
-    layouts = { ...layouts, ...r.layouts };
+  const layouts = {};
+  let y = 0;
+  for (const row of rows) {
+    const rowMaxHeight = Math.max(...row.map(i => i.height));
+    const tolerance = Math.max(AUTOARRANGE_ROW_ALIGN_TOLERANCE_MIN, rowMaxHeight * AUTOARRANGE_ROW_ALIGN_TOLERANCE_RATIO);
+    let x = 0;
+    for (const info of row) {
+      const closeEnough = (rowMaxHeight - info.height) <= tolerance;
+      const height = (!isAutoHeightKey(info.key) && closeEnough) ? rowMaxHeight : info.height;
+      layouts[info.key] = { x, y, width: info.width, height, z: 10 };
+      x += info.width + gap;
+    }
+    y += rowMaxHeight + gap;
   }
   return layouts;
 }
 
-// Compact Mosaïque — 2 colonnes larges, catégories assignées PAR ORDRE DE
-// HAUTEUR DÉCROISSANTE (pas round-robin) à la colonne actuellement la plus
-// courte (bin-packing glouton classique pour équilibrer une mise en page
-// masonry) : les 2 colonnes finissent à une hauteur proche l'une de l'autre,
-// contrairement à Compact Colonnes où l'assignation est fixe.
-function autoArrangeLayoutCompactMosaique(byCategory, containerWidth) {
-  const colCount = 2;
-  const colWidth = (containerWidth - AUTOARRANGE_GAP_COMPACT * (colCount - 1)) / colCount;
-  const colsX = Array.from({ length: colCount }, (_, i) => i * (colWidth + AUTOARRANGE_GAP_COMPACT));
-  const colCats = Array.from({ length: colCount }, () => []);
-  const colHeight = Array.from({ length: colCount }, () => 0);
+// Tri stable par catégorie (thème réel de chaque carte, lu sur
+// `card.dataset.theme` — pas `MODULE_REGISTRY[key].theme`, qui pour Sports
+// (ol) n'est qu'une valeur de départ avant résolution du sport réel, voir
+// olThemeForSport) : les modules d'une même catégorie restent groupés et
+// gardent leur ordre relatif d'origine (tri stable — garanti par le moteur
+// JS des versions de Chromium/Node utilisées par Electron ici). Tout thème
+// absent de `order` retombe en fin de liste (même rang que 'perso', déjà en
+// dernière position dans AUTOARRANGE_CATEGORY_ORDER).
+function sortByCategoryOrder(cardsInfo, order) {
+  const rank = new Map(order.map((cat, i) => [cat, i]));
+  return [...cardsInfo].sort((a, b) => {
+    const ra = rank.has(a.theme) ? rank.get(a.theme) : order.length;
+    const rb = rank.has(b.theme) ? rank.get(b.theme) : order.length;
+    return ra - rb;
+  });
+}
 
-  const catTotalHeight = new Map();
-  for (const cat of AUTOARRANGE_CATEGORY_ORDER) {
-    const items = byCategory.get(cat) || [];
-    catTotalHeight.set(cat, items.reduce((sum, it) => sum + it.height, 0));
-  }
-  const sortedCats = [...AUTOARRANGE_CATEGORY_ORDER]
-    .filter(cat => (byCategory.get(cat) || []).length)
-    .sort((a, b) => catTotalHeight.get(b) - catTotalHeight.get(a));
+// 6 styles nommés — chacun fournit un ORDRE différent (voir principe unique
+// en tête de section), jamais une logique de placement différente.
 
-  for (const cat of sortedCats) {
-    const shortest = colHeight.indexOf(Math.min(...colHeight));
-    colCats[shortest].push(cat);
-    colHeight[shortest] += catTotalHeight.get(cat) + AUTOARRANGE_GAP_COMPACT;
-  }
+// Prioritaire — ETF/Gmail/Agenda passent en tête de liste (se retrouvent
+// donc naturellement sur la 1re rangée, à leur taille réelle), le reste suit
+// dans l'ordre de catégorie standard.
+const AUTOARRANGE_PRIORITY_KEYS = ['etf', 'gmail', 'calendar'];
+function autoArrangeOrderPrioritaire(cardsInfo) {
+  const priority = AUTOARRANGE_PRIORITY_KEYS
+    .map(key => cardsInfo.find(c => c.key === key))
+    .filter(Boolean);
+  const rest = cardsInfo.filter(c => !AUTOARRANGE_PRIORITY_KEYS.includes(c.key));
+  return [...priority, ...sortByCategoryOrder(rest, AUTOARRANGE_CATEGORY_ORDER)];
+}
 
-  let layouts = {};
-  for (let i = 0; i < colCount; i++) {
-    const r = packCategoriesInRegion(byCategory, colCats[i], colsX[i], colWidth, 0, AUTOARRANGE_GAP_COMPACT);
-    layouts = { ...layouts, ...r.layouts };
+// Éditorial — Actualités en tête (se retrouve donc en haut du dashboard),
+// reste des catégories dans l'ordre standard ensuite.
+const AUTOARRANGE_ORDER_EDITORIAL = ['actualites', ...AUTOARRANGE_CATEGORY_ORDER.filter(c => c !== 'actualites')];
+function autoArrangeOrderEditorial(cardsInfo) {
+  return sortByCategoryOrder(cardsInfo, AUTOARRANGE_ORDER_EDITORIAL);
+}
+
+// Équilibré — ordre de catégorie standard tel quel, référence "neutre" des 6.
+function autoArrangeOrderEquilibre(cardsInfo) {
+  return sortByCategoryOrder(cardsInfo, AUTOARRANGE_CATEGORY_ORDER);
+}
+
+// Compact Thèmes — ordre de catégorie INVERSÉ (perso/services/maison en tête
+// au lieu de Finance) + espacement resserré (voir AUTOARRANGE_GAP_COMPACT
+// dans AUTOARRANGE_GAP_FOR_STYLE) : variante dense, ordre de lecture opposé
+// à Équilibré.
+const AUTOARRANGE_ORDER_COMPACT_THEMES = [...AUTOARRANGE_CATEGORY_ORDER].reverse();
+function autoArrangeOrderCompactThemes(cardsInfo) {
+  return sortByCategoryOrder(cardsInfo, AUTOARRANGE_ORDER_COMPACT_THEMES);
+}
+
+// Compact Colonnes — encore un autre ordre de catégorie (Finance/Actualités
+// en tête, Sports au milieu, vie perso en fin) + espacement resserré :
+// 3e permutation distincte, pour une vraie variété entre les 3 styles
+// "Compact" au-delà du seul espacement.
+const AUTOARRANGE_ORDER_COMPACT_COLONNES = ['finance', 'actualites', 'football', 'basket', 'other-sports', 'services', 'maison', 'fdj', 'musique', 'perso'];
+function autoArrangeOrderCompactColonnes(cardsInfo) {
+  return sortByCategoryOrder(cardsInfo, AUTOARRANGE_ORDER_COMPACT_COLONNES);
+}
+
+// Compact Mosaïque — catégories triées par hauteur TOTALE décroissante
+// (reprend l'esprit de l'ancienne colonne "Mosaïque" — équilibrer par
+// taille — mais comme un simple critère de TRI alimentant le même
+// remplisseur en rangées, plus une répartition en colonnes séparée) : les
+// catégories les plus volumineuses passent en premier.
+function autoArrangeOrderCompactMosaique(cardsInfo) {
+  const totalByCat = new Map();
+  for (const info of cardsInfo) {
+    const cat = AUTOARRANGE_CATEGORY_ORDER.includes(info.theme) ? info.theme : 'perso';
+    totalByCat.set(cat, (totalByCat.get(cat) || 0) + info.height);
   }
-  return layouts;
+  const order = [...AUTOARRANGE_CATEGORY_ORDER].sort((a, b) => (totalByCat.get(b) || 0) - (totalByCat.get(a) || 0));
+  return sortByCategoryOrder(cardsInfo, order);
 }
 
 const AUTOARRANGE_STYLES = ['prioritaire', 'editorial', 'equilibre', 'compact-themes', 'compact-colonnes', 'compact-mosaique'];
@@ -1471,6 +1405,25 @@ const AUTOARRANGE_STYLE_LABELS = {
   'compact-themes': 'Compact Thèmes',
   'compact-colonnes': 'Compact Colonnes',
   'compact-mosaique': 'Compact Mosaïque',
+};
+const AUTOARRANGE_ORDER_FN = {
+  prioritaire: autoArrangeOrderPrioritaire,
+  editorial: autoArrangeOrderEditorial,
+  equilibre: autoArrangeOrderEquilibre,
+  'compact-themes': autoArrangeOrderCompactThemes,
+  'compact-colonnes': autoArrangeOrderCompactColonnes,
+  'compact-mosaique': autoArrangeOrderCompactMosaique,
+};
+// Seul paramètre (avec le tri) à varier entre styles — voir le principe
+// unique en tête de section : les 3 "Compact" gardent leur espacement
+// resserré historique, les 3 autres l'espacement normal.
+const AUTOARRANGE_GAP_FOR_STYLE = {
+  prioritaire: AUTOARRANGE_GAP,
+  editorial: AUTOARRANGE_GAP,
+  equilibre: AUTOARRANGE_GAP,
+  'compact-themes': AUTOARRANGE_GAP_COMPACT,
+  'compact-colonnes': AUTOARRANGE_GAP_COMPACT,
+  'compact-mosaique': AUTOARRANGE_GAP_COMPACT,
 };
 let lastAutoArrangeStyle = null;
 
@@ -1484,98 +1437,12 @@ function pickRandomAutoArrangeStyle() {
   return pick;
 }
 
-function computeAutoArrangeLayout(style, cardsInfo, byCategory, containerWidth) {
-  switch (style) {
-    case 'prioritaire':        return autoArrangeLayoutPrioritaire(cardsInfo, byCategory, containerWidth);
-    case 'editorial':          return autoArrangeLayoutEditorial(byCategory, containerWidth);
-    case 'equilibre':          return autoArrangeLayoutEquilibre(byCategory, containerWidth);
-    case 'compact-themes':     return autoArrangeLayoutCompactThemes(byCategory, containerWidth);
-    case 'compact-colonnes':   return autoArrangeLayoutCompactColonnes(byCategory, containerWidth);
-    case 'compact-mosaique':   return autoArrangeLayoutCompactMosaique(byCategory, containerWidth);
-    default:                   return autoArrangeLayoutEquilibre(byCategory, containerWidth);
-  }
-}
-
-// ─── Tenir sur un seul écran (2026-08-11, sur demande explicite) ───────────
-// Les 6 dispositions ci-dessus n'ont jamais tenu compte de la hauteur
-// disponible : chaque catégorie empile ses bandes vers le bas sans limite,
-// ce qui produit une page de plus en plus longue (et un scroll systématique)
-// dès que le nombre de modules dépasse ce qui tenait par hasard dans la
-// fenêtre. Plutôt que de réécrire les 6 fonctions ci-dessus (qui gèrent
-// chacune leur propre logique de regroupement/colonnes), une passe de
-// RÉTRÉCISSEMENT GLOBAL itère par-dessus : recalcule la même disposition
-// avec des cartes proportionnellement plus petites jusqu'à ce que tout tienne
-// dans `containerHeight`, ou jusqu'à un plancher de sécurité (0.35) — au-delà
-// duquel on abandonne et on l'assume clairement (voir le texte de la notice
-// dans performAutoArrange) plutôt que de continuer à rétrécir jusqu'à
-// l'illisible.
-//
-// Rétrécir change aussi la RÉPARTITION horizontale : des cartes plus
-// étroites laissent le bin-packing skyline en poser davantage côte à côte
-// dans la même largeur de conteneur — le remplissage horizontal ET vertical
-// demandé est donc satisfait par ce seul mécanisme, sans logique séparée.
-const AUTOARRANGE_PRIORITY_SIZE_KEYS = ['etf', 'weather', 'gmail', 'calendar'];
-const AUTOARRANGE_LOW_PRIORITY_SIZE_KEYS = ['fdjLoto', 'fdjEuromillions', 'fdjEurodreams', 'fuelPrices', 'maps'];
-
-// Plancher par module, en proportion de sa taille ACTUELLE (pas de son
-// defaultSize — un module déjà agrandi manuellement doit rétrécir depuis SA
-// taille, pas revenir arbitrairement à une valeur d'usine). Modules
-// prioritaires : ne descendent quasiment pas (0.8, "reste lisible"). Modules
-// secondaires cités explicitement : peuvent moitié-fondre (0.5). Tout le
-// reste : compromis raisonnable (0.65).
-function autoArrangeSizeRatioFor(key) {
-  if (AUTOARRANGE_PRIORITY_SIZE_KEYS.includes(key)) return 0.8;
-  if (AUTOARRANGE_LOW_PRIORITY_SIZE_KEYS.includes(key)) return 0.5;
-  return 0.65;
-}
-
-// Construit un jeu de cardsInfo à l'échelle `scale`, chaque carte plafonnée à
-// son propre plancher (voir autoArrangeSizeRatioFor) et au plancher ABSOLU de
-// l'appli (MIN_WIDTH/MIN_HEIGHT, celui déjà utilisé par le redimensionnement
-// manuel à la souris — jamais une carte plus petite que ça où que ce soit).
-// Hauteur JAMAIS réduite pour les modules à hauteur auto (ETF/Crypto/FDJ/
-// Prêts, voir isAutoHeightKey) : leur vraie hauteur suit leur contenu
-// (placeCard n'applique jamais de height inline pour ces clés) — un chiffre
-// plus petit ici ne rétrécirait pas la carte réelle, seulement le calcul de
-// place réservée par le bin-packing, ce qui provoquerait un chevauchement
-// visuel avec la carte suivante.
-function scaledCardsInfo(cardsInfo, scale) {
-  return cardsInfo.map(info => {
-    const ratio = autoArrangeSizeRatioFor(info.key);
-    const minWidth = Math.max(MIN_WIDTH, Math.round(info.width * ratio));
-    const width = Math.max(minWidth, Math.round(info.width * scale));
-    let height = info.height;
-    if (!isAutoHeightKey(info.key)) {
-      const minHeight = Math.max(MIN_HEIGHT, Math.round(info.height * ratio));
-      height = Math.max(minHeight, Math.round(info.height * scale));
-    }
-    return { ...info, width, height };
-  });
-}
-
-// Boucle de convergence : recalcule la disposition à une échelle de plus en
-// plus petite tant que ça déborde de `containerHeight`, jusqu'à 6 passes
-// (largement suffisant en pratique — la topologie du bin-packing ne change
-// pas radicalement d'une passe à l'autre) ou jusqu'au plancher de sécurité.
-// Le facteur `* 0.96` évite d'osciller pile autour de la limite (viser
-// légèrement EN DESSOUS de containerHeight à chaque passe converge plus vite
-// qu'un ajustement pile exact, qui peut re-déborder d'un pixel après
-// arrondi et boucler inutilement jusqu'à la limite d'itérations).
-function computeFittedAutoArrangeLayout(style, cardsInfo, containerWidth, containerHeight) {
-  const MAX_ITER = 6;
-  const MIN_SCALE = 0.35;
-  let scale = 1;
-  let layouts = {};
-  let maxBottom = 0;
-  for (let i = 0; i < MAX_ITER; i++) {
-    const info = scaledCardsInfo(cardsInfo, scale);
-    const byCategory = buildCategoryMap(info);
-    layouts = computeAutoArrangeLayout(style, info, byCategory, containerWidth);
-    maxBottom = Object.values(layouts).reduce((max, l) => Math.max(max, l.y + l.height), 0);
-    if (maxBottom <= containerHeight || scale <= MIN_SCALE) break;
-    scale = Math.max(MIN_SCALE, scale * (containerHeight / maxBottom) * 0.96);
-  }
-  return { layouts, fits: maxBottom <= containerHeight, moduleCount: cardsInfo.length };
+// Point d'entrée unique : trie `cardsInfo` selon le style demandé, puis le
+// passe TEL QUEL (tailles inchangées) au remplisseur en rangées commun.
+function computeAutoArrangeLayout(style, cardsInfo, containerWidth) {
+  const orderFn = AUTOARRANGE_ORDER_FN[style] || autoArrangeOrderEquilibre;
+  const gap = AUTOARRANGE_GAP_FOR_STYLE[style] ?? AUTOARRANGE_GAP;
+  return packModulesIntoRows(orderFn(cardsInfo), containerWidth, gap);
 }
 
 function bringToFront(card) {
@@ -1678,11 +1545,11 @@ function dashboardContentBounds(dashboard) {
 }
 
 // Décale tous les `x` d'un jeu de dispositions déjà calculé (voir
-// computeDefaultLayout/computeFittedAutoArrangeLayout, tous deux calculés en
+// computeDefaultLayout/computeAutoArrangeLayout, tous deux calculés en
 // coordonnées LOCALES 0..containerWidth) du décalage gauche de la zone de
 // contenu — post-traitement plutôt que de faire transiter l'offset à travers
-// chaque algorithme de disposition (Prioritaire/Éditorial/Équilibré/Compact
-// *), plus simple et sans risque de régression sur leur logique interne.
+// le remplisseur en rangées, plus simple et sans risque de régression sur sa
+// logique interne.
 function shiftLayoutsX(layouts, offsetX) {
   if (!offsetX) return layouts;
   const shifted = {};
@@ -1980,6 +1847,31 @@ function initPreciseScrolling() {
   }, { passive: false });
 }
 
+// ─── Sync Google Drive — indicateur titlebar (2026-08-21, voir main.js
+// performDriveLaunchSync/scheduleDriveUploadAfterChange) ───────────────────
+// Purement cosmétique : la synchronisation elle-même tourne entièrement côté
+// process main, ce code ne fait qu'afficher "✓ Données synchronisées" 3s
+// quand elle réussit. `getLastStatus()` rattrape une sync déjà terminée avant
+// que cet écouteur soit posé (voir preload.js) ; `onStatus` couvre le reste
+// de la session (rare en pratique, la sync de lancement ne se déclenche
+// qu'une fois par démarrage — voir main.js).
+function initDriveSyncIndicator() {
+  const el = document.getElementById('driveSyncIndicator');
+  if (!el || !window.matin.driveSync) return;
+
+  let hideTimer = null;
+  const showFor3s = (status) => {
+    if (!status || status.type !== 'synced') return;
+    el.textContent = '✓ Données synchronisées';
+    el.classList.add('visible');
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => el.classList.remove('visible'), 3000);
+  };
+
+  window.matin.driveSync.getLastStatus().then(showFor3s).catch(() => {});
+  window.matin.driveSync.onStatus(showFor3s);
+}
+
 // ─── Init dashboard ───────────────────────────────────────────────────────────
 async function initDashboard() {
   // Démarré EN PREMIER, avant tout await : son horloge de 2.5s tourne pendant
@@ -1990,9 +1882,11 @@ async function initDashboard() {
   updateHeaderDate();
   updateHeaderGreeting();
   initTitlebarSearch();
+  initDriveSyncIndicator();
   initAutoBrightness();
   initThemeSync();
   initAppBackground();
+  initDisplayMode();
   initAlertsBanner();
   initPreciseScrolling();
 
@@ -2155,20 +2049,27 @@ async function initDashboard() {
 
     // `dashboard.clientHeight` = hauteur RÉELLEMENT visible sans scroll (pas
     // `canvas`/#dashboardCanvas, qui lui grandit à l'infini par conception,
-    // voir updateCanvasHeight) — c'est la vraie contrainte "tenir sur un
-    // écran" demandée, pas une valeur arbitraire.
+    // voir updateCanvasHeight) — sert UNIQUEMENT au texte informatif de la
+    // notice ci-dessous (scroll nécessaire ou non), plus à rétrécir quoi que
+    // ce soit (2026-08-24, réécriture complète — les modules gardent
+    // TOUJOURS leur taille actuelle, voir computeAutoArrangeLayout/
+    // packModulesIntoRows) : si le résultat dépasse la hauteur visible, la
+    // page défile, un point c'est tout.
     const { left: contentLeft, width: containerWidth } = dashboardContentBounds(dashboard);
     const containerHeight = dashboard.clientHeight || 800;
     const style = pickRandomAutoArrangeStyle();
-    const { layouts: rawLayouts, fits, moduleCount } = computeFittedAutoArrangeLayout(style, cardsInfo, containerWidth, containerHeight);
+    const rawLayouts = computeAutoArrangeLayout(style, cardsInfo, containerWidth);
     const newLayouts = shiftLayoutsX(rawLayouts, contentLeft);
     applyAutoArrangeLayouts(cards, newLayouts);
+
+    const maxBottom = Object.values(rawLayouts).reduce((max, l) => Math.max(max, l.y + l.height), 0);
+    const fits = maxBottom <= containerHeight;
 
     const notice = document.getElementById('autoArrangeNotice');
     if (notice) {
       const text = document.getElementById('autoArrangeNoticeText');
       const fitLabel = fits
-        ? `${moduleCount} modules affichés sur 1 page`
+        ? `${cardsInfo.length} modules affichés sur 1 page`
         : 'Scroll nécessaire — trop de modules actifs';
       if (text) text.textContent = `✓ Disposition « ${AUTOARRANGE_STYLE_LABELS[style]} » — ${fitLabel}`;
       notice.classList.add('show');

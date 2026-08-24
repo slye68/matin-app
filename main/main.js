@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
@@ -79,7 +79,7 @@ const DEFAULT_MODULES = {
   crypto:   { enabled: false, position: 7, config: { lines: [] } },
   spotify:  { enabled: false, position: 11, config: {} },
   maps:     { enabled: true,  position: 8, config: {} },
-  // 6 modules ajoutés en autonomie (2026-08-05, voir OVERNIGHT_LOG.md) —
+  // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md) —
   // enabled:true seulement pour ceux qui fonctionnent sans configuration
   // préalable (aucune clé/adresse/appairage à saisir), même convention que
   // les modules existants (ex. calendar/gmail/crypto désactivés par défaut
@@ -145,11 +145,10 @@ const DEFAULT_MODULES = {
   indices:   { enabled: true,  position: 18, config: { selected: ['^FCHI', '^GSPC'] } },
   // 2 modules ajoutés le 2026-08-08 (sur demande explicite).
   podcast: { enabled: true, position: 19, config: { feeds: [] } },
-  // `apiKey` pré-rempli depuis NASA_API_KEY (.env) au tout premier lancement
-  // (installations existantes : comblé par backfillMissingModules ci-dessous,
-  // même mécanisme que tout nouveau module) — modifiable ensuite dans
-  // Paramètres → Services sans toucher au fichier .env.
-  nasa:    { enabled: true, position: 20, config: { apiKey: process.env.NASA_API_KEY || '' } },
+  // Clé API NASA (2026-08-24, sur demande explicite) — DEMO_KEY intégrée en
+  // dur côté nasa.js, plus de champ `apiKey` à configurer : fonctionne
+  // immédiatement, sans .env ni réglage dans Paramètres.
+  nasa:    { enabled: true, position: 20, config: {} },
   // Alertes (2026-08-08, sur demande explicite) — PAS un module carte comme
   // les autres (voir dashboard.js, contourne délibérément MODULE_REGISTRY/
   // createModuleCard) : un bandeau plein écran au-dessus de tout, visible
@@ -248,6 +247,15 @@ const store = new Store({
       // `app` déjà présent sur disque, même limite que les autres champs de
       // ce bloc) est traité comme 'none' côté renderer (dashboard.js).
       background: 'none',
+      // Mode d'affichage (2026-08-23, sur demande explicite — voir
+      // "🎨 Personnaliser" → section "Mode d'affichage") — même limite
+      // d'`defaults` que `background` ci-dessus sur une installation
+      // existante : chaque lecture retombe sur ces mêmes valeurs via `|| ...`
+      // plutôt que de compter sur ce bloc pour les combler. Voir
+      // applyDisplayMode/createSunWindow/enterSidebarMode plus bas.
+      displayMode: 'fullscreen',
+      floatingSunPosition: null,
+      sidebarEdge: 'right',
     }
   }
 });
@@ -312,6 +320,7 @@ function setMergedModules(modules) {
   }
   safeStoreSet('modules', configPart);
   userdataStore.set('modules', userdataPart);
+  scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas — point 3 de la demande, upload silencieux différé
 }
 
 // ─── Sauvegarde de secours avant chaque écriture ───────────────────────────────
@@ -692,6 +701,30 @@ function titleBarColorsForTheme(theme) {
 let mainWindow;
 let configWindow;
 
+// ─── Modes d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
+// demande explicite, voir "🎨 Personnaliser" → section "Mode d'affichage")
+// ────────────────────────────────────────────────────────────────────────────
+// `sunWindow` : 2e BrowserWindow, minuscule/sans cadre/transparente, utilisée
+// UNIQUEMENT en mode "floating" (voir showSunWindow) — n'existe pas tant que
+// ce mode n'a jamais été activé, recréée à la demande plutôt que gardée
+// cachée en permanence.
+let sunWindow = null;
+let currentDisplayMode = 'fullscreen';
+// Bornes de `mainWindow` sauvegardées juste avant d'entrer en mode "sidebar"
+// (voir enterSidebarMode/exitSidebarMode) — permet de les restaurer telles
+// quelles à la sortie, sans dépendre de `app.windowBounds` qui continue par
+// ailleurs de suivre le dernier redimensionnement "normal" de la fenêtre.
+let preSidebarBounds = null;
+const SIDEBAR_STRIP_WIDTH = 20; // 12px→20px (2026-08-23, sur demande explicite — trop étroit pour viser correctement)
+const SUN_WINDOW_SIZE = 60;
+const sidebarState = {
+  edge: 'right',
+  pinned: false,
+  expanded: false,
+  collapseTimer: null,
+  animTimer: null,
+};
+
 function createMainWindow() {
   const bounds = store.get('app.windowBounds');
   const theme = store.get('app.theme') || 'dark';
@@ -720,15 +753,25 @@ function createMainWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
+  // Mode d'affichage restauré tout de suite, AVANT le premier `show()`
+  // (2026-08-23) — pose déjà les bornes "sidebar" collapsées ou masque le
+  // dashboard (mode "floating") avant que showOnce ci-dessous ne rende quoi
+  // que ce soit visible, pour éviter un flash de la fenêtre pleine taille au
+  // lancement. Voir applyDisplayMode plus bas.
+  applyDisplayMode(store.get('app.displayMode') || 'fullscreen');
+
   // Filet de sécurité : 'ready-to-show' ne se déclenche pas de façon fiable
   // dans certains environnements (observé sans crash ni erreur associée) —
   // on force l'affichage après un court délai si l'événement n'est jamais
   // arrivé, pour ne jamais laisser la fenêtre invisible indéfiniment.
+  // `currentDisplayMode` lu au moment du show (pas figé à l'appel) : en mode
+  // "floating" c'est le soleil flottant qui doit apparaître à sa place, pas
+  // le dashboard (voir applyDisplayMode/showSunWindow).
   let shown = false;
   const showOnce = () => {
     if (shown) return;
     shown = true;
-    mainWindow.show();
+    if (currentDisplayMode !== 'floating') mainWindow.show();
   };
   mainWindow.once('ready-to-show', showOnce);
   setTimeout(showOnce, 2000);
@@ -741,6 +784,12 @@ function createMainWindow() {
   });
 
   mainWindow.on('resize', () => {
+    // Ignoré en mode "sidebar" (2026-08-23) : enterSidebarMode redimensionne
+    // la fenêtre à la hauteur pleine de l'écran pour le volet — sans cette
+    // garde, cette taille "sidebar" écraserait app.windowBounds (la taille
+    // "normale" restaurée en mode plein écran, voir preSidebarBounds/
+    // exitSidebarMode) au lieu de la préserver.
+    if (currentDisplayMode === 'sidebar') return;
     const [width, height] = mainWindow.getSize();
     safeStoreSet('app.windowBounds', { width, height });
   });
@@ -770,9 +819,22 @@ function createConfigWindow() {
   const color = '#1a3040';
   const symbolColor = '#ffffff';
 
+  // Hauteur adaptative (2026-08-23, sur demande explicite) — 900px fixe
+  // dépassait la zone de travail sur un 14" 1920×1080 avec mise à l'échelle
+  // Windows 125-150% (hauteur logique effective ~700-865px) : la fenêtre
+  // s'ouvrait rognée, une partie (souvent le bouton Enregistrer) hors écran.
+  // min(800, 90% de la zone de travail de l'écran où se trouve mainWindow)
+  // — jamais plus que nécessaire, jamais plus que l'espace réellement
+  // disponible. `resizable: true` (inchangé) laisse l'utilisateur agrandir
+  // manuellement au-delà si besoin.
+  const workArea = (mainWindow && !mainWindow.isDestroyed()
+    ? screen.getDisplayMatching(mainWindow.getBounds())
+    : screen.getPrimaryDisplay()).workAreaSize;
+  const configHeight = Math.round(Math.min(800, workArea.height * 0.9));
+
   configWindow = new BrowserWindow({
     width: 800,
-    height: 900,
+    height: configHeight,
     minWidth: 640,
     minHeight: 500,
     resizable: true,
@@ -796,6 +858,442 @@ function createConfigWindow() {
   configWindow.loadFile(path.join(__dirname, '../renderer/config.html'));
   configWindow.once('ready-to-show', () => configWindow.show());
   configWindow.on('closed', () => { configWindow = null; });
+}
+
+// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
+// demande explicite) ─────────────────────────────────────────────────────────
+// Point d'entrée UNIQUE pour changer de mode (appelé au lancement avec la
+// valeur restaurée du store, ET à chaque changement depuis Personnaliser) —
+// nettoie toujours l'ancien mode avant d'appliquer le nouveau, jamais de
+// chevauchement (ex. fenêtre sidebar encore alwaysOnTop en repassant en
+// plein écran).
+function applyDisplayMode(mode) {
+  const previousMode = currentDisplayMode;
+  const safeMode = ['floating', 'sidebar'].includes(mode) ? mode : 'fullscreen';
+  currentDisplayMode = safeMode;
+
+  if (previousMode === 'sidebar' && safeMode !== 'sidebar') exitSidebarMode();
+  if (previousMode === 'floating' && safeMode !== 'floating' && sunWindow && !sunWindow.isDestroyed()) {
+    sunWindow.hide();
+  }
+
+  if (safeMode === 'floating') {
+    // mainWindow doit TOUJOURS déjà exister ici (2026-08-23, sur demande
+    // explicite, point 4) — cette fonction n'est appelée qu'au lancement
+    // (depuis createMainWindow, APRÈS `mainWindow = new BrowserWindow(...)`,
+    // voir plus haut) ou depuis app:setDisplayMode (IPC atteignable
+    // uniquement via la fenêtre Paramètres, elle-même enfant de mainWindow —
+    // donc jamais avant que mainWindow n'existe). On ne fait donc QUE la
+    // masquer ici, jamais la (re)créer : la recréer serait redondant dans le
+    // cas normal, et dans le cas anormal (détruite entre-temps) c'est
+    // expandFromSun/forceShowMainWindow, pas ce chemin, qui doit la
+    // reconstruire — voir leurs commentaires plus bas.
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+    showSunWindow();
+  } else if (safeMode === 'sidebar') {
+    if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
+    // mainWindow doit être VISIBLE en mode "sidebar" (2026-08-23, correctif
+    // — même s'il ne reste qu'une bande de 20px à l'écran une fois repliée,
+    // voir enterSidebarMode) : sans ce `.show()`, venir du mode "floating"
+    // (où elle est cachée) laisserait la fenêtre invisible malgré un
+    // repositionnement réussi — repéré en testant la bascule floating→sidebar.
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+    enterSidebarMode();
+  } else {
+    if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
+    // `previousMode !== safeMode` : ne force PAS `.show()` au tout premier
+    // appel (lancement, mainWindow pas encore affichée une 1re fois — voir
+    // createMainWindow, showOnce reste seul responsable de ce 1er affichage,
+    // sans quoi le flash blanc que `show:false`+'ready-to-show' évite
+    // habituellement réapparaîtrait).
+    if (previousMode !== safeMode && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('displayMode:updated', safeMode);
+  }
+}
+
+// ── Icône flottante ─────────────────────────────────────────────────────────
+function showSunWindow() {
+  if (sunWindow && !sunWindow.isDestroyed()) {
+    console.log('[Matin] showSunWindow — réutilise la fenêtre existante');
+    sunWindow.show();
+    return;
+  }
+  console.log('[Matin] showSunWindow — création d\'une nouvelle fenêtre soleil');
+
+  const saved = store.get('app.floatingSunPosition');
+  const display = screen.getPrimaryDisplay();
+  const defaultX = display.workArea.x + display.workArea.width - SUN_WINDOW_SIZE - 24;
+  const defaultY = display.workArea.y + display.workArea.height - SUN_WINDOW_SIZE - 24;
+
+  sunWindow = new BrowserWindow({
+    width: SUN_WINDOW_SIZE,
+    height: SUN_WINDOW_SIZE,
+    x: Number.isFinite(saved?.x) ? saved.x : defaultX,
+    y: Number.isFinite(saved?.y) ? saved.y : defaultY,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    // Toujours visible par-dessus tout, y compris d'autres fenêtres
+    // "always-on-top" classiques (voir aussi setAlwaysOnTop plus bas, niveau
+    // 'screen-saver' — sans ça un lecteur vidéo ou une autre appli en mode
+    // plein écran pourrait la recouvrir).
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  sunWindow.setAlwaysOnTop(true, 'screen-saver');
+  sunWindow.loadFile(path.join(__dirname, '../renderer/sun.html'));
+  sunWindow.once('ready-to-show', () => {
+    console.log('[Matin] sunWindow ready-to-show');
+    sunWindow.show();
+  });
+  sunWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription) => {
+    console.error('[Matin] sunWindow did-fail-load', errorCode, errorDescription);
+  });
+  sunWindow.webContents.on('console-message', (_e, level, message) => {
+    // Relaie la console DevTools de sunWindow (pas ouverte par défaut — pas
+    // de --dev dédié pour cette petite fenêtre) vers la console du process
+    // main, seule visible dans les logs `npm run dev` (2026-08-23, ajouté
+    // pour diagnostiquer le rapport "cliquer sur le soleil ne fait rien").
+    console.log('[Matin/sun console]', message);
+  });
+
+  // Position sauvegardée après chaque glisser-déposer (2026-08-23) — 'moved'
+  // se déclenche en rafale pendant le drag, d'où le debounce (300ms sans
+  // nouveau mouvement) plutôt qu'une écriture disque à chaque pixel.
+  let moveSaveTimer = null;
+  sunWindow.on('moved', () => {
+    clearTimeout(moveSaveTimer);
+    moveSaveTimer = setTimeout(() => {
+      if (!sunWindow || sunWindow.isDestroyed()) return;
+      const [x, y] = sunWindow.getPosition();
+      safeStoreSet('app.floatingSunPosition', { x, y });
+    }, 300);
+  });
+  sunWindow.on('closed', () => { sunWindow = null; });
+}
+
+function expandFromSun() {
+  if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    // Filet de sécurité (2026-08-23, sur demande explicite, suite au rapport
+    // "cliquer sur le soleil ne fait rien") — ne devrait normalement jamais
+    // arriver : createMainWindow() construit TOUJOURS mainWindow avant son
+    // propre appel à applyDisplayMode (voir plus bas), donc le mode
+    // "floating" ne tourne jamais sans mainWindow déjà créée. Si elle a
+    // quand même disparu (fermée/détruite entre-temps), la recréer plutôt
+    // que de laisser l'utilisateur bloqué avec seulement le soleil à
+    // l'écran et aucun moyen d'ouvrir le dashboard.
+    forceShowMainWindow();
+    return;
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// Filet de secours INCONDITIONNEL (2026-08-23, sur demande explicite, point
+// 5) — appelé par expandFromSun ci-dessus (mainWindow manquante) ET par le
+// double-clic sur le soleil (voir sun.js/preload.js sun:forceShow) : force
+// l'affichage de mainWindow quel que soit l'état courant (mode, fenêtre
+// détruite...), sans dépendre d'un clic simple qui aurait pu rester sans
+// effet. Recrée mainWindow si besoin, puis réaffirme l'affichage une 2e fois
+// après un court délai — nécessaire car createMainWindow() réapplique
+// applyDisplayMode(mode courant du store) en interne, qui recacherait
+// aussitôt une fenêtre tout juste recréée si ce mode est encore "floating" ;
+// ce 2e appel, plus tardif, a toujours le dernier mot.
+function forceShowMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+  }
+  if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
+
+  const forceShow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+  };
+  forceShow();
+  setTimeout(forceShow, 400);
+}
+
+// Menu contextuel du soleil flottant (2026-08-23, sur demande explicite) —
+// construit et affiché depuis le process main (seul endroit où l'API Menu
+// est disponible ; sun.html se contente de relayer l'événement contextmenu,
+// voir sun.js). "Ouvrir Matin" réutilise EXACTEMENT le même chemin que le
+// clic simple (expandFromSun, avec son propre filet de sécurité ci-dessus).
+function showSunContextMenu() {
+  const menu = Menu.buildFromTemplate([
+    { label: 'Ouvrir Matin', click: () => expandFromSun() },
+    { type: 'separator' },
+    { label: 'Quitter', click: () => app.quit() },
+  ]);
+  if (sunWindow && !sunWindow.isDestroyed()) {
+    menu.popup({ window: sunWindow });
+  }
+}
+
+function collapseToSun() {
+  // Ignoré hors mode "floating" (ex. Échap pressée par réflexe alors que
+  // l'utilisateur est repassé en plein écran entre-temps) — voir
+  // dashboard.js initDisplayMode, qui appelle ceci sans vérifier le mode
+  // lui-même, cette garde est la seule protection réelle.
+  if (currentDisplayMode !== 'floating') return;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  showSunWindow();
+}
+
+// ── Volet latéral ────────────────────────────────────────────────────────────
+// Le "glissement" est une VRAIE fenêtre qu'on repositionne (mainWindow.
+// setBounds en boucle, voir animateSidebarX) — pas une transition CSS : la
+// position OS d'une BrowserWindow ne peut pas être animée en CSS. Seule sa
+// largeur reste constante pendant toute l'animation ; seul `x` bouge, entre
+// une position "collapsed" (12px visibles, le reste hors de l'écran physique)
+// et une position "expanded" (fenêtre entière visible, alignée sur le bord
+// choisi). Les 2 côtés (gauche/droite) restent symétriques par construction :
+// voir sidebarExpandedX/sidebarCollapsedX.
+// Filet obligatoire avant TOUT positionnement manuel de mainWindow en mode
+// "sidebar" (2026-08-23, correctif suite au rapport "cliquer sur la bande ne
+// referme pas le volet en plein écran") — une fenêtre en VRAI plein écran OS
+// (mainWindow.isFullScreen()) ignore silencieusement setBounds/setPosition :
+// tenter de la faire glisser sans en sortir d'abord ne fait donc RIEN, d'où
+// le symptôme rapporté. `unmaximize()` couvre au passage le cas voisin
+// (maximisée via le bouton natif ☐ du titleBarOverlay) — moins strict que
+// isFullScreen() mais setBounds s'y comporte tout aussi mal en pratique.
+//
+// `MIN_SETTLE_MS` (2026-08-24, correctif — un 2e clic restait nécessaire
+// pour réduire depuis le plein écran) : 'leave-full-screen' peut se
+// déclencher AVANT que l'OS n'ait fini d'animer le retour en fenêtré — un
+// setBounds lancé à ce moment-là reste silencieusement sans effet, exactement
+// comme si la fenêtre était encore en plein écran.Plutôt qu'une course
+// "premier arrivé, premier servi" entre l'évènement et le filet, on impose
+// désormais un délai MINIMUM garanti depuis l'appel à setFullScreen(false),
+// peu importe quand l'évènement arrive — pour ne plus jamais dépendre du
+// timing exact de l'animation OS.
+const FULLSCREEN_EXIT_SETTLE_MS = 300;
+function ensureWindowNotFullScreen(callback) {
+  if (!mainWindow || mainWindow.isDestroyed()) { callback(); return; }
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  if (!mainWindow.isFullScreen()) { callback(); return; }
+
+  const startedAt = Date.now();
+  let done = false;
+  const runOnce = () => {
+    if (done) return;
+    done = true;
+    const remaining = Math.max(0, FULLSCREEN_EXIT_SETTLE_MS - (Date.now() - startedAt));
+    setTimeout(callback, remaining);
+  };
+  mainWindow.once('leave-full-screen', runOnce);
+  mainWindow.setFullScreen(false);
+  // Filet si l'évènement ne se déclenche jamais (même principe que showOnce
+  // dans createMainWindow), avec une marge au-delà de FULLSCREEN_EXIT_SETTLE_MS.
+  setTimeout(runOnce, FULLSCREEN_EXIT_SETTLE_MS + 200);
+}
+
+// Fait glisser mainWindow vers sa position "collapsed" (bande visible) —
+// factorisé (2026-08-24) car appelé à la fois par enterSidebarMode (1re
+// entrée en mode "sidebar") et par sidebarTogglePin (clic sur la bande) :
+// les 2 doivent produire EXACTEMENT le même résultat, `ensureWindowNotFullScreen`
+// compris, pour qu'un plein écran hérité de n'importe où se réduise en un
+// seul geste peu importe son origine.
+function sidebarSnapToCollapsed() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!preSidebarBounds) preSidebarBounds = mainWindow.getBounds();
+  const { workArea } = screen.getDisplayMatching(mainWindow.getBounds());
+  const winWidth = preSidebarBounds.width;
+
+  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  const collapsedX = sidebarState.edge === 'right'
+    ? workArea.x + workArea.width - SIDEBAR_STRIP_WIDTH
+    : workArea.x - (winWidth - SIDEBAR_STRIP_WIDTH);
+  mainWindow.setBounds({
+    x: Math.round(collapsedX),
+    y: workArea.y,
+    width: winWidth,
+    height: workArea.height,
+  });
+}
+
+function enterSidebarMode() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  sidebarState.edge = store.get('app.sidebarEdge') || 'right';
+  sidebarState.pinned = false;
+  sidebarState.expanded = false;
+  clearTimeout(sidebarState.collapseTimer);
+  clearInterval(sidebarState.animTimer);
+  sidebarState.collapseTimer = null;
+  sidebarState.animTimer = null;
+
+  if (!preSidebarBounds) preSidebarBounds = mainWindow.getBounds();
+
+  // Le mode "sidebar" implique désormais le plein écran (2026-08-24, sur
+  // demande explicite, point 2 — "default to fullscreen when sidebar mode is
+  // activated" + "on next app launch... start fullscreen then slide") : son
+  // état "de base" est TOUJOURS mainWindow en VRAI plein écran OS, que ce
+  // soit ici (activation depuis Personnaliser) ou au lancement (voir
+  // applyDisplayMode, qui appelle cette même fonction dans les 2 cas). On
+  // l'y met, on laisse l'ENTRÉE en plein écran se stabiliser (même
+  // justification que FULLSCREEN_EXIT_SETTLE_MS ci-dessus, mais dans l'autre
+  // sens), puis on la fait immédiatement glisser vers l'état "réduit" via
+  // EXACTEMENT le même chemin que le clic sur la bande (ensureWindowNotFullScreen
+  // + sidebarSnapToCollapsed) — un seul comportement partagé, jamais 2
+  // implémentations séparées du même geste.
+  mainWindow.setFullScreen(true);
+  setTimeout(() => {
+    ensureWindowNotFullScreen(sidebarSnapToCollapsed);
+  }, FULLSCREEN_EXIT_SETTLE_MS);
+}
+
+function exitSidebarMode() {
+  clearTimeout(sidebarState.collapseTimer);
+  clearInterval(sidebarState.animTimer);
+  sidebarState.collapseTimer = null;
+  sidebarState.animTimer = null;
+  sidebarState.pinned = false;
+  sidebarState.expanded = false;
+
+  // Sort du plein écran AVANT de restaurer les bornes normales (2026-08-24) —
+  // même raison que partout ailleurs dans ce fichier : setBounds resterait
+  // sans effet si l'état "déplié" hérité du mode "sidebar" était encore le
+  // vrai plein écran OS au moment de basculer vers un AUTRE mode d'affichage.
+  ensureWindowNotFullScreen(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setAlwaysOnTop(false);
+      if (preSidebarBounds) mainWindow.setBounds(preSidebarBounds);
+    }
+    preSidebarBounds = null;
+  });
+}
+
+function sidebarExpandedX() {
+  const { workArea } = screen.getDisplayMatching(mainWindow.getBounds());
+  const winWidth = mainWindow.getBounds().width;
+  return sidebarState.edge === 'right'
+    ? workArea.x + workArea.width - winWidth
+    : workArea.x;
+}
+
+function sidebarCollapsedX() {
+  const { workArea } = screen.getDisplayMatching(mainWindow.getBounds());
+  const winWidth = mainWindow.getBounds().width;
+  return sidebarState.edge === 'right'
+    ? workArea.x + workArea.width - SIDEBAR_STRIP_WIDTH
+    : workArea.x - (winWidth - SIDEBAR_STRIP_WIDTH);
+}
+
+// Anime `mainWindow` vers `targetX` en ~300ms (ease-out cubique) — seul `x`
+// change à chaque pas, `y`/largeur/hauteur restent ceux du pas précédent
+// (jamais recalculés ici) pour ne jamais déclencher l'événement 'resize' de
+// mainWindow pendant l'anim (voir la garde `currentDisplayMode === 'sidebar'`
+// sur ce même événement plus haut — redondant mais volontaire, aucune des 2
+// protections ne doit être LA seule).
+function animateSidebarX(targetX) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  clearInterval(sidebarState.animTimer);
+
+  const startBounds = mainWindow.getBounds();
+  const startX = startBounds.x;
+  const distance = targetX - startX;
+  if (distance === 0) return;
+
+  const durationMs = 300;
+  const stepMs = 16;
+  const steps = Math.max(1, Math.round(durationMs / stepMs));
+  let step = 0;
+
+  sidebarState.animTimer = setInterval(() => {
+    step++;
+    const t = Math.min(1, step / steps);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const x = Math.round(startX + distance * eased);
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      clearInterval(sidebarState.animTimer);
+      sidebarState.animTimer = null;
+      return;
+    }
+    mainWindow.setBounds({ x, y: startBounds.y, width: startBounds.width, height: startBounds.height });
+    if (t >= 1) {
+      clearInterval(sidebarState.animTimer);
+      sidebarState.animTimer = null;
+    }
+  }, stepMs);
+}
+
+function sidebarExpand() {
+  if (currentDisplayMode !== 'sidebar') return;
+  // `clearTimeout` AVANT le early-return "déjà ouvert" (2026-08-23, correctif) —
+  // sinon un survol qui revient PENDANT le délai d'1s de sidebarScheduleCollapse
+  // (fenêtre encore visuellement ouverte, `expanded` toujours true à ce
+  // moment-là) ressortait immédiatement sans annuler le minuteur en cours, et
+  // le volet se refermait quand même 1s plus tard sous le curseur.
+  clearTimeout(sidebarState.collapseTimer);
+  sidebarState.collapseTimer = null;
+  if (sidebarState.expanded) return;
+  sidebarState.expanded = true;
+  animateSidebarX(sidebarExpandedX());
+}
+
+// Appelé quand le curseur quitte la fenêtre (voir dashboard.js, mouseleave
+// sur <html>) — n'effectue rien tant que la fenêtre est épinglée ouverte
+// (voir sidebarTogglePin), reporté de 1s à chaque nouvel appel pour laisser
+// le temps à l'utilisateur de revenir sans provoquer un clignotement.
+function sidebarScheduleCollapse() {
+  if (currentDisplayMode !== 'sidebar' || sidebarState.pinned) return;
+  clearTimeout(sidebarState.collapseTimer);
+  sidebarState.collapseTimer = setTimeout(() => {
+    sidebarState.collapseTimer = null;
+    sidebarState.expanded = false;
+    animateSidebarX(sidebarCollapsedX());
+  }, 1000);
+}
+
+function sidebarTogglePin() {
+  if (currentDisplayMode !== 'sidebar') return;
+  clearTimeout(sidebarState.collapseTimer);
+  sidebarState.collapseTimer = null;
+
+  // Sort du plein écran AVANT tout (2026-08-24, sur demande explicite,
+  // point 1 — "the sidebar should retract in ONE click from fullscreen, not
+  // two") : c'est le clic sur la bande qui était rapporté cassé en plein
+  // écran. `ensureWindowNotFullScreen` impose désormais un délai de
+  // stabilisation FIXE après setFullScreen(false) (voir sa définition plus
+  // haut, FULLSCREEN_EXIT_SETTLE_MS) au lieu de faire la course avec
+  // l'évènement 'leave-full-screen' — c'est CE correctif-là qui rendait un
+  // 2e clic nécessaire (le setBounds du repli partait parfois trop tôt,
+  // pendant que l'OS finissait encore d'animer la sortie du plein écran, et
+  // restait donc silencieusement sans effet).
+  ensureWindowNotFullScreen(() => {
+    if (currentDisplayMode !== 'sidebar') return; // re-vérifié après la transition (asynchrone)
+    if (sidebarState.pinned) {
+      sidebarState.pinned = false;
+      sidebarState.expanded = false;
+      // Repli en un seul geste NET (2026-08-24) — sidebarSnapToCollapsed
+      // (positionnement direct, pas d'anim de 300ms par-dessus) plutôt
+      // qu'animateSidebarX : depuis le plein écran, l'OS vient déjà d'animer
+      // la sortie ; empiler notre propre glissement dessus aurait paru
+      // saccadé/redondant. Toujours utilisé même hors plein écran (la garde
+      // ci-dessus ne coûte rien dans ce cas), pour un seul comportement.
+      sidebarSnapToCollapsed();
+    } else {
+      sidebarState.pinned = true;
+      sidebarState.expanded = true;
+      animateSidebarX(sidebarExpandedX());
+    }
+  });
 }
 
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
@@ -833,6 +1331,7 @@ ipcMain.handle('backups:restore', (_e, file) => {
   } else {
     store.store = data;
   }
+  scheduleDriveUploadAfterChange(); // restauration manuelle = changement de donnée local, voir Sync Google Drive plus bas
   if (mainWindow) mainWindow.reload();
   return true;
 });
@@ -884,6 +1383,73 @@ ipcMain.handle('app:setBackground', (_e, background) => {
   }
   return true;
 });
+
+// Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur demande
+// explicite, voir "🎨 Personnaliser" → section "Mode d'affichage" et
+// applyDisplayMode/enterSidebarMode/showSunWindow plus haut) — même
+// mécanisme instantané que app:setBackground ci-dessus (store + notification
+// au dashboard), avec en plus l'effet de bord réel (masquer/repositionner
+// des BrowserWindow) que ipcMain.handle('store:set', ...) seul ne ferait pas.
+ipcMain.handle('app:setDisplayMode', (_e, mode) => {
+  const safeMode = ['floating', 'sidebar'].includes(mode) ? mode : 'fullscreen';
+  safeStoreSet('app.displayMode', safeMode);
+  applyDisplayMode(safeMode);
+  return true;
+});
+
+ipcMain.handle('app:setSidebarEdge', (_e, edge) => {
+  const safeEdge = edge === 'left' ? 'left' : 'right';
+  safeStoreSet('app.sidebarEdge', safeEdge);
+  if (currentDisplayMode === 'sidebar') {
+    sidebarState.edge = safeEdge;
+    animateSidebarX(sidebarState.expanded ? sidebarExpandedX() : sidebarCollapsedX());
+  }
+  return true;
+});
+
+// Glisser-déposer du soleil (2026-08-23, 2e correctif — voir sun.js/
+// sun.html : plus de -webkit-app-region: drag, tout le déplacement passe par
+// ces 2 canaux). `sun:move` en `.on` (fire-and-forget) plutôt que `.handle` —
+// appelé à CHAQUE mousemove pendant un glisser, une réponse attendue à
+// chaque appel ajouterait une latence perceptible sans aucune utilité (le
+// renderer n'a besoin d'aucun retour).
+ipcMain.handle('sun:getPosition', () => {
+  if (sunWindow && !sunWindow.isDestroyed()) {
+    const [x, y] = sunWindow.getPosition();
+    return { x, y };
+  }
+  return { x: 0, y: 0 };
+});
+ipcMain.on('sun:move', (_e, pos) => {
+  if (!sunWindow || sunWindow.isDestroyed()) return;
+  const x = Math.round(pos?.x);
+  const y = Math.round(pos?.y);
+  if (Number.isFinite(x) && Number.isFinite(y)) sunWindow.setPosition(x, y);
+});
+
+// Appelé par sun.html (clic sur le soleil) et par le dashboard (bouton
+// "Réduire"/Échap, voir dashboard.js initDisplayMode) — 2 fenêtres
+// distinctes, d'où ces 2 canaux dédiés plutôt qu'un simple store:set.
+ipcMain.handle('sun:expand', () => {
+  console.log('[Matin] IPC sun:expand reçu — currentDisplayMode =', currentDisplayMode, ', mainWindow =', !!mainWindow, ', destroyed =', mainWindow?.isDestroyed());
+  expandFromSun();
+  return true;
+});
+// Double-clic sur le soleil (2026-08-23, sur demande explicite, point 5) —
+// voir forceShowMainWindow plus haut : marche MÊME si le clic simple
+// ci-dessus est resté sans effet, aucune condition de mode/état.
+ipcMain.handle('sun:forceShow', () => { forceShowMainWindow(); return true; });
+// Clic droit sur le soleil (2026-08-23, sur demande explicite, point 3).
+ipcMain.handle('sun:contextMenu', () => { showSunContextMenu(); return true; });
+ipcMain.handle('dashboard:collapseToSun', () => { collapseToSun(); return true; });
+
+// Volet latéral — survol/clic sur la bande de 12px (voir dashboard.js,
+// #sidebarStrip) : ces 3 gestes vivent tous côté process main (seul endroit
+// qui peut réellement déplacer mainWindow), le renderer se contente de
+// relayer les événements souris.
+ipcMain.handle('sidebar:hoverEnter', () => { sidebarExpand(); return true; });
+ipcMain.handle('sidebar:hoverLeave', () => { sidebarScheduleCollapse(); return true; });
+ipcMain.handle('sidebar:togglePin', () => { sidebarTogglePin(); return true; });
 
 // Modules
 //
@@ -956,7 +1522,10 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
   }
   if (configChanged || userdataChanged) backupStoreBeforeWrite();
   if (configChanged) store.set('modules', configCurrent);
-  if (userdataChanged) userdataStore.set('modules', userdataCurrent);
+  if (userdataChanged) {
+    userdataStore.set('modules', userdataCurrent);
+    scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas
+  }
   return true;
 });
 
@@ -1851,8 +2420,14 @@ ipcMain.handle('google:logout', () => {
 // Renvoie un accessToken garanti valide — rafraîchit via refreshToken si le
 // token stocké a expiré (durée de vie standard Google : 1h). Sans ça, tout
 // appel aux API Calendar/Gmail échoue en 401 dès que la session dépasse 1h.
+// Extraite en fonction nommée (2026-08-21, pour le Sync Google Drive plus
+// bas) : `performDriveLaunchSync`/`scheduleDriveUploadAfterChange` ont
+// besoin du MÊME token garanti valide, sans passer par un aller-retour IPC
+// vers son propre process (ipcMain.handle n'est appelable que depuis un
+// renderer) — `ipcMain.handle('google:getValidToken', ...)` délègue
+// maintenant à cette fonction plutôt que de dupliquer sa logique.
 const TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
-ipcMain.handle('google:getValidToken', async () => {
+async function getValidGoogleToken() {
   const current = store.get('google');
   if (!current?.accessToken) return current;
 
@@ -1878,7 +2453,8 @@ ipcMain.handle('google:getValidToken', async () => {
     if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', null);
     return null;
   }
-});
+}
+ipcMain.handle('google:getValidToken', getValidGoogleToken);
 
 // Spotify OAuth — store séparé de Google (voir spotify-oauth.js), même schéma
 // de rafraîchissement automatique du token.
@@ -1926,6 +2502,231 @@ ipcMain.handle('spotify:getValidToken', async () => {
     return null;
   }
 });
+
+// ─── Sync Google Drive — sauvegarde/restauration automatique de matin-userdata
+// (2026-08-21, sur demande explicite) ───────────────────────────────────────
+// Synchronise UNIQUEMENT `userdataStore` (voir USERDATA_MODULE_KEYS/
+// matin-userdata plus haut : ETF, Crypto, Prêts, les 3 modules FDJ, Podcasts,
+// Rappels) — jamais `store`/matin-config (tokens OAuth, position de fenêtre,
+// disposition des cartes, thème...), qui reste strictement local à CETTE
+// installation. Stocké dans le dossier caché "appDataFolder" de Drive (scope
+// `drive.appdata`, voir google-oauth.js) : invisible dans le Drive normal de
+// l'utilisateur, lisible/écrivable UNIQUEMENT par Matin, jamais par une autre
+// appli ni consultable manuellement sur drive.google.com.
+//
+// AUCUNE toggle Paramètres dédiée : la synchronisation suit simplement l'état
+// de connexion Google déjà existant (connecté = synchronise, déconnecté =
+// ignore silencieusement, point 6 de la demande) — cohérent avec le fait que
+// Calendar/Gmail/Tâches/Anniversaires/YouTube fonctionnent déjà de la même
+// façon, sans interrupteur séparé.
+const DRIVE_FILE_NAME = 'matin-userdata.json';
+const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
+
+// Pousse un événement au dashboard pour l'indicateur "✓ Données synchronisées"
+// (voir index.html/dashboard.js, .drive-sync-indicator) — mémorisé aussi dans
+// `lastDriveSyncStatus` pour le cas où le dashboard n'a pas encore fini de
+// charger/enregistrer son écouteur au moment où la sync de lancement termine
+// (course possible : la sync réseau peut techniquement se terminer avant que
+// le renderer ait exécuté son DOMContentLoaded, même si peu probable vu la
+// latence réseau en jeu) — `driveSync:getLastStatus` (IPC ci-dessous) permet
+// au dashboard de rattraper un statut manqué au premier rendu.
+let lastDriveSyncStatus = null;
+function notifyDriveSync(status) {
+  lastDriveSyncStatus = { ...status, at: Date.now() };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('drive:syncStatus', lastDriveSyncStatus);
+  }
+}
+ipcMain.handle('driveSync:getLastStatus', () => lastDriveSyncStatus);
+
+// Recherche le fichier matin-userdata.json dans appDataFolder (il n'y a qu'un
+// seul fichier de ce nom possible côté Matin, mais Drive n'empêche pas
+// techniquement les doublons de nom — `files[0]` suffit ici, jamais créé
+// plus d'une fois par ce code). `null` si absent (1er lancement avec ce
+// compte, ou appData jamais initialisée).
+async function driveFindUserdataFile(accessToken) {
+  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const url = `${DRIVE_API_BASE}/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`Drive (recherche) ${res.status}`);
+  const data = await res.json();
+  return (data.files && data.files[0]) || null;
+}
+
+async function driveDownloadUserdata(accessToken, fileId) {
+  const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Drive (téléchargement) ${res.status}`);
+  return res.json();
+}
+
+// Crée le fichier (multipart, seul moyen de poser `parents`/`name` en même
+// temps que le contenu) s'il n'existe pas encore (`fileId` absent), sinon
+// remplace juste son contenu (media seul, `name`/`parents` ne changent
+// jamais après création). Pas de dépendance `form-data` : le corps multipart
+// est construit à la main, format simple et stable (2 parties, JSON pur des
+// deux côtés).
+async function driveUploadUserdata(accessToken, fileId) {
+  const content = JSON.stringify(userdataStore.store);
+
+  if (fileId) {
+    const res = await fetch(`${DRIVE_UPLOAD_BASE}/files/${fileId}?uploadType=media&fields=id,modifiedTime`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: content,
+    });
+    if (res.status === 404) return driveUploadUserdata(accessToken, null); // fileId caché périmé (supprimé côté Drive) — recrée
+    if (!res.ok) throw new Error(`Drive (envoi) ${res.status}`);
+    return res.json();
+  }
+
+  const boundary = 'matin-drive-sync-boundary';
+  const metadata = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
+    `--${boundary}--`;
+  const res = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,modifiedTime`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!res.ok) throw new Error(`Drive (création) ${res.status}`);
+  return res.json();
+}
+
+// Remplace `userdataStore` par le contenu téléchargé — tolère un fichier
+// distant qui serait déjà `{ modules: {...} }` (format normal, ce que ce
+// code écrit) ou, par prudence, un objet `modules` nu (jamais écrit par ce
+// code mais coûte rien à accepter). `backupStoreBeforeWrite` avant
+// d'écraser, comme tout autre remplacement complet du store dans ce fichier
+// (voir backups:restore). Pousse `modules:updated` pour un re-rendu en
+// place — PAS de `mainWindow.reload()` (contrairement à backups:restore,
+// une action manuelle explicite) : une restauration automatique au
+// lancement doit rester invisible/silencieuse (point 3 de la demande),
+// jamais un rechargement de page perceptible.
+function driveApplyDownloadedUserdata(data) {
+  if (!data || typeof data !== 'object') return;
+  const modules = data.modules && typeof data.modules === 'object' ? data.modules : data;
+  backupStoreBeforeWrite();
+  userdataStore.set('modules', modules);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('modules:updated', getMergedModules());
+  }
+}
+
+// Upload silencieux de l'état ACTUEL de matin-userdata — utilisé à la fois
+// par la sync de lancement (aucune version distante, ou version locale plus
+// récente) et par le debounce déclenché après chaque changement de donnée
+// (voir scheduleDriveUploadAfterChange plus bas). Jamais de notifyDriveSync
+// ici : silencieux par design (point 3 de la demande), seule la sync de
+// LANCEMENT affiche l'indicateur (point 4).
+async function driveUploadCurrent(accessToken) {
+  let fileId = store.get('driveSync.fileId') || null;
+  const result = await driveUploadUserdata(accessToken, fileId);
+  store.set('driveSync.fileId', result.id);
+  return result;
+}
+
+// ─── Upload différé après changement de donnée (point 3 de la demande) ─────
+// Debounce avec plafond dur : coalesce les écritures rapprochées (plusieurs
+// champs modifiés en quelques secondes dans Paramètres) en UN seul upload,
+// tout en garantissant qu'il parte au plus tard 30s après le TOUT PREMIER
+// changement en attente — jamais repoussé indéfiniment par des changements
+// continus (contrairement à un debounce simple sans plafond).
+const DRIVE_UPLOAD_SETTLE_MS = 5 * 1000;
+const DRIVE_UPLOAD_MAX_WAIT_MS = 30 * 1000;
+let driveUploadTimer = null;
+let driveUploadFirstPendingAt = null;
+
+function scheduleDriveUploadAfterChange() {
+  const now = Date.now();
+  if (!driveUploadFirstPendingAt) driveUploadFirstPendingAt = now;
+  if (driveUploadTimer) clearTimeout(driveUploadTimer);
+
+  const waited = now - driveUploadFirstPendingAt;
+  const delay = Math.min(DRIVE_UPLOAD_SETTLE_MS, Math.max(0, DRIVE_UPLOAD_MAX_WAIT_MS - waited));
+  driveUploadTimer = setTimeout(() => {
+    driveUploadTimer = null;
+    driveUploadFirstPendingAt = null;
+    (async () => {
+      const token = await getValidGoogleToken();
+      if (!token?.accessToken) return; // pas connecté (point 6) — ignoré silencieusement
+      try {
+        const result = await driveUploadCurrent(token.accessToken);
+        console.log('[Drive Sync] Upload différé réussi', result.id, result.modifiedTime);
+      } catch (err) {
+        console.error('[Drive Sync] Échec de l’upload différé', err);
+      }
+    })();
+  }, delay);
+}
+
+// ─── Sync au lancement (points 2, 4 et 5 de la demande) ────────────────────
+// Appelée une seule fois par lancement, APRÈS autoRestoreUserdataIfEmpty
+// (déjà exécutée de façon synchrone plus haut dans ce fichier au chargement
+// du module) : évalue donc l'état local FINAL de la session, restauration
+// locale automatique déjà prise en compte le cas échéant.
+async function performDriveLaunchSync() {
+  const token = await getValidGoogleToken();
+  if (!token?.accessToken) {
+    // point 6 : pas de compte Google connecté, ignoré silencieusement CÔTÉ
+    // UTILISATEUR (aucune UI, aucun blocage) — ce log reste réservé à la
+    // console développeur, dans le même esprit que les logs d'état déjà en
+    // place pour chaque module (FDJ, RSS, Promos...).
+    console.log('[Drive Sync] Google non connecté — synchronisation ignorée');
+    return;
+  }
+
+  try {
+    const remote = await driveFindUserdataFile(token.accessToken);
+
+    if (!remote) {
+      // Rien sur Drive pour ce compte — 1re synchronisation, envoie l'état local actuel.
+      await driveUploadCurrent(token.accessToken);
+      notifyDriveSync({ type: 'synced' });
+      return;
+    }
+    store.set('driveSync.fileId', remote.id);
+
+    const localEmpty = isUserdataEmpty();
+    if (localEmpty) {
+      // Drive a des données, le local n'en a pas — restauration automatique.
+      const data = await driveDownloadUserdata(token.accessToken, remote.id);
+      driveApplyDownloadedUserdata(data);
+      notifyDriveSync({ type: 'synced' });
+      return;
+    }
+
+    // Local ET Drive ont tous deux des données — comparaison des horodatages
+    // réels (mtime du fichier matin-userdata.json sur disque, modifiedTime
+    // renvoyé par Drive) plutôt qu'un horodatage maison à maintenir en
+    // parallèle : toujours exact, mis à jour par electron-store/Drive
+    // eux-mêmes à chaque écriture, aucun risque de désynchronisation.
+    const localMtimeMs = fs.existsSync(userdataStore.path) ? fs.statSync(userdataStore.path).mtimeMs : 0;
+    const remoteMtimeMs = new Date(remote.modifiedTime).getTime();
+    const deltaMs = Math.abs(remoteMtimeMs - localMtimeMs);
+    const CONFLICT_WINDOW_MS = 60 * 60 * 1000; // point 5 : conflit si les 2 changées à moins d'1h d'écart
+
+    // Point 5 : en cas de conflit potentiel (fenêtre d'1h), Drive gagne
+    // systématiquement (>=, pas seulement >, pour trancher aussi une égalité
+    // exacte en faveur de Drive comme demandé). Hors fenêtre de conflit :
+    // simplement la version la plus récente qui l'emporte (point 2).
+    const driveWins = deltaMs <= CONFLICT_WINDOW_MS ? remoteMtimeMs >= localMtimeMs : remoteMtimeMs > localMtimeMs;
+
+    if (driveWins) {
+      const data = await driveDownloadUserdata(token.accessToken, remote.id);
+      driveApplyDownloadedUserdata(data);
+    } else {
+      await driveUploadCurrent(token.accessToken);
+    }
+    notifyDriveSync({ type: 'synced' });
+  } catch (err) {
+    console.error('[Drive Sync] Échec de la synchronisation au lancement', err);
+  }
+}
 
 // ─── Rappels — vérification + notification Windows native ─────────────────────
 // Tourne côté process main plutôt que dans le renderer : un setInterval côté
@@ -2004,6 +2805,7 @@ function checkReminders() {
   if (changed) {
     backupStoreBeforeWrite();
     userdataStore.set('modules.reminders.config.items', items);
+    scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas
   }
 }
 
@@ -2219,6 +3021,7 @@ ipcMain.handle('alerts:getCurrent', () => alertsCurrent);
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   createMainWindow();
+  performDriveLaunchSync().catch(err => console.error('[Drive Sync] Échec inattendu de la synchronisation au lancement', err));
   checkReminders();
   setInterval(checkReminders, REMINDERS_CHECK_MS);
   checkAlerts();

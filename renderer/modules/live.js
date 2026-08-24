@@ -42,13 +42,23 @@ function liveIsToday(date) {
 function liveDateStamp(d) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
+// Pas de `timeZone` explicite ici (2026-08-24, sur demande explicite —
+// retiré après un rapport persistant de décalage) : omis, toLocaleTimeString
+// utilise DÉJÀ le fuseau système par défaut (strictement équivalent à passer
+// Intl.DateTimeFormat().resolvedOptions().timeZone explicitement — ce n'était
+// donc pas la cause du décalage observé, mais gardé simple comme demandé).
+// La VRAIE cause était en amont, dans le parsing de `date` lui-même — voir
+// liveNormalizeTsdbEvent plus bas.
 function liveFmtNextDateTime(date) {
   const datePart = date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
   const timePart = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  console.log('[Live] Heure UTC brute :', date.toISOString(), '→ heure locale convertie :', timePart);
   return `${datePart}, ${timePart}`;
 }
 function liveFmtTime(date) {
-  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const timePart = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  console.log('[Live] Heure UTC brute :', date.toISOString(), '→ heure locale convertie :', timePart);
+  return timePart;
 }
 
 // ─── ESPN (mode championnat) ────────────────────────────────────────────────
@@ -67,6 +77,11 @@ function liveNormalizeEspnEvent(event, leagueLabel) {
   const away = competitors.find(c => c.homeAway === 'away') || competitors[1];
   if (!home || !away) return null;
   const statusType = competition.status?.type || event.status?.type || {};
+  // ESPN renvoie déjà un ISO 8601 complet avec `Z` (ex. "2026-08-26T19:00Z")
+  // — `new Date(...)` l'interprète donc correctement comme UTC sans
+  // normalisation nécessaire, contrairement à TheSportsDB (voir
+  // liveParseTsdbUtc plus haut) ; log gardé quand même pour vérification.
+  console.log('[Live] Heure brute API (ESPN, UTC) :', event.date);
   return {
     id: `espn-${competition.id || event.id}`,
     league: leagueLabel,
@@ -120,6 +135,25 @@ async function liveTsdbGet(path) {
   return res.json();
 }
 
+// TheSportsDB documente `strTimestamp`/`dateEvent`+`strTime` comme étant en
+// UTC, mais AUCUN des deux ne porte de marqueur de fuseau dans la chaîne
+// elle-même — sans ça, `new Date(...)` les interprète comme une heure LOCALE
+// (règle du spec ECMAScript pour une chaîne datetime sans fuseau), pas comme
+// de l'UTC, décalant l'heure affichée de tout le fuseau de l'utilisateur.
+// `strTimestamp` en particulier est formaté "AAAA-MM-JJ HH:MM:SS" (espace,
+// pas de 'T' ni de 'Z') — 2026-08-23, 1er correctif : seul le repli
+// `dateEvent`+`strTime` avait été corrigé, `strTimestamp` (prioritaire via le
+// `||` ci-dessous, donc utilisé en pratique dès qu'il est présent) gardait
+// EXACTEMENT le même bug, d'où le rapport "OL-Fenerbahçe affiché 19h au lieu
+// de 21h" malgré le 1er correctif — confirmé en direct (log ci-dessous).
+function liveParseTsdbUtc(rawTimestamp, dateEvent, strTime) {
+  const raw = rawTimestamp || `${dateEvent}T${strTime || '00:00:00'}`;
+  const iso = raw.trim().replace(' ', 'T');
+  const withZ = /Z$|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
+  console.log('[Live] Heure brute API (TheSportsDB, supposée UTC) :', raw, '→ normalisée :', withZ);
+  return new Date(withZ);
+}
+
 function liveNormalizeTsdbEvent(ev) {
   const home = ev.strHomeTeam, away = ev.strAwayTeam;
   if (!home || !away) return null;
@@ -130,7 +164,7 @@ function liveNormalizeTsdbEvent(ev) {
   return {
     id: `tsdb-${ev.idEvent}`,
     league: ev.strLeague || '',
-    date: new Date(ev.strTimestamp || `${ev.dateEvent}T${ev.strTime || '00:00:00'}`),
+    date: liveParseTsdbUtc(ev.strTimestamp, ev.dateEvent, ev.strTime),
     state,
     detail: status || (state === 'pre' ? 'À venir' : ''),
     homeName: home,

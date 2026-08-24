@@ -116,6 +116,17 @@ const SCOPES = [
   // Calendar/Gmail (APIs & Services → Library) — pas automatisable depuis ce
   // code, action ponctuelle côté utilisateur.
   'https://www.googleapis.com/auth/youtube.readonly',
+  // Sync Google Drive (2026-08-21) — dossier caché "appDataFolder", INVISIBLE
+  // dans le Drive normal de l'utilisateur, réservé à Matin seule (ni lecture
+  // ni écriture sur le reste du Drive). Même mise en garde que les scopes
+  // ci-dessus : un compte déjà connecté avant cet ajout devra se reconnecter
+  // depuis Paramètres pour l'obtenir. NON VÉRIFIÉ EN DIRECT (pas de token
+  // Google disponible dans cet environnement de développement) : si les
+  // appels Drive échouent en 403 avec un message évoquant une API non
+  // activée pour ce projet, activer "Google Drive API" dans Google Cloud
+  // Console (APIs & Services → Library), même démarche que pour YouTube
+  // Data API v3 ci-dessus.
+  'https://www.googleapis.com/auth/drive.appdata',
 ].join(' ');
 
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;

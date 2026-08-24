@@ -39,6 +39,26 @@ contextBridge.exposeInMainWorld('matin', {
     onUpdated: (cb)   => ipcRenderer.on('background:updated', (_e, key) => cb(key)),
   },
 
+  // ── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, voir
+  // main.js applyDisplayMode et "🎨 Personnaliser" → section "Mode
+  // d'affichage") — `expandFromSun` est appelé depuis sun.html (fenêtre
+  // séparée, mais qui charge ce même preload.js), tous les autres depuis le
+  // dashboard (renderer/dashboard.js, initDisplayMode). ──────────────────────
+  displayMode: {
+    set:              (mode) => ipcRenderer.invoke('app:setDisplayMode', mode),
+    setSidebarEdge:   (edge) => ipcRenderer.invoke('app:setSidebarEdge', edge),
+    collapseToSun:    ()     => ipcRenderer.invoke('dashboard:collapseToSun'),
+    expandFromSun:    ()     => ipcRenderer.invoke('sun:expand'),
+    forceShowFromSun: ()     => ipcRenderer.invoke('sun:forceShow'),
+    showSunContextMenu:()    => ipcRenderer.invoke('sun:contextMenu'),
+    getSunPosition:   ()     => ipcRenderer.invoke('sun:getPosition'),
+    moveSunWindow:    (x, y) => ipcRenderer.send('sun:move', { x, y }),
+    sidebarHoverEnter:()     => ipcRenderer.invoke('sidebar:hoverEnter'),
+    sidebarHoverLeave:()     => ipcRenderer.invoke('sidebar:hoverLeave'),
+    sidebarTogglePin: ()     => ipcRenderer.invoke('sidebar:togglePin'),
+    onUpdated:        (cb)   => ipcRenderer.on('displayMode:updated', (_e, mode) => cb(mode)),
+  },
+
   // ── Restauration automatique au lancement (voir main.js
   // autoRestoreUserdataIfEmpty, 2026-08-10) ───────────────────────────────────
   getAutoRestoreNotice: () => ipcRenderer.invoke('app:getAutoRestoreNotice'),
@@ -140,6 +160,17 @@ contextBridge.exposeInMainWorld('matin', {
     login:          ()         => ipcRenderer.invoke('spotify:login'),
     logout:         ()         => ipcRenderer.invoke('spotify:logout'),
     onTokenUpdated: (cb)       => ipcRenderer.on('spotify:tokenUpdated', (_e, data) => cb(data)),
+  },
+
+  // ── Sync Google Drive (dossier appData, voir main.js performDriveLaunchSync/
+  // scheduleDriveUploadAfterChange, 2026-08-21) — entièrement automatique côté
+  // process main (aucune action renderer requise pour déclencher une sync) ;
+  // le renderer se contente d'afficher un indicateur transitoire.
+  // `getLastStatus` rattrape un statut de sync déjà survenu avant que le
+  // dashboard ait fini d'enregistrer son écouteur `onStatus` (voir dashboard.js).
+  driveSync: {
+    getLastStatus: () => ipcRenderer.invoke('driveSync:getLastStatus'),
+    onStatus:      (cb) => ipcRenderer.on('drive:syncStatus', (_e, status) => cb(status)),
   },
 
   // ── Alertes (bandeau plein écran, voir main.js checkAlerts) ─────────────────

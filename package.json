@@ -44,5 +44,8 @@
       "publisher": "CN=SylvainAntequera",
       "publisherDisplayName": "Sylvain Antequera"
     }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
   }
 }

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>Matin</title>
+  <style>
+    /* Fenêtre 60×60 sans cadre/transparente (voir main.js showSunWindow) —
+       html/body doivent rester transparents aussi, sinon le rectangle de la
+       fenêtre serait visible autour du disque. */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 60px;
+      height: 60px;
+      background: transparent;
+      overflow: hidden;
+    }
+    .sun-circle {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 35% 30%, #ffe08a 0%, #fbbf24 55%, #f59e0b 100%);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      font-size: 28px;
+      cursor: pointer;
+      user-select: none;
+      /* PAS de -webkit-app-region: drag ici (2026-08-23, correctif — voir
+         sun.js) : posé initialement pour faire glisser la fenêtre nativement,
+         mais une région app-region:drag peut absorber TOUT le geste souris
+         côté Chromium dès le mousedown (pas seulement l'événement 'click') —
+         constaté en pratique, pas seulement en théorie (1er correctif basé
+         sur mousedown/mouseup restait sans effet, ces événements ne
+         partaient JAMAIS pour un élément app-region:drag dans ce cas). Le
+         glisser-déposer est donc désormais entièrement géré à la main
+         (mousedown/mousemove/mouseup → IPC sun:move, voir sun.js), sur une
+         région -webkit-app-region: no-drag explicite. */
+      -webkit-app-region: no-drag;
+    }
+  </style>
+</head>
+<body>
+  <div class="sun-circle" id="sunCircle">☀️</div>
+  <script src="sun.js"></script>
+</body>
+</html>

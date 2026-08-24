@@ -101,7 +101,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 20px;
+      /* Padding vertical resserré (2026-08-23, sur demande explicite — voir
+         petits écrans 14"/mise à l'échelle Windows plus bas) : 14px→8px,
+         gagne 12px de hauteur sur cette ligne sans la rendre illisible. */
+      padding: 8px 20px;
       max-width: 760px;
       width: 100%;
       margin: 0 auto;
@@ -115,8 +118,14 @@
       font-size: 12px;
       color: #b8c2d9; /* fixe, voir .app-logo/.app-name ci-dessus */
     }
-    .config-profil { flex-shrink: 0; padding: 16px 20px 4px; }
-    .config-section { margin-bottom: 28px; }
+    /* Padding/marges resserrés (2026-08-23, sur demande explicite — petits
+       écrans 14"/mise à l'échelle Windows 125-150%, voir createConfigWindow
+       dans main.js pour la hauteur de fenêtre adaptative associée) :
+       16px→10px de padding haut, 28px→14px d'espacement entre sections —
+       la zone Profil (hors onglets, toujours visible) est celle qui coûtait
+       le plus de hauteur fixe avant même d'atteindre le contenu des onglets. */
+    .config-profil { flex-shrink: 0; padding: 10px 20px 2px; }
+    .config-section { margin-bottom: 14px; }
     .config-section-title {
       font-size: 10px;
       font-weight: 600;
@@ -586,6 +595,10 @@
       width: 90%;
       max-width: 460px;
       max-height: 80vh;
+      /* overflow-y (2026-08-23) — la section "Mode d'affichage" ajoutée sous
+         la grille de fonds peut désormais dépasser 80vh sur un petit écran ;
+         sans ça, le bouton "Fermer" en bas deviendrait inatteignable. */
+      overflow-y: auto;
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
@@ -624,6 +637,55 @@
       background: var(--bg-base);
     }
     .personnaliser-option-label { font-size: 11px; color: var(--text-primary); text-align: center; }
+
+    /* Mode d'affichage (2026-08-23, sur demande explicite) — liste de lignes
+       plutôt que la grille de vignettes ci-dessus (pas de miniature visuelle
+       pertinente pour ces 3 modes), même famille visuelle que .module-row. */
+    .personnaliser-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .display-mode-options { display: flex; flex-direction: column; gap: 6px; }
+    .display-mode-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      background: var(--bg-panel-alt);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .display-mode-option:hover { background: var(--bg-hover); }
+    .display-mode-option.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .display-mode-option-icon { font-size: 16px; }
+    .display-mode-edge-row {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 0 2px;
+    }
+    .display-mode-edge-row label { font-size: 11px; color: var(--text-secondary); }
+    .display-mode-edge-row select {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .display-mode-edge-row select:focus { outline: none; border-color: var(--accent); }
 
     /* Miniatures — mêmes recettes CSS que les vrais fonds (voir style.css
        .app-background-layer.bg-*), condensées ici en statique/petit format
@@ -1062,6 +1124,21 @@
     <div class="personnaliser-modal">
       <div class="personnaliser-modal-title">🎨 Personnaliser le fond</div>
       <div class="personnaliser-options" id="personnaliserOptions"></div>
+
+      <!-- Mode d'affichage (2026-08-23, sur demande explicite) — s'applique
+           instantanément au choix, comme le fond ci-dessus (voir config.js
+           renderDisplayModeOptions, window.matin.displayMode.set). Le
+           sélecteur de bord n'apparaît que pour "Volet latéral". -->
+      <div class="personnaliser-section-title">Mode d'affichage</div>
+      <div class="display-mode-options" id="displayModeOptions"></div>
+      <div class="display-mode-edge-row" id="sidebarEdgeRow">
+        <label for="sidebarEdgeSelect">Côté</label>
+        <select id="sidebarEdgeSelect">
+          <option value="right">Droite</option>
+          <option value="left">Gauche</option>
+        </select>
+      </div>
+
       <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>
     </div>
   </div>
