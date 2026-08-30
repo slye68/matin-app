@@ -173,6 +173,11 @@ contextBridge.exposeInMainWorld('matin', {
   driveSync: {
     getLastStatus: () => ipcRenderer.invoke('driveSync:getLastStatus'),
     onStatus:      (cb) => ipcRenderer.on('drive:syncStatus', (_e, status) => cb(status)),
+    // Canal dédié (2026-08-30, bug trouvé : réutiliser modules:updated
+    // provoquait un window.location.reload() complet à chaque restauration
+    // automatique, voir main.js driveApplyDownloadedUserdata) — un re-rendu
+    // EN PLACE des seules cartes concernées, pas un rechargement de page.
+    onUserdataRestored: (cb) => ipcRenderer.on('drive:userdataRestored', (_e, modules) => cb(modules)),
   },
 
   // ── Alertes (bandeau plein écran, voir main.js checkAlerts) ─────────────────

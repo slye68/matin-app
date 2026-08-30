@@ -212,12 +212,20 @@ html, body {
    défaut (opacity 0, jamais display:none : garde sa place réservée dans le
    flex du titlebar pour ne pas faire "sauter" le reste au moment où il
    apparaît/disparaît). `.visible` posé/retiré par JS (dashboard.js,
-   initDriveSyncIndicator), 3s d'affichage. */
+   initDriveSyncIndicator), 8s d'affichage (3s → 8s le 2026-08-30, sur
+   demande explicite "plus facile à repérer" — l'indicateur restait invisible
+   malgré le fix du timing splash, voir CONTEXT.md). Agrandi + fond + vert
+   plus vif (même demande) pour qu'il se remarque vraiment dans la titlebar,
+   plutôt que du texte fin quasi confondu avec le reste. */
 .drive-sync-indicator {
   margin-left: 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-green);
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #22ff8c;
+  background: rgba(34, 255, 140, 0.14);
+  box-shadow: 0 0 0 1px rgba(34, 255, 140, 0.3);
   opacity: 0;
   transition: opacity 0.4s ease;
   white-space: nowrap;

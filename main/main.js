@@ -2516,6 +2516,7 @@ const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 let lastDriveSyncStatus = null;
 function notifyDriveSync(status) {
   lastDriveSyncStatus = { ...status, at: Date.now() };
+  console.log('[Drive Sync] notifyDriveSync appelé à', new Date(lastDriveSyncStatus.at).toISOString(), '(', lastDriveSyncStatus.at, 'ms epoch) — statut :', JSON.stringify(status));
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('drive:syncStatus', lastDriveSyncStatus);
   }
@@ -2527,11 +2528,28 @@ ipcMain.handle('driveSync:getLastStatus', () => lastDriveSyncStatus);
 // techniquement les doublons de nom — `files[0]` suffit ici, jamais créé
 // plus d'une fois par ce code). `null` si absent (1er lancement avec ce
 // compte, ou appData jamais initialisée).
+// Corps d'erreur Google systématiquement loggé (2026-08-30, sur demande
+// explicite "logger la réponse complète de l'API Drive") — un simple code
+// HTTP (403, 404...) ne dit pas POURQUOI (quota dépassé, scope insuffisant,
+// API désactivée côté Cloud Console... tous des 403 différents avec des
+// causes très différentes) ; le corps JSON de l'erreur Google, lui, le dit.
+async function logDriveErrorBody(res, label) {
+  try {
+    const text = await res.text();
+    console.error(`[Drive Sync] Réponse d'erreur complète (${label}) :`, text);
+  } catch (err) {
+    console.error(`[Drive Sync] Impossible de lire le corps de l'erreur (${label})`, err);
+  }
+}
+
 async function driveFindUserdataFile(accessToken) {
   const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
   const url = `${DRIVE_API_BASE}/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new Error(`Drive (recherche) ${res.status}`);
+  if (!res.ok) {
+    await logDriveErrorBody(res, 'recherche');
+    throw new Error(`Drive (recherche) ${res.status}`);
+  }
   const data = await res.json();
   return (data.files && data.files[0]) || null;
 }
@@ -2540,7 +2558,10 @@ async function driveDownloadUserdata(accessToken, fileId) {
   const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Drive (téléchargement) ${res.status}`);
+  if (!res.ok) {
+    await logDriveErrorBody(res, 'téléchargement');
+    throw new Error(`Drive (téléchargement) ${res.status}`);
+  }
   return res.json();
 }
 
@@ -2560,7 +2581,10 @@ async function driveUploadUserdata(accessToken, fileId) {
       body: content,
     });
     if (res.status === 404) return driveUploadUserdata(accessToken, null); // fileId caché périmé (supprimé côté Drive) — recrée
-    if (!res.ok) throw new Error(`Drive (envoi) ${res.status}`);
+    if (!res.ok) {
+      await logDriveErrorBody(res, 'envoi (mise à jour)');
+      throw new Error(`Drive (envoi) ${res.status}`);
+    }
     return res.json();
   }
 
@@ -2575,7 +2599,10 @@ async function driveUploadUserdata(accessToken, fileId) {
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
-  if (!res.ok) throw new Error(`Drive (création) ${res.status}`);
+  if (!res.ok) {
+    await logDriveErrorBody(res, 'création');
+    throw new Error(`Drive (création) ${res.status}`);
+  }
   return res.json();
 }
 
@@ -2584,18 +2611,29 @@ async function driveUploadUserdata(accessToken, fileId) {
 // code écrit) ou, par prudence, un objet `modules` nu (jamais écrit par ce
 // code mais coûte rien à accepter). `backupStoreBeforeWrite` avant
 // d'écraser, comme tout autre remplacement complet du store dans ce fichier
-// (voir backups:restore). Pousse `modules:updated` pour un re-rendu en
-// place — PAS de `mainWindow.reload()` (contrairement à backups:restore,
-// une action manuelle explicite) : une restauration automatique au
-// lancement doit rester invisible/silencieuse (point 3 de la demande),
-// jamais un rechargement de page perceptible.
+// (voir backups:restore).
+//
+// Pousse `drive:userdataRestored` pour un re-rendu EN PLACE — PAS
+// `modules:updated` (bug réel trouvé le 2026-08-30, 4e passe de diagnostic
+// de l'indicateur Drive) : ce dernier a UN SEUL écouteur côté renderer
+// (`window.matin.modules.onUpdated`, voir dashboard.js) et fait
+// `window.location.reload()` INCONDITIONNELLEMENT — exactement le
+// rechargement perceptible que ce commentaire prétendait éviter depuis
+// l'origine (2026-08-21), alors qu'il l'envoyait sur ce même canal. Symptôme
+// observé : dès que Drive a des données plus récentes (branche "restaure"),
+// toute la fenêtre se rechargeait — nouveau splash rejoué en entier,
+// indicateur de sync coupé net en plein affichage. `drive:userdataRestored`
+// est un canal dédié, écouté séparément (voir dashboard.js) pour ne
+// ré-afficher QUE le contenu des cartes concernées via `renderModuleOnce`,
+// sans jamais toucher position/taille/disposition (que Drive ne synchronise
+// de toute façon jamais, voir USERDATA_MODULE_KEYS) ni recharger la page.
 function driveApplyDownloadedUserdata(data) {
   if (!data || typeof data !== 'object') return;
   const modules = data.modules && typeof data.modules === 'object' ? data.modules : data;
   backupStoreBeforeWrite();
   userdataStore.set('modules', modules);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('modules:updated', getMergedModules());
+    mainWindow.webContents.send('drive:userdataRestored', getMergedModules());
   }
 }
 
@@ -2652,6 +2690,7 @@ function scheduleDriveUploadAfterChange() {
 // du module) : évalue donc l'état local FINAL de la session, restauration
 // locale automatique déjà prise en compte le cas échéant.
 async function performDriveLaunchSync() {
+  console.log('[Drive Sync] Démarrage de la synchronisation au lancement');
   const token = await getValidGoogleToken();
   if (!token?.accessToken) {
     // point 6 : pas de compte Google connecté, ignoré silencieusement CÔTÉ
@@ -2661,14 +2700,18 @@ async function performDriveLaunchSync() {
     console.log('[Drive Sync] Google non connecté — synchronisation ignorée');
     return;
   }
+  console.log('[Drive Sync] Token Google valide, email =', token.email);
 
   try {
     const remote = await driveFindUserdataFile(token.accessToken);
+    console.log('[Drive Sync] Recherche du fichier distant —', remote ? `trouvé (id=${remote.id}, modifiedTime=${remote.modifiedTime})` : 'aucun fichier distant');
 
     if (!remote) {
       // Rien sur Drive pour ce compte — 1re synchronisation, envoie l'état local actuel.
-      await driveUploadCurrent(token.accessToken);
+      const result = await driveUploadCurrent(token.accessToken);
+      console.log('[Drive Sync] 1re synchronisation — envoi local effectué, id =', result.id);
       notifyDriveSync({ type: 'synced' });
+      console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
       return;
     }
     store.set('driveSync.fileId', remote.id);
@@ -2678,7 +2721,9 @@ async function performDriveLaunchSync() {
       // Drive a des données, le local n'en a pas — restauration automatique.
       const data = await driveDownloadUserdata(token.accessToken, remote.id);
       driveApplyDownloadedUserdata(data);
+      console.log('[Drive Sync] Local vide — restauration depuis Drive effectuée');
       notifyDriveSync({ type: 'synced' });
+      console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
       return;
     }
 
@@ -2697,14 +2742,18 @@ async function performDriveLaunchSync() {
     // exacte en faveur de Drive comme demandé). Hors fenêtre de conflit :
     // simplement la version la plus récente qui l'emporte (point 2).
     const driveWins = deltaMs <= CONFLICT_WINDOW_MS ? remoteMtimeMs >= localMtimeMs : remoteMtimeMs > localMtimeMs;
+    console.log('[Drive Sync] Comparaison horodatages — local =', new Date(localMtimeMs).toISOString(), ', distant =', new Date(remoteMtimeMs).toISOString(), ', driveWins =', driveWins);
 
     if (driveWins) {
       const data = await driveDownloadUserdata(token.accessToken, remote.id);
       driveApplyDownloadedUserdata(data);
+      console.log('[Drive Sync] Drive plus récent — téléchargement + application effectués');
     } else {
       await driveUploadCurrent(token.accessToken);
+      console.log('[Drive Sync] Local plus récent — envoi effectué');
     }
     notifyDriveSync({ type: 'synced' });
+    console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
   } catch (err) {
     console.error('[Drive Sync] Échec de la synchronisation au lancement', err);
   }

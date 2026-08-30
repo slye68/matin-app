@@ -1859,21 +1859,68 @@ function initPreciseScrolling() {
 // que cet écouteur soit posé (voir preload.js) ; `onStatus` couvre le reste
 // de la session (rare en pratique, la sync de lancement ne se déclenche
 // qu'une fois par démarrage — voir main.js).
-function initDriveSyncIndicator() {
+//
+// `splashDone` (2026-08-30, bug signalé "l'indicateur n'apparaît jamais") :
+// la sync de lancement se termine et notifie en général en 1-2s, largement
+// AVANT la fin du splash (~3,3-3,5s, voir playSplashAnimation) — sans ce
+// garde-fou, les 3s d'affichage de l'indicateur se déroulaient entièrement
+// SOUS l'overlay de démarrage (opaque, z-index 10000 > titlebar), invisible
+// à l'utilisateur puisque déjà retombé à `opacity:0` une fois le splash
+// dissipé. On attend donc la fin du splash avant de poser `.visible`, sans
+// jamais perdre l'événement lui-même (l'écouteur reste posé immédiatement).
+//
+// Durée 3s → 8s (2026-08-30, sur demande explicite "plus facile à repérer") —
+// même symptôme signalé après le fix ci-dessus, donc on instrumente aussi le
+// timing exact des deux côtés (voir logs `[Drive Sync]`/`[Drive Sync Debug]`)
+// pour confirmer où précisément ça coince.
+const DRIVE_SYNC_INDICATOR_MS = 8000;
+function initDriveSyncIndicator(splashDone) {
   const el = document.getElementById('driveSyncIndicator');
   if (!el || !window.matin.driveSync) return;
 
+  Promise.resolve(splashDone).then(() => {
+    console.log('[Drive Sync Debug] splash terminé à', new Date().toISOString(), '(', Date.now(), 'ms epoch)');
+  });
+
   let hideTimer = null;
   const showFor3s = (status) => {
+    console.log('[Drive Sync Debug] statut reçu côté renderer à', new Date().toISOString(), ':', JSON.stringify(status));
     if (!status || status.type !== 'synced') return;
-    el.textContent = '✓ Données synchronisées';
-    el.classList.add('visible');
-    if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => el.classList.remove('visible'), 3000);
+    Promise.resolve(splashDone).then(() => {
+      console.log('[Drive Sync Debug] affichage de l’indicateur à', new Date().toISOString(), '— élément trouvé :', !!el);
+      el.textContent = '✓ Données synchronisées';
+      el.classList.add('visible');
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        console.log('[Drive Sync Debug] masquage de l’indicateur à', new Date().toISOString());
+        el.classList.remove('visible');
+      }, DRIVE_SYNC_INDICATOR_MS);
+    });
   };
 
   window.matin.driveSync.getLastStatus().then(showFor3s).catch(() => {});
   window.matin.driveSync.onStatus(showFor3s);
+}
+
+// Restauration Drive silencieuse (2026-08-30, bug trouvé lors du diagnostic
+// de l'indicateur) : `drive:userdataRestored` remplace `modules:updated`
+// (voir preload.js/main.js driveApplyDownloadedUserdata) pour ce cas précis
+// — Drive ne touche jamais position/taille/disposition (voir
+// USERDATA_MODULE_KEYS côté main.js), donc pas besoin de reconstruire les
+// cartes, seulement de rafraîchir le CONTENU de celles déjà à l'écran, via
+// `renderModuleOnce` (même fonction que le bouton Actualiser/le refresh
+// périodique, voir plus haut) — jamais `window.location.reload()`.
+function initDriveUserdataRestoreListener() {
+  if (!window.matin.driveSync?.onUserdataRestored) return;
+  window.matin.driveSync.onUserdataRestored((modules) => {
+    if (!modules || typeof modules !== 'object') return;
+    for (const [key, moduleConf] of Object.entries(modules)) {
+      if (!document.getElementById(`content-${key}`)) continue; // carte pas affichée — rien à rafraîchir
+      const meta = resolveModuleMeta(key);
+      if (!meta) continue;
+      renderModuleOnce(key, meta, moduleConf.config);
+    }
+  });
 }
 
 // ─── Init dashboard ───────────────────────────────────────────────────────────
@@ -1886,7 +1933,8 @@ async function initDashboard() {
   updateHeaderDate();
   updateHeaderGreeting();
   initTitlebarSearch();
-  initDriveSyncIndicator();
+  initDriveSyncIndicator(splashDone);
+  initDriveUserdataRestoreListener();
   initAutoBrightness();
   initThemeSync();
   initAppBackground();

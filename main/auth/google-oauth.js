@@ -324,6 +324,15 @@ function runGoogleAuthFlow() {
         // `.then()` de startCallbackServer, qui ne résout qu'après un
         // `listen()` réussi) — le navigateur ne peut donc jamais être ouvert
         // sur une URL de redirection que rien n'écoute encore.
+        // Log de l'URL complète (2026-08-30, sur demande explicite — le
+        // scope drive.appdata n'apparaît pas sur l'écran de consentement
+        // Google malgré sa présence confirmée dans SCOPES) : permet de
+        // vérifier tel quel ce qui est RÉELLEMENT envoyé à Google, plutôt que
+        // de se fier à la lecture du code source de SCOPES.
+        console.log('[Google OAuth] URL d’autorisation complète :', authUrl);
+        console.log('[Google OAuth] Scopes demandés (décodés) :', SCOPES);
+        console.log('[Google OAuth] scope contient drive.appdata ?', SCOPES.includes('drive.appdata'));
+
         activeFlow.authUrl = authUrl;
         shell.openExternal(authUrl);
 
