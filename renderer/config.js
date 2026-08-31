@@ -2721,12 +2721,22 @@ async function renderBackupsList() {
     return;
   }
 
+  // Affichage limité aux 3 plus récentes (2026-09-01, sur demande explicite)
+  // — purement un plafond d'AFFICHAGE : `backups` vient déjà trié plus
+  // récent d'abord (voir main.js listAllLocalUserdataBackups), et RIEN
+  // n'est supprimé du disque ici, seules les 3 premières de cette liste
+  // triée sont rendues. Les sauvegardes plus anciennes restent gérées comme
+  // avant (rotation à 30 fichiers, restauration automatique au lancement,
+  // etc.) — seule cette LISTE dans Paramètres en montre moins.
+  const BACKUPS_LIST_DISPLAY_LIMIT = 3;
+  const visibleBackups = backups.slice(0, BACKUPS_LIST_DISPLAY_LIMIT);
+
   // `data-date-label` (2026-08-31) porte le libellé de date SEUL, séparé du
   // HTML affiché dans .backups-date (qui peut désormais aussi contenir
   // l'étiquette "auto" — voir .backups-type-tag, config.html) : le message
   // de confirmation ci-dessous doit rester juste la date, pas "…auto" collé
   // au bout si on lisait .textContent directement.
-  listEl.innerHTML = backups.map(b => {
+  listEl.innerHTML = visibleBackups.map(b => {
     const dateLabel = new Date(b.mtimeMs).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
     const typeTag = b.type === 'change' ? '<span class="backups-type-tag">auto</span>' : '';
     return `
@@ -2850,7 +2860,6 @@ async function initPersonnaliserSection() {
     overlay.classList.add('open');
     await renderPersonnaliserOptions();
     await renderDisplayModeOptions();
-    await renderAutoScrollOptions();
   };
   const closeModal = () => overlay.classList.remove('open');
 
@@ -2888,10 +2897,12 @@ async function renderPersonnaliserOptions() {
 // displayMode.set), comme le fond ci-dessus — pas de bouton "Enregistrer"
 // dédié. Voir main.js applyDisplayMode pour l'effet réel (2e fenêtre/
 // repositionnement de mainWindow).
+// Icône Volet latéral : 🎭 → ▐ (2026-09-01, sur demande explicite — "more
+// representative of a sliding panel" que le masque de théâtre d'origine).
 const DISPLAY_MODE_OPTIONS = [
   { key: 'fullscreen', emoji: '🖥️', label: 'Plein écran' },
-  { key: 'floating',   emoji: '🌟', label: 'Icône flottante' },
-  { key: 'sidebar',    emoji: '🎭', label: 'Volet latéral' },
+  { key: 'floating',   emoji: '☀️', label: 'Icône flottante' },
+  { key: 'sidebar',    emoji: '▐',  label: 'Volet latéral' },
 ];
 
 async function renderDisplayModeOptions() {
@@ -2933,47 +2944,9 @@ async function renderDisplayModeOptions() {
   }
 }
 
-// ─── Défilement automatique — même popup Personnaliser, section distincte
-// sous Mode d'affichage (2026-08-31, sur demande explicite). S'applique
-// instantanément (window.matin.autoScroll.set/setSpeed), comme le fond/mode
-// d'affichage ci-dessus — pas de bouton "Enregistrer" dédié. Le sélecteur de
-// vitesse n'apparaît que si le toggle est activé, même principe que
-// sidebarEdgeRow pour le mode d'affichage.
-async function renderAutoScrollOptions() {
-  const toggle = document.getElementById('autoScrollToggle');
-  const speedRow = document.getElementById('autoScrollSpeedRow');
-  const speedSelect = document.getElementById('autoScrollSpeedSelect');
-  if (!toggle || !speedRow || !speedSelect) return;
-
-  // `undefined` sur une installation existante (defaults ne comble pas un
-  // champ manquant dans un objet `app` déjà présent sur disque, même limite
-  // que background/displayMode ci-dessus) — traité comme désactivé/moyen,
-  // mêmes valeurs que le défaut réel (voir main.js).
-  const enabled = (await window.matin.store.get('app.autoScroll')) === true;
-  const speed = (await window.matin.store.get('app.autoScrollSpeed')) || 'medium';
-
-  toggle.checked = enabled;
-  speedSelect.value = speed;
-  speedRow.style.display = enabled ? 'flex' : 'none';
-
-  // Écouteurs posés une seule fois (dataset.wired) — renderAutoScrollOptions
-  // est appelée à CHAQUE ouverture de la popup (voir openModal ci-dessus),
-  // contrairement à un container re-généré via innerHTML, ces éléments
-  // statiques de config.html survivraient à un 2e addEventListener.
-  if (!toggle.dataset.wired) {
-    toggle.dataset.wired = '1';
-    toggle.addEventListener('change', () => {
-      window.matin.autoScroll.set(toggle.checked);
-      speedRow.style.display = toggle.checked ? 'flex' : 'none';
-    });
-  }
-  if (!speedSelect.dataset.wired) {
-    speedSelect.dataset.wired = '1';
-    speedSelect.addEventListener('change', () => {
-      window.matin.autoScroll.setSpeed(speedSelect.value);
-    });
-  }
-}
+// Défilement automatique — SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande
+// explicite (voir CONTEXT.md) : `renderAutoScrollOptions` et son toggle dans
+// la popup Affichage retirés.
 
 // Compact (2026-08-31, sur demande explicite, redesign "pills") — même
 // principe que updateGoogleUI ci-dessus.

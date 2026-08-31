@@ -208,13 +208,34 @@ function isAutoHeightKey(key) {
 }
 function resolveModuleTitle(key, meta, config) {
   if (isSportsKey(key)) return config?.team?.trim() || meta.label;
-  if (isPretsKey(key)) return config?.name?.trim() || meta.label;
+  // Prêts (2026-09-01, sur demande explicite — remplace l'ancien comportement
+  // où le nom du groupe (ex. "Maison Francheleins") remplaçait ENTIÈREMENT le
+  // titre de carte) : le titre est désormais TOUJOURS "Prêts immobiliers",
+  // identique sur toutes les instances (prets/prets_2../prets_5) — le nom du
+  // groupe passe en sous-titre, voir resolveModuleSubtitle/createModuleCard
+  // ci-dessous. `.module-title` met déjà tout en majuscules via CSS
+  // (text-transform:uppercase), d'où "Prêts immobiliers" ici plutôt que déjà
+  // en capitales.
+  if (isPretsKey(key)) return 'Prêts immobiliers';
   // Mon Équipe (2026-08-15, sur demande explicite) — "le nom de l'équipe en
-  // en-tête" : même mécanisme que Sports/Prêts ci-dessus, le titre de CARTE
+  // en-tête" : même mécanisme que Sports ci-dessus, le titre de CARTE
   // affiche le nom réellement saisi plutôt que le libellé générique "Mon
   // Équipe" dès qu'il est configuré.
   if (key === 'monEquipe') return config?.teamName?.trim() || meta.label;
   return meta.label;
+}
+
+// Sous-titre de carte (2026-09-01, sur demande explicite) — pour l'instant
+// UNIQUEMENT Prêts (nom du groupe, ex. "Maison Francheleins", saisi dans
+// Paramètres) : `null` si le groupe n'a pas encore de nom, auquel cas
+// createModuleCard n'affiche qu'une seule ligne de titre (pas de 2e ligne
+// vide). Fonction séparée de resolveModuleTitle ci-dessus (plutôt qu'un
+// tuple renvoyé par une seule fonction) pour rester un ajout NON intrusif :
+// tous les appels existants à resolveModuleTitle ailleurs restent valides
+// sans modification.
+function resolveModuleSubtitle(key, config) {
+  if (isPretsKey(key)) return config?.name?.trim() || null;
+  return null;
 }
 
 // Titres de carte cliquables (2026-08-10, sur demande explicite) — ouvre le
@@ -1061,19 +1082,20 @@ function initAppBackground() {
 }
 
 // ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
-// demande explicite, voir Paramètres → Personnaliser → "Mode d'affichage")
+// demande explicite, voir Paramètres → Personnaliser → "Mode d'affichage" ;
+// volet latéral ENTIÈREMENT réécrit le 2026-09-01, voir main.js pour le
+// détail — "l'ancienne implémentation déplace la fenêtre, ce qui est faux")
 // ────────────────────────────────────────────────────────────────────────────
 // Tout le déplacement/masquage RÉEL des fenêtres vit côté process main (voir
-// main.js applyDisplayMode et alentours) — ce module ne fait que : afficher/
-// masquer le bouton "Réduire" + gérer Échap (mode "floating"), et relayer les
-// événements souris de la bande #sidebarStrip vers les IPC dédiés (mode
-// "sidebar"). Aucune position de fenêtre n'est calculée ici.
+// main.js applyDisplayMode et alentours). Ce module ne fait plus QUE :
+// afficher/masquer le bouton "Réduire" et gérer Échap — la bande du volet
+// latéral vit maintenant dans SA PROPRE fenêtre séparée (strip.html, voir
+// main.js showStripWindow), plus un élément `#sidebarStrip` embarqué ici :
+// aucune position/geste souris de bande à relayer depuis ce document.
 function initDisplayMode() {
   const collapseBtn = document.getElementById('btnCollapseToSun');
-  const strip = document.getElementById('sidebarStrip');
 
   function applyModeUI(mode) {
-    document.body.classList.toggle('display-mode-sidebar', mode === 'sidebar');
     document.body.classList.toggle('display-mode-floating', mode === 'floating');
     if (collapseBtn) collapseBtn.style.display = mode === 'floating' ? 'inline-flex' : 'none';
   }
@@ -1081,48 +1103,20 @@ function initDisplayMode() {
   window.matin.store.get('app.displayMode').then((mode) => applyModeUI(mode || 'fullscreen'));
   window.matin.displayMode.onUpdated((mode) => applyModeUI(mode));
 
-  window.matin.store.get('app.sidebarEdge').then((edge) => {
-    if (!strip) return;
-    const safeEdge = edge === 'left' ? 'left' : 'right';
-    strip.classList.toggle('edge-left', safeEdge === 'left');
-    strip.classList.toggle('edge-right', safeEdge === 'right');
-  });
-
   collapseBtn?.addEventListener('click', () => {
     window.matin.displayMode.collapseToSun().catch(err => console.error('[Matin] Échec réduction en icône flottante', err));
   });
 
-  // Échap réduit en icône flottante (2026-08-23) — collapseToSun() est un
-  // no-op côté main.js hors mode "floating" (voir main.js collapseToSun),
-  // donc pas besoin de vérifier le mode courant ici.
+  // Échap réduit en icône flottante (mode "floating") OU replie vers la
+  // bande (mode "sidebar", 2026-09-01 — remplace le clic sur #sidebarStrip
+  // embarqué, qui n'existe plus dans ce document) : les 2 appels sont des
+  // no-op côté main.js hors de leur mode respectif (voir main.js
+  // collapseToSun/hideSidebarToStrip), donc pas besoin de vérifier le mode
+  // courant ici — inoffensif d'appeler les 2 à chaque Échap.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     window.matin.displayMode.collapseToSun().catch(() => {});
-  });
-
-  strip?.addEventListener('click', () => {
-    window.matin.displayMode.sidebarTogglePin().catch(() => {});
-  });
-
-  // 'mouseenter' ne remonte pas (pas de bulle) — écouté directement sur
-  // <html> (seul élément couvrant TOUJOURS toute la fenêtre) plutôt que sur
-  // la seule bande #sidebarStrip : repliée, la bande EST tout ce qui est
-  // visible/survolable (le reste est hors écran, voir main.js
-  // enterSidebarMode) donc ça revient au même — mais DÉPLIÉE, l'utilisateur
-  // survole le dashboard entier, pas seulement la bande devenue une simple
-  // poignée au bord.
-  //
-  // AUCUN écouteur 'mouseleave'/'blur' ici (2026-08-24, sur demande
-  // explicite, suite au rapport "survoler la barre des tâches Windows
-  // referme le volet") — le volet ne se referme JAMAIS automatiquement en
-  // quittant la fenêtre à la souris (ce qui se produit y compris en
-  // descendant simplement vers la barre des tâches Windows, tout en bas de
-  // l'écran) ni en perdant le focus : seul un clic explicite sur la bande
-  // (déjà câblé plus haut, `strip.addEventListener('click', ...)` →
-  // sidebarTogglePin) referme le volet. Voir main.js sidebarExpand/
-  // sidebarStripClick pour la contrepartie process main de cette règle.
-  document.documentElement.addEventListener('mouseenter', () => {
-    window.matin.displayMode.sidebarHoverEnter().catch(() => {});
+    window.matin.displayMode.hideSidebarToStrip().catch(() => {});
   });
 }
 
@@ -1229,7 +1223,7 @@ function initMissingDataWarning() {
   });
 }
 
-function createModuleCard(key, meta, title) {
+function createModuleCard(key, meta, title, subtitle) {
   const card = document.createElement('div');
   card.className = 'module-card';
   card.id = `module-${key}`;
@@ -1239,12 +1233,23 @@ function createModuleCard(key, meta, title) {
   // réellement résolu (voir ol.js).
   if (meta.theme) card.dataset.theme = meta.theme;
   const clickable = isSportsKey(key) || Object.prototype.hasOwnProperty.call(MODULE_CLICK_URLS, key);
-  card.innerHTML = `
-    <div class="module-header">
+  const titleHtml = `
       <div class="module-title${clickable ? ' module-title-clickable' : ''}" title="${clickable ? 'Ouvrir le site' : ''}">
         <span class="module-icon">${meta.icon}</span>
         ${title}${key === 'tradfri' ? ' <span class="beta-badge">Bêta</span>' : ''}
-      </div>
+      </div>`;
+  // Sous-titre (2026-09-01, sur demande explicite — actuellement Prêts
+  // seulement, voir resolveModuleSubtitle) : enveloppe `.module-title` dans
+  // un `.module-title-group` (colonne) UNIQUEMENT quand il y a un sous-titre
+  // à afficher — les modules sans sous-titre gardent EXACTEMENT la même
+  // structure qu'avant (`.module-title` enfant direct de `.module-header`),
+  // aucun changement visuel/CSS pour eux.
+  const titleBlockHtml = subtitle
+    ? `<div class="module-title-group">${titleHtml}<div class="module-subtitle">${subtitle}</div></div>`
+    : titleHtml;
+  card.innerHTML = `
+    <div class="module-header">
+      ${titleBlockHtml}
       <span class="module-badge" id="badge-${key}">…</span>
     </div>
     <div class="module-content" id="content-${key}">
@@ -1886,163 +1891,9 @@ function initPreciseScrolling() {
   }, { passive: false });
 }
 
-// ─── Défilement automatique (2026-08-31, sur demande explicite, "🎨
-// Personnaliser" → section "Défilement automatique") ───────────────────────
-// Défile `#dashboard` (voir style.css — seul élément réellement
-// `overflow-y: auto` de ce module, `#dashboardCanvas` n'est que son contenu
-// en flux normal) à vitesse constante, piloté par requestAnimationFrame
-// (delta de temps réel entre 2 frames, pas un setInterval à pas fixe) pour
-// rester fluide quel que soit le framerate réel de la fenêtre. `maxScroll`
-// est recalculé À CHAQUE frame (jamais mis en cache) : s'adapte tout seul si
-// l'utilisateur déplace/redimensionne des cartes pendant que ça défile déjà.
-const AUTO_SCROLL_SPEEDS_PX_PER_SEC = { slow: 1, medium: 2, fast: 4 };
-const AUTO_SCROLL_START_DELAY_MS = 3000; // point 3 de la demande — au LANCEMENT seulement, voir applyState
-const AUTO_SCROLL_RESUME_DELAY_MS = 2000; // point 5 de la demande
-const AUTO_SCROLL_LOOP_DURATION_MS = 600; // durée de l'animation "retour en haut" (point 6)
-
-function initAutoScroll() {
-  const dashboard = document.getElementById('dashboard');
-  if (!dashboard) return;
-
-  let enabled = false;
-  let speedKey = 'medium';
-  let rafId = null;
-  let lastFrameTime = null;
-  let paused = false;
-  let looping = false; // vrai pendant l'animation de retour en haut (voir scrollBackToTopSmoothly) — bloque le défilement normal, gère sa PROPRE boucle rAF indépendante de `rafId`
-  let resumeTimer = null;
-  let startTimer = null;
-
-  function speedPxPerSec() {
-    return AUTO_SCROLL_SPEEDS_PX_PER_SEC[speedKey] ?? AUTO_SCROLL_SPEEDS_PX_PER_SEC.medium;
-  }
-
-  function stopLoop() {
-    if (rafId != null) cancelAnimationFrame(rafId);
-    rafId = null;
-    lastFrameTime = null;
-  }
-
-  // Bas de page atteint (point 6) — anime `scrollTop` jusqu'à 0 sur
-  // AUTO_SCROLL_LOOP_DURATION_MS (ease-out quadratique), PUIS `onDone` reprend
-  // le défilement normal — SEULEMENT si toujours activé (`enabled` revérifié
-  // au moment de la reprise, pas juste au déclenchement) : évite qu'une
-  // désactivation survenue PENDANT cette animation de ~600ms ne relance quand
-  // même le défilement normal juste après coup.
-  function scrollBackToTopSmoothly(onDone) {
-    looping = true;
-    const start = dashboard.scrollTop;
-    const startTime = performance.now();
-    function step(now) {
-      const t = Math.min(1, (now - startTime) / AUTO_SCROLL_LOOP_DURATION_MS);
-      const eased = 1 - (1 - t) * (1 - t);
-      dashboard.scrollTop = start * (1 - eased);
-      if (t < 1) {
-        requestAnimationFrame(step);
-      } else {
-        looping = false;
-        onDone();
-      }
-    }
-    requestAnimationFrame(step);
-  }
-
-  function tick(now) {
-    if (looping) return; // l'animation de bouclage gère sa propre reprise via onDone, voir plus haut
-    if (paused) {
-      lastFrameTime = now;
-      rafId = requestAnimationFrame(tick);
-      return;
-    }
-    if (lastFrameTime == null) lastFrameTime = now;
-    const deltaSec = (now - lastFrameTime) / 1000;
-    lastFrameTime = now;
-
-    const maxScroll = dashboard.scrollHeight - dashboard.clientHeight;
-    if (maxScroll <= 0) {
-      rafId = requestAnimationFrame(tick);
-      return;
-    }
-
-    dashboard.scrollTop += speedPxPerSec() * deltaSec;
-
-    if (dashboard.scrollTop >= maxScroll - 1) { // tolérance 1px pour l'arrondi flottant
-      scrollBackToTopSmoothly(() => {
-        lastFrameTime = null;
-        if (enabled) rafId = requestAnimationFrame(tick);
-      });
-      return; // ne PAS re-planifier tick ici — scrollBackToTopSmoothly (puis son onDone) prend le relais
-    }
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function startLoop() {
-    if (rafId != null || looping) return; // déjà en cours (défilement normal OU animation de bouclage)
-    lastFrameTime = null;
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function scheduleStart() {
-    clearTimeout(startTimer);
-    startTimer = setTimeout(() => {
-      if (enabled) startLoop();
-    }, AUTO_SCROLL_START_DELAY_MS);
-  }
-
-  // Souris entre dans le dashboard → pause IMMÉDIATE (point 4) ; souris en
-  // sort → reprend après 2s (point 5), annulé si la souris revient avant
-  // l'échéance (clearTimeout). `mouseenter`/`mouseleave` (PAS `mouseover`/
-  // `mouseout`, qui bullent entre les cartes enfants) : ne se déclenchent
-  // QUE sur l'entrée/sortie réelle de `#dashboard` lui-même.
-  dashboard.addEventListener('mouseenter', () => {
-    paused = true;
-    clearTimeout(resumeTimer);
-  });
-  dashboard.addEventListener('mouseleave', () => {
-    clearTimeout(resumeTimer);
-    resumeTimer = setTimeout(() => { paused = false; }, AUTO_SCROLL_RESUME_DELAY_MS);
-  });
-
-  // Reçoit l'état à jour à chaque changement depuis Paramètres (popup
-  // Personnaliser, fenêtre DISTINCTE de celle-ci — voir main.js
-  // app:setAutoScroll/app:setAutoScrollSpeed). Activé en direct (pas au
-  // lancement) : démarre TOUT DE SUITE, sans le délai de 3s (ce délai ne
-  // s'applique qu'au lancement de l'app, point 3 de la demande — pas à
-  // chaque réactivation manuelle ultérieure, qui doit réagir immédiatement).
-  function applyState(data) {
-    const wasEnabled = enabled;
-    enabled = data.autoScroll === true;
-    speedKey = data.autoScrollSpeed || 'medium';
-
-    if (enabled && !wasEnabled) {
-      clearTimeout(startTimer);
-      startLoop();
-    } else if (!enabled && wasEnabled) {
-      stopLoop();
-      clearTimeout(startTimer);
-      clearTimeout(resumeTimer);
-      paused = false;
-    }
-    // Vitesse changée seule (enabled inchangé) : rien de spécial à faire,
-    // `speedPxPerSec()` relit `speedKey` à chaque frame de `tick`.
-  }
-
-  window.matin.autoScroll.onUpdated(applyState);
-
-  // État initial au lancement — lu une seule fois, PUIS le délai de 3s
-  // démarre (point 3). `undefined` sur une installation existante (defaults
-  // ne comble pas un champ manquant dans un objet `app` déjà présent sur
-  // disque, même limite que background/displayMode ailleurs dans ce fichier)
-  // traité comme désactivé/moyen, mêmes valeurs que le défaut réel.
-  Promise.all([
-    window.matin.store.get('app.autoScroll'),
-    window.matin.store.get('app.autoScrollSpeed'),
-  ]).then(([autoScrollValue, speedValue]) => {
-    enabled = autoScrollValue === true;
-    speedKey = speedValue || 'medium';
-    if (enabled) scheduleStart();
-  }).catch(err => console.error('[Matin] Échec lecture préférence défilement automatique', err));
-}
+// Défilement automatique — SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande
+// explicite (voir CONTEXT.md) : `initAutoScroll` et tout son mécanisme
+// (setInterval, pause au survol, retour en haut) retirés.
 
 // ─── Sélecteur de profil — titrebar (2026-08-31, sur demande explicite,
 // "à côté de Paramètres") ────────────────────────────────────────────────
@@ -2168,7 +2019,6 @@ async function initDashboard() {
   initAlertsBanner();
   initMissingDataWarning();
   initPreciseScrolling();
-  initAutoScroll();
   initProfileSwitcher();
 
   // Restauration automatique au lancement (voir main.js
@@ -2217,7 +2067,8 @@ async function initDashboard() {
     }
 
     const title = resolveModuleTitle(key, meta, moduleConf.config);
-    const card = createModuleCard(key, meta, title);
+    const subtitle = resolveModuleSubtitle(key, moduleConf.config);
+    const card = createModuleCard(key, meta, title, subtitle);
     if (isAutoHeightKey(key)) card.classList.add('auto-height'); // voir style.css .resize-handle (curseur ↔ seul, plus de bord bas)
     canvas.appendChild(card);
 

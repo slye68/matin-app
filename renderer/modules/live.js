@@ -463,6 +463,24 @@ function liveTeamLogoHtml(logo, name) {
   return `<div class="live-team-logo live-team-logo-empty">${initial}</div>`;
 }
 
+// Couleur du score selon le résultat (2026-09-01, sur demande explicite) —
+// PUREMENT positionnel (domicile/extérieur), PAS "mon équipe gagne/perd" :
+// l'équipe à gauche (domicile) qui mène colore en vert, celle à droite
+// (extérieur) qui mène colore en rouge, à égalité en jaune. `null`/`isNext`
+// (match "à venir", score "vs" plutôt que des nombres) → aucune classe, rien
+// à comparer. Utilisée par liveMatchRowHtml ci-dessous, donc automatiquement
+// appliquée aux VRAIS matchs ET au mode test (voir liveTriggerGoalTest plus
+// bas, qui passe par ce même liveMatchRowHtml — un seul chemin de rendu,
+// jamais 2 implémentations à maintenir en parallèle).
+function liveResultColorClass(m, isNext) {
+  if (isNext || m.homeScore == null || m.awayScore == null) return '';
+  const home = Number(m.homeScore), away = Number(m.awayScore);
+  if (Number.isNaN(home) || Number.isNaN(away)) return '';
+  if (home > away) return ' live-score-home-win';
+  if (away > home) return ' live-score-away-win';
+  return ' live-score-draw';
+}
+
 function liveMatchRowHtml(m, isNext, isGoal) {
   const isLive = m.state === 'in';
   const timeLabel = isNext
@@ -487,7 +505,7 @@ function liveMatchRowHtml(m, isNext, isGoal) {
       <div class="live-match-teams">
         ${liveTeamLogoHtml(m.homeLogo, m.homeName)}
         <span class="live-match-team" title="${m.homeName}">${m.homeName}</span>
-        <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}${isGoal ? ' live-goal-score' : ''}">${isNext ? 'vs' : `${m.homeScore ?? '—'} - ${m.awayScore ?? '—'}`}</span>
+        <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}${liveResultColorClass(m, isNext)}${isGoal ? ' live-goal-score' : ''}">${isNext ? 'vs' : `${m.homeScore ?? '—'} - ${m.awayScore ?? '—'}`}</span>
         <span class="live-match-team live-match-team-away" title="${m.awayName}">${m.awayName}</span>
         ${liveTeamLogoHtml(m.awayLogo, m.awayName)}
       </div>

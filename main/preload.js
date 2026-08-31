@@ -66,23 +66,16 @@ contextBridge.exposeInMainWorld('matin', {
     showSunContextMenu:()    => ipcRenderer.invoke('sun:contextMenu'),
     getSunPosition:   ()     => ipcRenderer.invoke('sun:getPosition'),
     moveSunWindow:    (x, y) => ipcRenderer.send('sun:move', { x, y }),
-    sidebarHoverEnter:()     => ipcRenderer.invoke('sidebar:hoverEnter'),
-    // Pas de sidebarHoverLeave (2026-08-24, sur demande explicite — voir
-    // main.js sidebarExpand) : le volet ne se referme plus jamais tout seul
-    // en quittant la fenêtre à la souris, seul sidebarTogglePin (clic) ferme.
-    sidebarTogglePin: ()     => ipcRenderer.invoke('sidebar:togglePin'),
+    // Volet latéral — RÉÉCRIT le 2026-09-01 (voir main.js, commentaire
+    // d'en-tête "Volet latéral" pour le détail) : `sidebarStripClick` est
+    // appelé depuis strip.html (fenêtre séparée, comme sunWindow/sun.html —
+    // charge ce même preload.js), `hideSidebarToStrip` depuis le dashboard
+    // (Échap, voir dashboard.js initDisplayMode). Plus de survol
+    // (`sidebarHoverEnter`, supprimé) : ce mode ne réagit plus qu'à des
+    // clics explicites.
+    sidebarStripClick:   () => ipcRenderer.invoke('sidebar:stripClick'),
+    hideSidebarToStrip:  () => ipcRenderer.invoke('dashboard:hideSidebarToStrip'),
     onUpdated:        (cb)   => ipcRenderer.on('displayMode:updated', (_e, mode) => cb(mode)),
-  },
-
-  // ── Défilement automatique du dashboard (2026-08-31, voir main.js
-  // app:setAutoScroll/app:setAutoScrollSpeed et "🎨 Personnaliser" → section
-  // "Défilement automatique") — onUpdated reçoit TOUJOURS l'objet combiné
-  // `{ autoScroll, autoScrollSpeed }`, que ce soit le toggle ou la vitesse
-  // qui vienne de changer (voir main.js, même événement pour les 2). ────────
-  autoScroll: {
-    set:       (enabled) => ipcRenderer.invoke('app:setAutoScroll', enabled),
-    setSpeed:  (speed)   => ipcRenderer.invoke('app:setAutoScrollSpeed', speed),
-    onUpdated: (cb)       => ipcRenderer.on('autoScroll:updated', (_e, data) => cb(data)),
   },
 
   // ── Restauration automatique au lancement (voir main.js

@@ -539,11 +539,21 @@
        lisible sur fond clair ET sombre grâce à la transparence, alors
        qu'une couleur pleine calibrée pour le sombre aurait pu jurer en
        thème clair). */
+    /* `display: inline-flex` (2026-09-01, sur demande explicite — "reduce
+       the orange banner to wrap ONLY the 2 profile tabs... frees space on
+       the right for future content") : remplace un simple `<div>` en bloc
+       qui s'étirait sur toute la largeur de `.config-profil` — le bandeau
+       ne fait désormais que la largeur de son contenu (le libellé "PROFILS"
+       ou les 2 onglets, selon lequel est le plus large), laissant le reste
+       de la ligne libre. */
     .profiles-banner {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
       background: rgba(249, 115, 22, 0.15);
       border: 1px solid #f97316;
       border-radius: var(--radius-md);
-      padding: 10px 12px;
+      padding: 8px 10px;
       margin-bottom: 10px;
     }
     .profiles-banner-label {
@@ -860,9 +870,11 @@
       gap: 14px;
       width: 90%;
       max-width: 460px;
-      max-height: 80vh;
+      /* 80vh → 88vh (2026-09-01, sur demande explicite — "increase popup
+         height slightly for better visibility of background options"). */
+      max-height: 88vh;
       /* overflow-y (2026-08-23) — la section "Mode d'affichage" ajoutée sous
-         la grille de fonds peut désormais dépasser 80vh sur un petit écran ;
+         la grille de fonds peut désormais dépasser 88vh sur un petit écran ;
          sans ça, le bouton "Fermer" en bas deviendrait inatteignable. */
       overflow-y: auto;
       background: var(--bg-panel);
@@ -904,9 +916,6 @@
     }
     .personnaliser-option-label { font-size: 11px; color: var(--text-primary); text-align: center; }
 
-    /* Mode d'affichage (2026-08-23, sur demande explicite) — liste de lignes
-       plutôt que la grille de vignettes ci-dessus (pas de miniature visuelle
-       pertinente pour ces 3 modes), même famille visuelle que .module-row. */
     .personnaliser-section-title {
       font-size: 10px;
       font-weight: 600;
@@ -915,25 +924,33 @@
       color: var(--text-muted);
       margin-top: 4px;
     }
-    .display-mode-options { display: flex; flex-direction: column; gap: 6px; }
+    /* Mode d'affichage — redessiné en 3 "cubes" horizontaux (2026-09-01, sur
+       demande explicite, remplace la liste de lignes empilées du
+       2026-08-23) : icône au-dessus, libellé en dessous, ~80px de large,
+       tous les 3 sur la même ligne pour économiser la hauteur verticale. */
+    .display-mode-options { display: flex; gap: 10px; }
     .display-mode-option {
+      width: 80px;
+      flex-shrink: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 10px;
-      padding: 9px 12px;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px 6px;
       background: var(--bg-panel-alt);
       border: 2px solid var(--border);
       border-radius: var(--radius-md);
       color: var(--text-primary);
-      font-size: 13px;
       font-family: var(--font-ui);
       cursor: pointer;
-      text-align: left;
+      text-align: center;
       transition: border-color 0.15s, background 0.15s;
     }
     .display-mode-option:hover { background: var(--bg-hover); }
     .display-mode-option.selected { border-color: var(--accent); background: var(--accent-glow); }
-    .display-mode-option-icon { font-size: 16px; }
+    .display-mode-option-icon { font-size: 22px; line-height: 1; }
+    .display-mode-option-label { font-size: 11px; }
     .display-mode-edge-row {
       display: none;
       align-items: center;
@@ -952,36 +969,6 @@
       font-family: var(--font-ui);
     }
     .display-mode-edge-row select:focus { outline: none; border-color: var(--accent); }
-
-    /* Défilement automatique (2026-08-31, sur demande explicite) —
-       .autoscroll-speed-row réutilise EXACTEMENT le style de
-       .display-mode-edge-row ci-dessus (même besoin : un <select> qui
-       n'apparaît que si une option précédente est activée). */
-    .autoscroll-toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 0 2px;
-    }
-    .autoscroll-speed-row {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 0 2px;
-    }
-    .autoscroll-speed-row label { font-size: 11px; color: var(--text-secondary); }
-    .autoscroll-speed-row select {
-      flex: 1;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 6px 8px;
-      font-size: 12px;
-      color: var(--text-primary);
-      font-family: var(--font-ui);
-    }
-    .autoscroll-speed-row select:focus { outline: none; border-color: var(--accent); }
 
     /* Miniatures — mêmes recettes CSS que les vrais fonds (voir style.css
        .app-background-layer.bg-*), condensées ici en statique/petit format
@@ -1491,13 +1478,11 @@
         <span>☀️ Clair</span>
       </div>
 
-      <div class="personnaliser-section-title">Fond du dashboard</div>
-      <div class="personnaliser-options" id="personnaliserOptions"></div>
-
-      <!-- Mode d'affichage (2026-08-23, sur demande explicite) — s'applique
-           instantanément au choix, comme le fond ci-dessus (voir config.js
-           renderDisplayModeOptions, window.matin.displayMode.set). Le
-           sélecteur de bord n'apparaît que pour "Volet latéral". -->
+      <!-- Mode d'affichage (2026-08-23, sur demande explicite ; redesign en
+           3 "cubes" horizontaux + réordonné AVANT le fond, 2026-09-01, sur
+           demande explicite) — s'applique instantanément au choix (voir
+           config.js renderDisplayModeOptions, window.matin.displayMode.set).
+           Le sélecteur de bord n'apparaît que pour "Volet latéral". -->
       <div class="personnaliser-section-title">Mode d'affichage</div>
       <div class="display-mode-options" id="displayModeOptions"></div>
       <div class="display-mode-edge-row" id="sidebarEdgeRow">
@@ -1508,28 +1493,8 @@
         </select>
       </div>
 
-      <!-- Défilement automatique (2026-08-31, sur demande explicite) —
-           s'applique instantanément comme le fond/mode d'affichage ci-dessus
-           (voir config.js initAutoScrollSection, window.matin.autoScroll.*),
-           pas via le bouton "Enregistrer" général de Paramètres. Sélecteur
-           de vitesse visible seulement si le toggle est activé, même
-           principe que sidebarEdgeRow ci-dessus. -->
-      <div class="personnaliser-section-title">Défilement automatique</div>
-      <div class="autoscroll-toggle-row">
-        <span>↕️ Défilement automatique</span>
-        <label class="toggle">
-          <input type="checkbox" id="autoScrollToggle">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="autoscroll-speed-row" id="autoScrollSpeedRow">
-        <label for="autoScrollSpeedSelect">Vitesse</label>
-        <select id="autoScrollSpeedSelect">
-          <option value="slow">Lent</option>
-          <option value="medium">Moyen</option>
-          <option value="fast">Rapide</option>
-        </select>
-      </div>
+      <div class="personnaliser-section-title">Fond du dashboard</div>
+      <div class="personnaliser-options" id="personnaliserOptions"></div>
 
       <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>
     </div>

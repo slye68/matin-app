@@ -48,21 +48,15 @@ function priceFmt(v) {
   return v != null ? `${v.toFixed(2)} €` : null;
 }
 
-// Nom du marchand extrait du domaine de l'URL (2026-08-31, sur demande
-// explicite, redesign compact — "(Fnac)" depuis "www.fnac.com", "(Amazon)"
-// depuis "www.amazon.fr") : best-effort générique (1er label du nom d'hôte,
-// capitalisé) plutôt qu'une liste de casse exacte par marchand connu, non
-// maintenable pour un nombre de sites arbitraire (ce module suit désormais
-// n'importe quel site marchand, pas seulement Amazon — voir en-tête du
-// fichier). `null` sur une URL malformée, jamais affiché dans ce cas.
-function priceExtractMerchant(url) {
-  try {
-    const host = new URL(url).hostname.replace(/^www\./, '');
-    const label = host.split('.')[0];
-    return label ? label.charAt(0).toUpperCase() + label.slice(1) : null;
-  } catch {
-    return null;
-  }
+// Nom du marchand (2026-09-01, sur demande explicite — remplace l'ancienne
+// extraction depuis le domaine de l'URL, ex. "(Fnac)" depuis "www.fnac.com")
+// par le champ "Vendeur" saisi À LA MAIN par l'utilisateur dans Paramètres
+// (voir config.js renderPriceTrackingConfigSection, `item.vendor`) : affiché
+// TEL QUEL, jamais recalculé ou déduit de l'URL. `null` si laissé vide
+// (espaces compris), jamais affiché dans ce cas.
+function priceVendorLabel(vendor) {
+  const trimmed = (vendor || '').trim();
+  return trimmed || null;
 }
 
 // Pastille de statut (2026-08-31, sur demande explicite, redesign compact —
@@ -84,7 +78,7 @@ function priceStatusDot(item) {
 function priceRowHtml(item) {
   const below = item.targetPrice != null && item.price != null && item.price <= item.targetPrice;
   const dot = priceStatusDot(item);
-  const merchant = priceExtractMerchant(item.url);
+  const merchant = priceVendorLabel(item.vendor);
   // Point 5 de la demande initiale : prix actuel s'il a pu être obtenu,
   // sinon dernier prix connu avec mention explicite qu'il n'est pas à jour —
   // jamais "Indisponible" sec tant qu'un prix a déjà été vu au moins une fois.
@@ -120,10 +114,10 @@ window.MatinModules.priceTracking = {
       const fetched = await Promise.all(items.map(async (item) => {
         try {
           const { price, method } = await window.matin.priceTracking.fetchPrice(item.url);
-          return { url: item.url, label: item.label, targetPrice: item.targetPrice, price, fetchMethod: method, error: null };
+          return { url: item.url, label: item.label, vendor: item.vendor, targetPrice: item.targetPrice, price, fetchMethod: method, error: null };
         } catch (err) {
           console.warn(`[Suivi de prix] ${item.label || item.url}`, err.message);
-          return { url: item.url, label: item.label, targetPrice: item.targetPrice, price: null, fetchMethod: null, error: 'Indisponible' };
+          return { url: item.url, label: item.label, vendor: item.vendor, targetPrice: item.targetPrice, price: null, fetchMethod: null, error: 'Indisponible' };
         }
       }));
 

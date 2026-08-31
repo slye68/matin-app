@@ -549,6 +549,16 @@ body.ultrawide .module-card { max-width: 500px; }
   transition: color 0.4s ease;
 }
 .live-match-score-live { color: #ef4444; }
+/* Couleur par résultat (2026-09-01, sur demande explicite) — déclarées APRÈS
+   .live-match-score-live ci-dessus pour l'emporter en cas d'égalité de
+   spécificité (1 seule classe chacune) : un match EN DIRECT dont le score
+   est déjà connu doit refléter QUI mène, pas juste "c'est en cours" en
+   rouge fixe. Positionnel (domicile/extérieur), pas "mon équipe" — voir
+   liveResultColorClass dans live.js, seul point qui décide laquelle de ces
+   3 classes s'applique. */
+.live-score-home-win { color: #34d399; }
+.live-score-away-win { color: #ef4444; }
+.live-score-draw     { color: #fbbf24; }
 
 /* Point rouge pulsant — même principe d'animation que d'autres indicateurs
    "en direct" déjà présents ailleurs dans l'app (opacity/scale en boucle),
@@ -668,6 +678,28 @@ body.ultrawide .module-card { max-width: 500px; }
    tant qu'aucun mouvement n'a dépassé son seuil de déclenchement). */
 .module-title-clickable { cursor: pointer; }
 .module-title-clickable:hover { color: var(--accent); }
+
+/* Sous-titre de carte (2026-09-01, sur demande explicite — actuellement
+   Prêts seulement, voir dashboard.js resolveModuleSubtitle/createModuleCard)
+   — `.module-title-group` n'enveloppe `.module-title` que pour les modules
+   qui ONT un sous-titre (voir createModuleCard), donc n'affecte aucun autre
+   module. Colonne (pas ligne comme `.module-title`) pour empiler titre fixe
+   ("PRÊTS IMMOBILIERS", en majuscules via `.module-title` ci-dessus) et
+   sous-titre (nom du groupe, ex. "Maison Francheleins") l'un sous l'autre. */
+.module-title-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.module-subtitle {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Icône seule (voir .size-icon-only .module-title plus bas) : la carte est
+   trop petite pour une 2e ligne, le sous-titre disparaît avec le contenu. */
+.module-card.size-icon-only .module-subtitle { display: none; }
 
 .module-icon { font-size: 14px; }
 
@@ -1761,37 +1793,10 @@ body.ultrawide .module-card { max-width: 500px; }
    explicite (voir CONTEXT.md) : .brightness-overlay/.brightness-soiree
    n'ont plus d'usage, retirés. */
 
-/* ─── Volet latéral (2026-08-23, sur demande explicite) — bande de 20px
-   (12px→20px, 2e révision même jour, sur demande explicite — trop étroite
-   pour viser correctement, voir aussi SIDEBAR_STRIP_WIDTH dans main.js, LA
-   valeur qui compte réellement pour la géométrie de fenêtre ; celle-ci doit
-   rester en phase avec elle purement visuellement),
-   voir index.html #sidebarStrip et dashboard.js initDisplayMode (survol =
-   IPC sidebar:hoverEnter, clic = sidebar:togglePin). `position:fixed` est
-   relatif à LA FENÊTRE, pas à l'écran : quand main.js fait glisser
-   mainWindow (voir enterSidebarMode/animateSidebarX), cette bande glisse
-   avec elle et reste donc TOUJOURS au même bord logique de la fenêtre —
-   d'où le mapping contre-intuitif ci-dessous (edge-right → `left:0`) :
-   repousser une fenêtre ancrée à droite plus loin à droite laisse son bord
-   GAUCHE visible à l'écran (le reste part hors de l'écran physique), c'est
-   donc CE bord-là qui doit porter la bande. Inversement pour edge-left. */
-.sidebar-strip {
-  display: none;
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  width: 20px;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-purple) 100%);
-  cursor: pointer;
-  z-index: 500;
-  -webkit-app-region: no-drag;
-}
-body.display-mode-sidebar .sidebar-strip { display: flex; }
-.sidebar-strip.edge-right { left: 0; }
-.sidebar-strip.edge-left  { right: 0; }
-.sidebar-strip-sun { font-size: 13px; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5)); }
+/* Volet latéral — la bande n'est plus un élément embarqué dans ce document
+   (2026-09-01, réécriture complète, voir main.js) : elle vit désormais dans
+   sa propre fenêtre séparée (strip.html/strip.css), ce document n'a donc
+   plus rien à styler pour ce mode. */
 
 /* ─── Fond personnalisé du dashboard (2026-08-11, sur demande explicite) ────
    Voir "🎨 Personnaliser" dans Paramètres (config.js) + dashboard.js
@@ -3332,9 +3337,9 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Marchand extrait du domaine de l'URL (2026-08-31, sur demande explicite —
-   voir priceExtractMerchant, price-tracking.js), ex. "(Fnac)" depuis
-   "www.fnac.com". */
+/* Nom du vendeur saisi par l'utilisateur dans Paramètres (2026-09-01, sur
+   demande explicite — remplace l'ancienne extraction depuis le domaine de
+   l'URL, voir price-tracking.js priceVendorLabel), ex. "(Fnac)". */
 .price-tracking-merchant { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 .price-tracking-target { font-size: 11px; color: #fbbf24; flex-shrink: 0; }
 .price-tracking-value { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
