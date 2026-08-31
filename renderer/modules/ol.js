@@ -17,9 +17,9 @@
  * ci-dessous : quand eventsnext.php connaît le PROCHAIN adversaire (cas
  * fréquent en barrage à 2 manches), on interroge searchevents.php sur ce
  * même adversaire pour retrouver la manche déjà jouée — corrige exactement
- * ce cas, sans clé payante. En complément, fetchLastMatchESPN (site.api.
- * espn.com, championnat national uniquement, pas de clé) sert de 2e
- * recoupement, et fetchLastMatchGoogleNews (RSS, extraction de score dans un
+ * ce cas, sans clé payante. En complément, fetchEspnSchedule (site.api.
+ * espn.com, championnat national + Ligue des Champions, pas de clé) sert de
+ * 2e recoupement, et fetchLastMatchGoogleNews (RSS, extraction de score dans un
  * titre, confiance limitée) n'intervient qu'en tout dernier repli si aucune
  * source structurée n'a rien donné. Le candidat retenu au final est le plus
  * RÉCENT (date desc) parmi toutes les sources ayant répondu — voir
@@ -234,6 +234,146 @@ function classifyCompetition(leagueName) {
   return 'Championnat';
 }
 
+// ─── Classement (2026-08-31, sur demande explicite) ────────────────────────
+// Compétition auto-détectée depuis `nextMatch.strLeague` (TheSportsDB, texte
+// libre du type "French Ligue 1"/"UEFA Champions League") vers l'un des 9
+// endpoints ESPN demandés. `.includes()` sur la chaîne en minuscules plutôt
+// qu'un `.find()` avec un seul motif ambigu par ligue : testé que "uefa
+// europa conference league" (Conference) ne contient PAS la sous-chaîne
+// contiguë "europa league" (il y a "conference" entre les deux), donc aucun
+// conflit d'ordre entre Europa et Conference malgré le nom imbriqué de cette
+// dernière. Bundesliga exclut explicitement "2. Bundesliga" (2e division
+// allemande, hors périmètre demandé) pour ne jamais l'étiqueter à tort comme
+// la 1re division.
+const STANDINGS_LEAGUES = [
+  { slug: 'fra.1', label: 'Ligue 1', icon: '🏆', match: (l) => l.includes('ligue 1') },
+  { slug: 'fra.2', label: 'Ligue 2', icon: '🏆', match: (l) => l.includes('ligue 2') },
+  { slug: 'esp.1', label: 'Liga', icon: '🏆', match: (l) => l.includes('la liga') || l.includes('laliga') || l.includes('primera division') },
+  { slug: 'eng.1', label: 'Premier League', icon: '🏆', match: (l) => l.includes('premier league') },
+  { slug: 'ger.1', label: 'Bundesliga', icon: '🏆', match: (l) => l.includes('bundesliga') && !l.includes('2. bundesliga') },
+  { slug: 'ita.1', label: 'Serie A', icon: '🏆', match: (l) => l.includes('serie a') },
+  { slug: 'uefa.champions', label: 'Ligue des Champions', icon: '⭐', match: (l) => l.includes('champions league') },
+  { slug: 'uefa.europa.conference', label: 'Conference League', icon: '🌍', match: (l) => l.includes('conference league') },
+  { slug: 'uefa.europa', label: 'Europa League', icon: '🌍', match: (l) => l.includes('europa league') },
+];
+
+function detectStandingsLeague(leagueName) {
+  if (!leagueName) return null;
+  const l = leagueName.toLowerCase();
+  return STANDINGS_LEAGUES.find(entry => entry.match(l)) || null;
+}
+
+// Classement mis en cache 6h (demande explicite) — PAR LIGUE (pas par
+// équipe/instance) dans localStorage : plusieurs instances Sports suivant des
+// équipes du même championnat partagent le même classement déjà téléchargé,
+// et le cycle de refresh du module (10 min, voir dashboard.js
+// MODULE_REGISTRY.ol) ne redéclenche donc PAS un appel réseau à chaque
+// rafraîchissement de carte, seulement au plus une fois toutes les 6h.
+const STANDINGS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function fetchStandingsRaw(slug) {
+  const cacheKey = `matin-standings-${slug}`;
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (cached && (Date.now() - cached.fetchedAt) < STANDINGS_CACHE_TTL_MS) {
+      console.log(`[Sports] Classement ${slug} servi depuis le cache (${Math.round((Date.now() - cached.fetchedAt) / 60000)} min)`);
+      return cached.data;
+    }
+  } catch (err) {
+    console.warn(`[Sports] Cache classement ${slug} illisible, re-téléchargement`, err);
+  }
+
+  const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/standings`);
+  const data = JSON.parse(raw);
+  console.log(`[Sports] Classement ${slug} téléchargé`, data);
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ fetchedAt: Date.now(), data }));
+  } catch (err) {
+    console.warn(`[Sports] Échec mise en cache du classement ${slug}`, err);
+  }
+  return data;
+}
+
+// La réponse ESPN standings a 2 formes possibles selon la compétition : table
+// unique (`data.standings.entries`, championnats nationaux) ou plusieurs
+// groupes (`data.children[].standings.entries`, ex. phase de groupes) — les 2
+// sont collectées ici, `groupName` restant `null` pour une table unique
+// (voir fetchTeamStandingLine, qui décide du format d'affichage selon sa
+// présence).
+function collectStandingsGroups(data) {
+  const groups = [];
+  if (data?.standings?.entries?.length) {
+    groups.push({ name: null, entries: data.standings.entries });
+  }
+  if (Array.isArray(data?.children)) {
+    for (const child of data.children) {
+      if (child?.standings?.entries?.length) {
+        groups.push({ name: child.name || child.abbreviation || null, entries: child.standings.entries });
+      }
+    }
+  }
+  return groups;
+}
+
+// Même principe de correspondance approximative par mot-clé que
+// espnFindTeam (plus haut) — mais directement sur les noms d'équipe DÉJÀ
+// présents dans la réponse standings, sans appel réseau supplémentaire pour
+// résoudre un id ESPN (les 9 championnats/coupes demandés n'ont pas tous un
+// endpoint "liste des équipes" déjà utilisé dans ce fichier).
+function findTeamStandingsEntry(groups, ctx) {
+  for (const group of groups) {
+    const entry = group.entries.find((e) => {
+      const names = [e.team?.displayName, e.team?.shortDisplayName, e.team?.name, e.team?.abbreviation]
+        .filter(Boolean)
+        .map((n) => n.toLowerCase());
+      return ctx.keywords.some((kw) => names.some((n) => n.includes(kw) || kw.includes(n)));
+    });
+    if (entry) return { entry, groupName: group.name };
+  }
+  return null;
+}
+
+function findStandingsStat(stats, ...names) {
+  const lowerNames = names.map((n) => n.toLowerCase());
+  const stat = (stats || []).find((s) =>
+    lowerNames.includes((s.name || '').toLowerCase()) || lowerNames.includes((s.abbreviation || '').toLowerCase())
+  );
+  if (!stat) return null;
+  return stat.displayValue ?? stat.value ?? null;
+}
+
+// "1er"/"2ème"/"3ème"... (convention FR informelle, cohérente avec les
+// exemples EXACTS demandés).
+function frOrdinal(rank) {
+  const n = Number(rank);
+  if (!Number.isFinite(n)) return '';
+  return n === 1 ? '1er' : `${n}ème`;
+}
+
+// Ligne compacte "🏆 Ligue 1 — 3ème · 45 pts" (table unique) ou "⭐ Ligue des
+// Champions — Groupe B · 2ème" (groupes — pas de points affichés dans ce cas,
+// format EXACT demandé) — `null` si la compétition n'est pas dans la liste
+// demandée, si l'équipe n'apparaît dans aucun groupe du classement récupéré,
+// ou si le rang n'est pas exploitable : le seul contrat de cette fonction est
+// "une ligne à afficher, ou rien" (voir render(), qui laisse alors le
+// placeholder vide plutôt que d'afficher une erreur).
+async function fetchTeamStandingLine(league, ctx) {
+  const data = await fetchStandingsRaw(league.slug);
+  const groups = collectStandingsGroups(data);
+  const found = findTeamStandingsEntry(groups, ctx);
+  if (!found) return null;
+
+  const rank = findStandingsStat(found.entry.stats, 'rank');
+  if (rank == null) return null;
+  const points = findStandingsStat(found.entry.stats, 'points');
+  const ordinal = frOrdinal(rank);
+
+  if (found.groupName) {
+    return `${league.icon} ${league.label} — ${found.groupName} · ${ordinal}`;
+  }
+  return `${league.icon} ${league.label} — ${ordinal}${points != null ? ` · ${points} pts` : ''}`;
+}
+
 // TheSportsDB renvoie dateEvent + strTime en UTC (vérifié : un match à 16:00
 // strTime correspond à 18:00 heure de Paris en été) — on combine les deux en
 // un Date UTC unique puis on dérive date ET heure locales à partir de ce même
@@ -355,60 +495,164 @@ async function fetchReverseFixtureMatch(idTeam, nextMatch) {
   return null;
 }
 
-// Recoupement championnat national via ESPN (site.api.espn.com, sans clé,
-// pas d'en-tête CORS — vérifié en direct 2026-08-10, d'où le passage par le
-// proxy process main rss:fetchFeed comme les autres sources bloquées CORS de
-// ce module). Portée limitée au championnat français (fra.1) : ne couvre PAS
-// les coupes d'Europe ni les amicaux (vérifié : l'endpoint schedule scopé à
-// fra.1 ne renvoie que les matchs de Ligue 1). Résolution du nom d'équipe
-// TheSportsDB/utilisateur → équipe ESPN par correspondance approximative sur
-// les mots-clés déjà utilisés pour le filtrage actus (ctx.keywords).
-const ESPN_LIGUE1_TEAMS_URL = 'http://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/teams';
+// Recoupement via ESPN (site.api.espn.com, sans clé, pas d'en-tête CORS —
+// vérifié en direct 2026-08-10, d'où le passage par le proxy process main
+// rss:fetchFeed comme les autres sources bloquées CORS de ce module).
+//
+// ÉLARGI le 2026-08-31 (sur demande explicite, bug signalé : "Aucun match
+// prévu"/"Aucun résultat récent" persistants pour Olympique Lyonnais malgré
+// TheSportsDB) — 2 changements par rapport à la version précédente :
+//  1. Plusieurs championnats testés dans l'ordre (ESPN_SOCCER_LEAGUES), pas
+//     seulement fra.1 : un club français jouant aussi une coupe d'Europe
+//     (cas RÉEL d'OL, qui alterne Ligue 1/Ligue des Champions selon les
+//     semaines) avait un "trou" total côté ESPN dès que son prochain/dernier
+//     match tombait sur la coupe d'Europe — la portée fra.1-only, documentée
+//     comme limite connue dans l'ancienne version de ce commentaire, ne
+//     couvrait tout simplement pas ce cas.
+//  2. Le schedule ESPN sert désormais AUSSI de source pour le PROCHAIN match
+//     (`fetchEspnSchedule` renvoie `{ lastMatch, nextMatch }`), pas seulement
+//     le dernier résultat — c'était le vrai trou fonctionnel expliquant
+//     "Aucun match prévu" même quand ESPN avait la donnée : contrairement au
+//     dernier résultat (recoupé via `candidates`, voir render()), rien
+//     n'alimentait jamais le prochain match en dehors de TheSportsDB
+//     `eventsnext.php`, une source déjà documentée comme pouvant être
+//     PÉRIMÉE pour cette équipe précise (voir en-tête du fichier).
+const ESPN_SOCCER_LEAGUES = ['fra.1', 'uefa.champions'];
 
-async function espnFindTeamId(ctx) {
-  try {
-    const raw = await window.matin.rss.fetchFeed(ESPN_LIGUE1_TEAMS_URL);
-    const data = JSON.parse(raw);
-    const teams = data.sports?.[0]?.leagues?.[0]?.teams || [];
-    const found = teams.find(t => {
-      const name = (t.team.displayName || '').toLowerCase();
-      return ctx.keywords.some(kw => name.includes(kw) || kw.includes(name));
-    });
-    return found ? found.team.id : null;
-  } catch (err) {
-    console.warn('[Sports] ESPN liste équipes Ligue 1 indisponible', err);
-    return null;
+// Label texte injecté dans `strLeague` (voir espnEventToNextMatch) — sert de
+// donnée d'entrée à `classifyCompetition`/`detectStandingsLeague` (même
+// fichier), qui attendent un texte de championnat façon TheSportsDB plutôt
+// que le slug technique ESPN.
+const ESPN_SLUG_LEAGUE_LABEL = {
+  'fra.1': 'French Ligue 1',
+  'uefa.champions': 'UEFA Champions League',
+};
+
+// Cherche l'équipe dans CHAQUE championnat de ESPN_SOCCER_LEAGUES, dans
+// l'ordre, jusqu'à la trouver — retourne aussi le slug où elle a été trouvée
+// (nécessaire pour interroger le bon endpoint schedule juste après, ET pour
+// injecter le bon libellé de championnat dans le prochain match).
+async function espnFindTeam(ctx) {
+  for (const slug of ESPN_SOCCER_LEAGUES) {
+    try {
+      const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams`);
+      const data = JSON.parse(raw);
+      console.log(`[Sports] ESPN liste équipes (${slug}) →`, data);
+      const teams = data.sports?.[0]?.leagues?.[0]?.teams || [];
+      const found = teams.find(t => {
+        const name = (t.team.displayName || '').toLowerCase();
+        return ctx.keywords.some(kw => name.includes(kw) || kw.includes(name));
+      });
+      if (found) {
+        console.log(`[Sports] Équipe trouvée sur ESPN (${slug}) : teamId=${found.team.id} (${found.team.displayName})`);
+        return { espnId: found.team.id, slug };
+      }
+      console.log(`[Sports] Équipe absente de la liste ESPN ${slug} (${teams.length} équipe(s) reçue(s))`);
+    } catch (err) {
+      console.warn(`[Sports] ESPN liste équipes (${slug}) indisponible`, err);
+    }
   }
+  return null;
 }
 
-async function fetchLastMatchESPN(ctx) {
-  const espnId = await espnFindTeamId(ctx);
-  if (!espnId) return null;
+function espnEventToLastMatch(event, espnId) {
+  if (!event) return null;
+  const competitors = event.competitions?.[0]?.competitors || [];
+  const us = competitors.find(c => c.team.id === espnId);
+  const opp = competitors.find(c => c.team.id !== espnId);
+  const ourScore = Number(us?.score);
+  const oppScore = Number(opp?.score);
+  if (!us || !opp || Number.isNaN(ourScore) || Number.isNaN(oppScore)) return null;
+
+  let result = 'draw';
+  if (ourScore > oppScore) result = 'win';
+  else if (ourScore < oppScore) result = 'loss';
+  return { ourScore, oppScore, opponent: opp.team.displayName, result, date: new Date(event.date), source: 'espn' };
+}
+
+// Reconstruit un objet façon TheSportsDB (dateEvent/strTime/strLeague/
+// strEvent) à partir d'un événement ESPN à venir, pour rester compatible SANS
+// MODIFICATION avec renderNextMatchHtml/formatMatchDateTime/
+// classifyCompetition/detectStandingsLeague — tous écrits à l'origine pour la
+// forme TheSportsDB uniquement. `event.date` ESPN est déjà un ISO 8601 UTC
+// complet (ex. "2026-09-06T19:00Z"), simplement redécoupé en date+heure UTC
+// séparées pour correspondre à ce que `formatMatchDateTime` recompose.
+function espnEventToNextMatch(event, slug) {
+  if (!event) return null;
+  const d = new Date(event.date);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const competitors = event.competitions?.[0]?.competitors || [];
+  const home = competitors.find(c => c.homeAway === 'home');
+  const away = competitors.find(c => c.homeAway === 'away');
+  const strEvent = home && away
+    ? `${home.team?.displayName || '?'} vs ${away.team?.displayName || '?'}`
+    : (event.name || event.shortName || '');
+
+  return {
+    dateEvent: d.toISOString().slice(0, 10),
+    strTime: d.toISOString().slice(11, 19),
+    strLeague: ESPN_SLUG_LEAGUE_LABEL[slug] || '',
+    strEvent,
+  };
+}
+
+// Point d'entrée unique ESPN pour ce module — trouve l'équipe (tous
+// championnats de ESPN_SOCCER_LEAGUES), récupère SON calendrier, en tire le
+// dernier résultat ET le prochain match.
+//
+// BUG RÉEL trouvé ET corrigé le 2026-08-31, VÉRIFIÉ EN DIRECT contre la vraie
+// API (curl, en dehors de l'app — accès réseau exceptionnellement disponible
+// pour ce diagnostic) : `.../teams/{id}/schedule` SANS paramètre ne renvoie
+// PAS le calendrier complet de la saison comme le code précédent le supposait
+// — seulement une petite fenêtre de matchs RÉCEMMENT joués (vérifié : 2
+// événements pour Lyon, tous les deux déjà terminés, AUCUN match à venir,
+// alors que Lyon a bien 32 matchs restants programmés cette saison). Le
+// paramètre `?fixture=true` (découvert par essai direct, non documenté
+// publiquement) fait basculer la réponse sur les matchs À VENIR exclusivement
+// (vérifié : 32 événements, tous `completed:false`) — c'est très
+// probablement la cause RÉELLE de "Aucun match prévu" pour Olympique Lyonnais
+// : ce module n'avait tout simplement JAMAIS pu voir les matchs à venir via
+// ESPN, avec ou sans le repli ajouté plus haut, faute de ce paramètre. Les 2
+// appels sont donc désormais faits en parallèle (résultats récents SANS le
+// paramètre, prochains matchs AVEC) plutôt qu'un seul comme la version
+// précédente le supposait à tort.
+async function fetchEspnSchedule(ctx) {
+  const found = await espnFindTeam(ctx);
+  if (!found) {
+    console.log('[Sports] Team ID trouvé: aucun, prochains matchs: 0, derniers résultats: 0');
+    return { lastMatch: null, nextMatch: null };
+  }
+  const { espnId, slug } = found;
+  const baseUrl = `http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${espnId}/schedule`;
 
   try {
-    const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/teams/${espnId}/schedule`);
-    const data = JSON.parse(raw);
-    console.log(`[Sports] ESPN schedule (teamId=${espnId}) →`, data);
-    const completed = (data.events || [])
+    const [rawPast, rawFuture] = await Promise.all([
+      window.matin.rss.fetchFeed(baseUrl),
+      window.matin.rss.fetchFeed(`${baseUrl}?fixture=true`),
+    ]);
+    const pastData = JSON.parse(rawPast);
+    const futureData = JSON.parse(rawFuture);
+    console.log(`[Sports] ESPN schedule brut — résultats récents (teamId=${espnId}, ${slug}) →`, pastData);
+    console.log(`[Sports] ESPN schedule brut — prochains matchs (teamId=${espnId}, ${slug}, ?fixture=true) →`, futureData);
+
+    const completed = (pastData.events || [])
       .filter(e => e.competitions?.[0]?.status?.type?.completed)
       .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const upcoming = (futureData.events || [])
+      .filter(e => !e.competitions?.[0]?.status?.type?.completed)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    const match = completed[0];
-    if (!match) return null;
-    const competitors = match.competitions[0].competitors || [];
-    const us = competitors.find(c => c.team.id === espnId);
-    const opp = competitors.find(c => c.team.id !== espnId);
-    const ourScore = Number(us?.score);
-    const oppScore = Number(opp?.score);
-    if (!us || !opp || Number.isNaN(ourScore) || Number.isNaN(oppScore)) return null;
+    console.log(`[Sports] Team ID trouvé: ${espnId}, prochains matchs: ${upcoming.length}, derniers résultats: ${completed.length}`);
 
-    let result = 'draw';
-    if (ourScore > oppScore) result = 'win';
-    else if (ourScore < oppScore) result = 'loss';
-    return { ourScore, oppScore, opponent: opp.team.displayName, result, date: new Date(match.date), source: 'espn' };
+    return {
+      lastMatch: espnEventToLastMatch(completed[0], espnId),
+      nextMatch: espnEventToNextMatch(upcoming[0], slug),
+    };
   } catch (err) {
-    console.warn('[Sports] ESPN schedule indisponible', err);
-    return null;
+    console.warn(`[Sports] ESPN schedule (teamId=${espnId}, ${slug}) indisponible`, err);
+    console.log(`[Sports] Team ID trouvé: ${espnId}, prochains matchs: 0, derniers résultats: 0`);
+    return { lastMatch: null, nextMatch: null };
   }
 }
 
@@ -709,6 +953,7 @@ function renderNextMatchHtml(match) {
   return `
     <div class="sports-next-detail">${date} · ${time}${competition ? ' · ' + competition : ''}</div>
     <div class="sports-next-opp">${match.strEvent || ''}</div>
+    <div class="sports-standings-line" id="sports-standings-slot"></div>
   `;
 }
 
@@ -763,10 +1008,11 @@ window.MatinModules.ol = {
             .catch(err => console.error('[Sports] Échec de la sauvegarde du site officiel du club', err));
         }
       }
-      const [lastMatches, nextMatch] = await Promise.all([
+      const [lastMatches, nextMatchTsdb] = await Promise.all([
         fetchLastMatches(idTeam).catch(() => []),
         fetchNextMatch(idTeam).catch(() => null),
       ]);
+      console.log(`[Sports] TheSportsDB — eventslast.php: ${lastMatches.length} événement(s), eventsnext.php: ${nextMatchTsdb ? 1 : 0} événement`);
 
       const finishedMatches = lastMatches
         .filter(isFinishedMatch)
@@ -785,15 +1031,17 @@ window.MatinModules.ol = {
       // résultat brut TheSportsDB, puis on garde le candidat le plus RÉCENT
       // parmi tous ceux qui ont répondu — pas un simple ordre de priorité
       // fixe, pour ne jamais laisser un résultat périmé l'emporter sur un
-      // résultat plus frais trouvé ailleurs.
-      const [reverseCandidate, espnCandidate] = await Promise.all([
-        fetchReverseFixtureMatch(idTeam, nextMatch).catch(err => { console.warn('[Sports] fetchReverseFixtureMatch a échoué', err); return null; }),
+      // résultat plus frais trouvé ailleurs. `fetchEspnSchedule` (voir plus
+      // haut) sert ICI pour le dernier résultat (espnResult.lastMatch), ET
+      // plus bas pour le prochain match — un seul appel ESPN couvre les 2.
+      const [reverseCandidate, espnResult] = await Promise.all([
+        fetchReverseFixtureMatch(idTeam, nextMatchTsdb).catch(err => { console.warn('[Sports] fetchReverseFixtureMatch a échoué', err); return null; }),
         strSport?.toLowerCase() === 'soccer'
-          ? fetchLastMatchESPN(buildTeamContext(team)).catch(err => { console.warn('[Sports] fetchLastMatchESPN a échoué', err); return null; })
-          : Promise.resolve(null),
+          ? fetchEspnSchedule(buildTeamContext(team)).catch(err => { console.warn('[Sports] fetchEspnSchedule a échoué', err); return { lastMatch: null, nextMatch: null }; })
+          : Promise.resolve({ lastMatch: null, nextMatch: null }),
       ]);
 
-      let candidates = [thesportsdbCandidate, reverseCandidate, espnCandidate].filter(Boolean);
+      let candidates = [thesportsdbCandidate, reverseCandidate, espnResult.lastMatch].filter(Boolean);
       console.log('[Sports] Candidats "dernier match" collectés :', candidates);
 
       if (!candidates.length) {
@@ -805,8 +1053,33 @@ window.MatinModules.ol = {
       const best = candidates[0] || null;
       console.log('[Sports] Dernier match retenu (le plus récent parmi les candidats) :', best);
 
+      // Prochain match : TheSportsDB en priorité (déjà dans le bon format,
+      // et généralement à jour) ; repli sur ESPN SEULEMENT si TheSportsDB n'a
+      // rien renvoyé — corrige le vrai trou signalé (voir en-tête de
+      // fetchEspnSchedule) où rien d'autre que `eventsnext.php` n'alimentait
+      // jamais l'affichage du prochain match.
+      const nextMatch = nextMatchTsdb || espnResult.nextMatch;
+      console.log('[Sports] Prochain match retenu :', nextMatch, nextMatchTsdb ? '(source: thesportsdb)' : (espnResult.nextMatch ? '(source: espn, repli)' : '(aucune source)'));
+
       resultsSlot.innerHTML = renderLastResultsHtml(best ? [best] : []);
       nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span>${renderNextMatchHtml(nextMatch)}`;
+
+      // Classement — jamais attendu avant d'afficher le prochain match
+      // ci-dessus (réseau ESPN + éventuel cache expiré, pas de raison de
+      // retarder le reste de la carte) : remplit le placeholder une fois prêt,
+      // le laisse vide (donc invisible, voir style.css) si la compétition
+      // n'est pas reconnue, si l'équipe n'apparaît dans aucun classement
+      // récupéré, ou en cas d'erreur réseau.
+      const league = nextMatch ? detectStandingsLeague(nextMatch.strLeague) : null;
+      if (league) {
+        fetchTeamStandingLine(league, buildTeamContext(team))
+          .then((line) => {
+            if (!line) return;
+            const slot = container.querySelector('#sports-standings-slot');
+            if (slot) slot.textContent = line;
+          })
+          .catch((err) => console.warn(`[Sports] Classement ${league.slug} indisponible`, err));
+      }
     } catch (err) {
       resultsSlot.innerHTML = '<span class="sports-no-data">—</span>';
       nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span><span class="sports-no-data">Indisponible</span>`;

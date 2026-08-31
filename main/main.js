@@ -6,6 +6,7 @@ const { TradfriClient: TradfriGwClient, AccessoryTypes: TradfriAccessoryTypes } 
 const Store = require('electron-store');
 const { runGoogleAuthFlow, refreshAccessToken } = require('./auth/google-oauth');
 const { runSpotifyAuthFlow, refreshAccessToken: refreshSpotifyAccessToken } = require('./auth/spotify-oauth');
+const { runHueAuthFlow, refreshHueAccessToken } = require('./auth/hue-oauth');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -136,8 +137,7 @@ const DEFAULT_MODULES = {
   // car ils exigent une action de config avant d'être utiles).
   airQuality: { enabled: true,  position: 8.1, config: {} },              // réutilise la ville de weather, rien à configurer
   fuelPrices: { enabled: false, position: 8.2, config: { city: '' } },    // ville/CP à saisir
-  parcels:    { enabled: false, position: 8.3, config: { items: [] } },   // numéros de suivi à saisir (transporteur auto-détecté, aucune clé requise)
-  // Suivi de prix Amazon (2026-08-30, sur demande explicite) — jusqu'à 10
+  // Suivi de prix Marchand (2026-08-30, sur demande explicite) — jusqu'à 10
   // produits (URL Amazon.fr + libellé + prix cible), voir renderer/modules/
   // price-tracking.js pour le scraping (jina.ai) et plus bas dans ce fichier
   // pour la persistance/notification (priceTracking:reportPrices). Dans
@@ -148,7 +148,19 @@ const DEFAULT_MODULES = {
   cinema:     { enabled: true,  position: 8.4, config: {} },              // scraping direct AlloCiné, aucune clé requise (2026-08-05)
   steamPromos:{ enabled: true,  position: 8.5, config: {} },              // aucune config nécessaire
   epicPromos: { enabled: true,  position: 8.55, config: {} },             // aucune config nécessaire
-  hue:        { enabled: false, position: 8.6, config: { bridgeIp: '', username: '' } }, // appairage manuel requis
+  // `mode` (2026-08-31, sur demande explicite — support des ampoules Hue
+  // SANS pont, via le compte cloud Hue au lieu du pont local) : "bridge"
+  // (défaut, comportement historique inchangé) ou "cloud". Champs cloud
+  // (`clientId`/`clientSecret`/tokens) toujours présents dans `config`, même
+  // en mode bridge — jamais utilisés dans ce cas, mais évite un `undefined`
+  // si l'utilisateur bascule le mode sans avoir encore rien saisi.
+  hue: {
+    enabled: false, position: 8.6,
+    config: {
+      mode: 'bridge', bridgeIp: '', username: '',
+      clientId: '', clientSecret: '', accessToken: null, refreshToken: null, expiresAt: null,
+    },
+  }, // appairage manuel requis (pont) ou compte Hue (cloud)
   // TP-Link Kasa (2026-08-10, sur demande explicite) — AUCUN compte cloud ni
   // clé requis, contrairement à Hue/TaHoma : `enabled: false` par défaut quand
   // même, le temps que l'utilisateur lance une 1re découverte réseau (sinon
@@ -314,6 +326,13 @@ const store = new Store({
       displayMode: 'fullscreen',
       floatingSunPosition: null,
       sidebarEdge: 'right',
+      // Défilement automatique du dashboard (2026-08-31, sur demande
+      // explicite) — voir app:setAutoScroll/app:setAutoScrollSpeed plus bas.
+      // Même limite de `defaults` que background/displayMode ci-dessus sur
+      // une installation existante : chaque lecture retombe sur ces mêmes
+      // valeurs via `|| .../=== true` plutôt que de compter sur ce bloc.
+      autoScroll: false,
+      autoScrollSpeed: 'medium',
     }
   }
 });
@@ -392,6 +411,46 @@ console.log('[Matin] Store location (matin-userdata):', userdataStore.path);
 // seul `modules` via modules:getAll).
 function getMergedModules() {
   return { ...(store.get('modules') || {}), ...(userdataStore.get('modules') || {}) };
+}
+
+// ─── Disposition (position/taille) de TOUS les modules — pour les
+// sauvegardes/export (2026-08-31, sur demande explicite) ───────────────────
+// Les sauvegardes automatiques/l'export manuel (voir writeUserdataBackupTo/
+// backups:exportManual plus bas) sont volontairement scopées à userdata SEUL
+// (jamais matin-config, voir USERDATA_MODULE_KEYS) — correct pour les
+// DONNÉES (ETF/Crypto/Prêts...), mais ça laissait la disposition des
+// modules NON-userdata (Météo, RSS, Sports, la grande majorité des cartes)
+// hors de portée de ces 2 mécanismes. `collectAllLayouts`/`applyLayoutSection`
+// traitent la disposition à part, dans une section "layout" DÉDIÉE (demandée
+// explicitement) qui couvre les 2 stores — `writeLaunchBackup`/
+// `backups:restore` (sauvegarde/restauration COMPLÈTE des 2 stores) n'en ont
+// pas besoin, ils capturent déjà tout, layout inclus, par construction.
+function collectAllLayouts() {
+  const merged = getMergedModules();
+  const layout = {};
+  for (const [key, mod] of Object.entries(merged)) {
+    if (mod?.layout) layout[key] = mod.layout;
+  }
+  return layout;
+}
+
+function applyLayoutSection(layoutByKey) {
+  if (!layoutByKey || typeof layoutByKey !== 'object') return;
+  const configModules = store.get('modules') || {};
+  const userdataModules = userdataStore.get('modules') || {};
+  let configChanged = false;
+  let userdataChanged = false;
+  for (const [key, layout] of Object.entries(layoutByKey)) {
+    if (!layout) continue;
+    if (USERDATA_MODULE_KEYS.has(key)) {
+      if (userdataModules[key]) { userdataModules[key].layout = layout; userdataChanged = true; }
+    } else if (configModules[key]) {
+      configModules[key].layout = layout;
+      configChanged = true;
+    }
+  }
+  if (configChanged) safeStoreSet('modules', configModules);
+  if (userdataChanged) userdataStore.set('modules', userdataModules);
 }
 
 // Répartit un objet `modules` reçu (ex. du renderer via modules:update) entre
@@ -536,7 +595,11 @@ function listLaunchBackups() {
 // jamais préserver/propager un vide accidentel comme s'il s'agissait d'un
 // état légitime à conserver).
 const USERDATA_BACKUP_PREFIX = 'userdata-backup-';
-const MAX_USERDATA_BACKUPS = 30;
+// 30 → 6 → 3 (2026-08-31, 2e réduction le même jour sur demande explicite) —
+// désormais visibles/restaurables depuis la popup Sauvegardes (voir
+// listAllLocalUserdataBackups/backups:list plus bas), un plafond plus élevé
+// encombrait la liste pour peu de valeur ajoutée au-delà des plus récents.
+const MAX_USERDATA_BACKUPS = 3;
 // Point 1 de la demande : export "lisible" dans Documents, en plus de la
 // copie technique dans AppData — "lisible" ici veut dire facile à
 // RETROUVER/COPIER (Documents plutôt que le dossier caché AppData), pas un
@@ -567,7 +630,10 @@ function writeUserdataBackupTo(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${USERDATA_BACKUP_PREFIX}${launchBackupTimestamp(new Date())}.json`);
-    const payload = { savedAt: new Date().toISOString(), modules };
+    // `layout` (2026-08-31, sur demande explicite, point 1) : position/taille
+    // de TOUS les modules (userdata ET config), voir collectAllLayouts —
+    // section à part de `modules` (qui reste strictement userdata).
+    const payload = { savedAt: new Date().toISOString(), modules, layout: collectAllLayouts() };
     fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf-8');
     pruneUserdataBackupsIn(dir);
     console.log('[Sauvegardes] Instantané userdata écrit :', file, `(${userdataEntryCount(modules)} entrée(s) au total)`);
@@ -753,11 +819,19 @@ function backupHasUserdata(backupJson) {
 // dossier, triés ensemble par date réelle : peu importe LEQUEL des 2
 // mécanismes a produit la sauvegarde la plus récente avec du contenu, c'est
 // celle-là qui doit être proposée en premier à la restauration automatique.
+// Réutilisée aussi par `backups:list` depuis le 2026-08-31 (popup Paramètres
+// → Sauvegardes, section "💾 Sauvegardes locales") — `type` ('launch'/
+// 'change') laissé sur chaque entrée pour que le renderer puisse distinguer
+// les 2 origines à l'affichage sans reparser le nom de fichier.
 function listAllLocalUserdataBackups() {
   try {
     return fs.readdirSync(LAUNCH_BACKUPS_DIR)
       .filter(f => /^backup-.*\.json$/.test(f) || (f.startsWith(USERDATA_BACKUP_PREFIX) && f.endsWith('.json')))
-      .map(f => ({ file: f, mtimeMs: fs.statSync(path.join(LAUNCH_BACKUPS_DIR, f)).mtimeMs }))
+      .map(f => ({
+        file: f,
+        mtimeMs: fs.statSync(path.join(LAUNCH_BACKUPS_DIR, f)).mtimeMs,
+        type: f.startsWith(USERDATA_BACKUP_PREFIX) ? 'change' : 'launch',
+      }))
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
   } catch {
     return [];
@@ -789,6 +863,11 @@ function autoRestoreUserdataIfEmpty() {
 
       backupStoreBeforeWrite();
       userdataStore.set('modules', extractUserdataModulesFromBackup(data));
+      // Section "layout" dédiée (2026-08-31) — absente des sauvegardes plus
+      // anciennes, `applyLayoutSection` l'ignore silencieusement le cas
+      // échéant (le layout userdata déjà embarqué dans `extractUserdata
+      // ModulesFromBackup` ci-dessus reste restauré dans tous les cas).
+      applyLayoutSection(data.layout);
       autoRestoreNotice = { file: b.file, mtimeMs: b.mtimeMs };
       scheduleUserdataBackup(); // le contenu retrouvé mérite son propre instantané frais, indépendant de celui qui vient de le fournir
       console.warn(`[Matin] matin-userdata semblait vide au lancement — restauration automatique depuis ${b.file}`);
@@ -1471,22 +1550,34 @@ ipcMain.handle('store:get', (_e, key) => store.get(key));
 ipcMain.handle('store:set', (_e, key, value) => { safeStoreSet(key, value); return true; });
 ipcMain.handle('store:getAll', () => store.store);
 
-// Sauvegardes de lancement — liste/restaure (voir writeLaunchBackup plus
-// haut et renderer/config.js, bouton "Restaurer une sauvegarde" de
-// Paramètres → App, 2026-08-10 sur demande explicite).
-ipcMain.handle('backups:list', () => listLaunchBackups());
+// Sauvegardes locales — liste/restaure (voir writeLaunchBackup plus haut et
+// renderer/config.js, popup Paramètres → Sauvegardes, 2026-08-10 sur demande
+// explicite). `listAllLocalUserdataBackups` (pas `listLaunchBackups` seul,
+// changé le 2026-08-31 sur demande explicite) : la popup doit montrer les 2
+// mécanismes de sauvegarde locale — instantanés par LANCEMENT ET par
+// CHANGEMENT (voir scheduleUserdataBackup plus haut) — pas seulement les
+// premiers comme avant, sinon la plupart des instantanés récents restaient
+// invisibles/impossibles à restaurer depuis l'UI.
+ipcMain.handle('backups:list', () => listAllLocalUserdataBackups());
 
 // `file` vient de backups:list (jamais saisi librement par l'utilisateur) —
 // motif validé quand même avant de construire le chemin, filet de sécurité
 // contre toute traversée de répertoire si ce contrat venait à changer.
-const BACKUP_FILE_RE = /^backup-[\d-_]+\.json$/;
-// Comprend 2 formats de sauvegarde (2026-08-10, depuis la scission matin-
-// config/matin-userdata) : le NOUVEAU `{ config, userdata }` (restaure
-// chaque partie dans SON store), et l'ANCIEN format à plat (tout restauré
-// dans matin-config tel quel — c'est bien là qu'était TOUTE la donnée à
-// l'époque où ces sauvegardes-là ont été écrites, matin-userdata n'existait
-// pas encore) : matin-userdata garde alors son contenu ACTUEL, jamais vidé
-// par une restauration d'une sauvegarde antérieure à son existence.
+// Accepte les 2 préfixes (2026-08-31, étendu en même temps que backups:list
+// ci-dessus) : `backup-` (instantané de lancement) et `userdata-backup-`
+// (instantané par changement).
+const BACKUP_FILE_RE = /^(?:backup|userdata-backup)-[\d-_]+\.json$/;
+// Comprend maintenant 3 formats de sauvegarde : le NOUVEAU `{ config,
+// userdata }` (instantané de LANCEMENT, restaure chaque partie dans SON
+// store), l'ANCIEN format à plat (tout restauré dans matin-config tel quel —
+// c'est bien là qu'était TOUTE la donnée à l'époque où ces sauvegardes-là ont
+// été écrites, matin-userdata n'existait pas encore, donc son contenu ACTUEL
+// est conservé, jamais vidé par une restauration antérieure à son
+// existence), et depuis le 2026-08-31 `{ savedAt, modules, layout }`
+// (instantané par CHANGEMENT, voir writeUserdataBackupTo — userdata SEUL,
+// jamais matin-config par design, `layout` réappliqué séparément via
+// applyLayoutSection plutôt que via un `store.store =` global qui écraserait
+// aussi le reste de matin-config).
 // (summarizeUserdataModules — voir plus haut, juste après userdataStore —
 // résume le contenu utile d'un objet `modules` pour le diagnostic, points
 // 1/5 de la demande de debug "Restaurer ne fait rien" : juste le nombre
@@ -1504,20 +1595,25 @@ ipcMain.handle('backups:restore', (_e, file) => {
   const data = JSON.parse(raw);
   console.log('[Backups] Sauvegarde lue —', raw.length, 'octets, clés de premier niveau :', Object.keys(data));
 
-  const isNewFormat = !!(data.config || data.userdata);
-  console.log('[Backups] Format détecté :', isNewFormat ? '{config,userdata}' : 'ancien format à plat (tout dans matin-config)');
+  const isChangeBackup = file.startsWith(USERDATA_BACKUP_PREFIX);
+  const isNewFormat = !isChangeBackup && !!(data.config || data.userdata);
+  console.log('[Backups] Format détecté :', isChangeBackup ? 'instantané par changement {modules,layout}' : isNewFormat ? '{config,userdata}' : 'ancien format à plat (tout dans matin-config)');
 
   // Point 5 : contenu RÉEL du fichier de sauvegarde avant toute écriture —
   // confirme si les données ETF/Crypto/Prêts/etc. sont VRAIMENT dedans ou si
   // la sauvegarde elle-même est déjà vide (dans ce dernier cas, aucun code de
   // restauration ne peut faire réapparaître une donnée qui n'y est pas).
-  const backupUserdataModules = isNewFormat ? (data.userdata?.modules || null) : (data.modules || null);
+  const backupUserdataModules = isChangeBackup ? (data.modules || null) : isNewFormat ? (data.userdata?.modules || null) : (data.modules || null);
   console.log('[Backups] Contenu userdata DANS LA SAUVEGARDE (nb d\'entrées par module) :', JSON.stringify(summarizeUserdataModules(backupUserdataModules)));
 
   backupStoreBeforeWrite(); // trace de l'état juste avant l'écrasement par la restauration
   console.log('[Backups] État AVANT restauration (nb d\'entrées par module, store actuel) :', JSON.stringify(summarizeUserdataModules(userdataStore.get('modules'))));
 
-  if (isNewFormat) {
+  if (isChangeBackup) {
+    userdataStore.set('modules', data.modules || {});
+    applyLayoutSection(data.layout); // voir collectAllLayouts/applyLayoutSection plus haut — patch la position/taille de chaque module concerné, dans SON store respectif, sans toucher au reste de matin-config
+    console.log('[Backups] Instantané par changement — matin-userdata écrasé depuis data.modules, layout réappliqué (matin-config non touché)');
+  } else if (isNewFormat) {
     if (data.config) { store.store = data.config; console.log('[Backups] matin-config écrasé depuis data.config'); }
     if (data.userdata) { userdataStore.store = data.userdata; console.log('[Backups] matin-userdata écrasé depuis data.userdata'); }
     else console.log('[Backups] Aucune clé "userdata" dans cette sauvegarde — matin-userdata conservé TEL QUEL (voir commentaire ci-dessus sur les sauvegardes pré-scission)');
@@ -1539,12 +1635,17 @@ ipcMain.handle('backups:restore', (_e, file) => {
 });
 
 // ─── Export / Import manuel (2026-08-30, sur demande explicite, suite à
-// l'incident de perte de données) — bouton "📥 Exporter mes données" /
-// "📤 Importer des données" de Paramètres → Sauvegardes. Portable PAR
-// DESIGN : userdata SEULEMENT (ETF/Crypto/Prêts/FDJ/Podcasts/Rappels),
-// JAMAIS matin-config — ce fichier est pensé pour être copié sur une clé USB
-// ou envoyé par email, il ne doit donc JAMAIS contenir de token OAuth
-// (Google/Spotify) ni aucun autre secret local à cette installation.
+// l'incident de perte de données ; section "layout" ajoutée le 2026-08-31,
+// sur demande explicite) — bouton "📥 Exporter mes données" / "📤 Importer
+// des données" de Paramètres → Sauvegardes. `modules` reste portable PAR
+// DESIGN : userdata SEULEMENT (ETF/Crypto/Prêts/FDJ/Podcasts/Rappels/Suivi
+// de prix), JAMAIS matin-config — ce fichier est pensé pour être copié sur
+// une clé USB ou envoyé par email, il ne doit donc JAMAIS contenir de token
+// OAuth (Google/Spotify) ni aucun autre secret local à cette installation.
+// `layout` (position/taille), en revanche, couvre TOUS les modules (voir
+// collectAllLayouts) — une position de carte n'est pas un secret, et
+// exclure les modules non-userdata en aurait laissé la grande majorité des
+// cartes sans disposition restaurable à l'import.
 const DOCUMENTS_MATIN_DIR = path.join(app.getPath('documents'), 'Matin');
 
 ipcMain.handle('backups:exportManual', () => {
@@ -1552,7 +1653,7 @@ ipcMain.handle('backups:exportManual', () => {
   const dateLabel = launchBackupTimestamp(new Date());
   const filePath = path.join(DOCUMENTS_MATIN_DIR, `matin-backup-${dateLabel}.json`);
   fs.mkdirSync(DOCUMENTS_MATIN_DIR, { recursive: true });
-  const payload = { exportedAt: new Date().toISOString(), source: 'Matin! — export manuel', modules };
+  const payload = { exportedAt: new Date().toISOString(), source: 'Matin! — export manuel', modules, layout: collectAllLayouts() };
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
   console.log('[Backups] Export manuel écrit :', filePath, `(${userdataEntryCount(modules)} entrée(s) au total)`);
   return { filePath, counts: summarizeUserdataModules(modules) };
@@ -1582,7 +1683,11 @@ ipcMain.handle('backups:importManual', async () => {
 
   backupStoreBeforeWrite();
   userdataStore.set('modules', modules);
-  console.log('[Backups] Import manuel appliqué —', JSON.stringify(summarizeUserdataModules(modules)));
+  // Point 3 de la demande (2026-08-31) : restaure aussi la disposition si le
+  // fichier en contient une (absente des exports antérieurs à cette date —
+  // `applyLayoutSection` ignore silencieusement une section manquante/vide).
+  applyLayoutSection(data.layout);
+  console.log('[Backups] Import manuel appliqué —', JSON.stringify(summarizeUserdataModules(modules)), '— disposition incluse :', !!data.layout);
   scheduleUserdataBackup();
   uploadToDriveAfterChange(); // import manuel = changement de donnée local légitime, voir Sync Google Drive plus bas
   if (mainWindow) mainWindow.reload();
@@ -1701,6 +1806,41 @@ ipcMain.handle('app:setSidebarEdge', (_e, edge) => {
   if (currentDisplayMode === 'sidebar') {
     sidebarState.edge = safeEdge;
     animateSidebarX(sidebarState.expanded ? sidebarExpandedX() : sidebarCollapsedX());
+  }
+  return true;
+});
+
+// ─── Défilement automatique du dashboard (2026-08-31, sur demande explicite,
+// "🎨 Personnaliser" → section "Défilement automatique") — même mécanisme
+// instantané que app:setBackground/app:setDisplayMode ci-dessus (store +
+// notification au dashboard) : la popup Personnaliser vit dans la fenêtre
+// Paramètres, DISTINCTE de la fenêtre dashboard qui exécute réellement le
+// défilement (dashboard.js) — un simple `store:set` générique n'aurait
+// notifié personne. Toggle et vitesse partagent le MÊME événement
+// `autoScroll:updated` (objet combiné `{ autoScroll, autoScrollSpeed }`
+// systématiquement complet, jamais un seul champ à la fois) : plus simple à
+// consommer côté dashboard.js qu'un événement séparé par champ, et garantit
+// que les 2 valeurs restent synchronisées à chaque notification.
+ipcMain.handle('app:setAutoScroll', (_e, enabled) => {
+  const safeEnabled = enabled === true;
+  safeStoreSet('app.autoScroll', safeEnabled);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('autoScroll:updated', {
+      autoScroll: safeEnabled,
+      autoScrollSpeed: store.get('app.autoScrollSpeed') || 'medium',
+    });
+  }
+  return true;
+});
+
+ipcMain.handle('app:setAutoScrollSpeed', (_e, speed) => {
+  const safeSpeed = ['slow', 'medium', 'fast'].includes(speed) ? speed : 'medium';
+  safeStoreSet('app.autoScrollSpeed', safeSpeed);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('autoScroll:updated', {
+      autoScroll: store.get('app.autoScroll') === true,
+      autoScrollSpeed: safeSpeed,
+    });
   }
   return true;
 });
@@ -1854,6 +1994,28 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
     uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   }
   return true;
+});
+
+// ─── Emplacements de disposition sauvegardés ("⊞ Réorganiser" → Sauvegarder/
+// Charger disposition 1/2, 2026-08-31 sur demande explicite) — 2 emplacements
+// fixes, stockés dans matin-userdata (jamais matin-config, pour profiter de la
+// sync Google Drive automatique déjà en place sur ce store, voir Sync Google
+// Drive plus bas) sous la clé `layoutSlots` = { "1": { layout, savedAt },
+// "2": { layout, savedAt } }. `layout` est un instantané { <clé module>:
+// {x,y,width,height,z} } fourni TEL QUEL par le renderer (dashboard.js,
+// snapshotCurrentLayout, lu directement depuis les cartes affichées) — le
+// process main ne recalcule rien, il se contente de dater et stocker.
+// `savedAt` est un ISO string, formaté côté renderer (toLocaleDateString)
+// pour l'affichage "sauvegardée le 30 août".
+ipcMain.handle('layoutSlots:get', () => userdataStore.get('layoutSlots') || {});
+ipcMain.handle('layoutSlots:save', (_e, { slot, layout }) => {
+  const slots = userdataStore.get('layoutSlots') || {};
+  slots[slot] = { layout, savedAt: new Date().toISOString() };
+  backupStoreBeforeWrite();
+  userdataStore.set('layoutSlots', slots);
+  scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
+  uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
+  return slots[slot];
 });
 
 // Repli/dépli d'un groupe Prêts (2026-08-10, sur demande explicite — le
@@ -2200,6 +2362,13 @@ ipcMain.handle('hue:getGroups', async (_e, { bridgeIp, username }) => {
     on: !!g.state?.any_on,
     allOn: !!g.state?.all_on,
     bri: g.action?.bri ?? 254,
+    // Nombre de lampes de la pièce (2026-08-31, sur demande explicite, pour
+    // le résumé "Salon · 3 lampes · Allumées" des sections repliables — voir
+    // hue.js) — `g.lights` (tableau d'IDs) fait partie de la réponse
+    // standard de l'API REST v1 du pont, stable depuis toujours ; `null` si
+    // absent plutôt que 0, pour distinguer "aucune lampe" de "inconnu" côté
+    // affichage.
+    lightCount: Array.isArray(g.lights) ? g.lights.length : null,
   }));
 });
 
@@ -2210,6 +2379,96 @@ ipcMain.handle('hue:setGroupState', async (_e, { bridgeIp, username, groupId, st
     body: JSON.stringify(state),
   });
   if (!res.ok) throw new Error(`Pont injoignable (${res.status})`);
+  return true;
+});
+
+// ─── Philips Hue SANS pont — compte cloud (2026-08-31, sur demande
+// explicite, support des ampoules Hue de nouvelle génération) ─────────────
+// Contrairement au pont (réseau local, aucun compte), ce mode passe par le
+// compte cloud Hue de l'utilisateur — OAuth2 (voir main/auth/hue-oauth.js),
+// `clientId`/`clientSecret` saisis par l'utilisateur lui-même (Hue n'accorde
+// pas d'accès "partenaire" au grand public, voir renderHueCloudConfigSection
+// dans config.js), jamais dans le `.env` de cette app.
+ipcMain.handle('hue:cloudLogin', async (_e, { clientId, clientSecret }) => {
+  return runHueAuthFlow(clientId, clientSecret);
+});
+
+// Renvoie un accessToken cloud Hue garanti valide, en le rafraîchissant si
+// besoin — MÊME PRINCIPE que getValidGoogleToken/refreshSpotifyAccessToken
+// plus haut (lu/persisté directement depuis/vers le store, jamais transité
+// par le renderer) : contrairement à Google/Spotify, Hue n'a pas de store
+// dédié (`store.google`/`store.spotify`), ses identifiants vivent dans
+// `modules.hue.config` comme bridgeIp/username — lus/réécrits ici via
+// `store.get`/`safeStoreSet` directement plutôt que reçus en paramètres
+// IPC, pour que le renderer n'ait JAMAIS à se soucier de persister un token
+// rafraîchi (même limite structurelle que la fenêtre Paramètres séparée déjà
+// documentée ailleurs dans ce fichier pour Google/Spotify).
+async function getValidHueCloudToken() {
+  const cfg = store.get('modules.hue.config') || {};
+  if (!cfg.accessToken) return null;
+  if (cfg.expiresAt && cfg.expiresAt > Date.now() + 60 * 1000) return cfg.accessToken;
+  if (!cfg.refreshToken || !cfg.clientId || !cfg.clientSecret) return null;
+  try {
+    const refreshed = await refreshHueAccessToken(cfg.refreshToken, cfg.clientId, cfg.clientSecret);
+    safeStoreSet('modules.hue.config', { ...cfg, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken, expiresAt: refreshed.expiresAt });
+    return refreshed.accessToken;
+  } catch (err) {
+    console.error('[Hue Cloud] Échec du rafraîchissement du token', err);
+    return null;
+  }
+}
+
+// Contrôle des ampoules via le cloud Hue (ressources CLIP v2 "grouped_light").
+// AVERTISSEMENT (même statut que Colis/Suivi de prix à leur création) : NON
+// VÉRIFIÉ en conditions réelles — aucun compte Hue "sans pont"/aucune
+// application developers.meethue.com disponible pendant ce développement.
+// Le format exact de l'API cloud pour ces ampoules n'est pas documenté
+// publiquement de façon fiable à ce jour ; cette implémentation suit la
+// convention CLIP v2 la plus répandue pour un pont Hue exposé au cloud, à
+// ajuster au premier usage réel si les appels échouent (voir logs
+// `[Hue Cloud]`, CONTEXT.md).
+const HUE_CLOUD_API_BASE = 'https://api.meethue.com/route/clip/v2/resource';
+
+ipcMain.handle('hue:cloudGetGroups', async () => {
+  const accessToken = await getValidHueCloudToken();
+  if (!accessToken) throw new Error('Compte Hue non connecté ou session expirée — reconnectez-vous dans Paramètres.');
+
+  const res = await fetch(`${HUE_CLOUD_API_BASE}/grouped_light`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const text = await res.text();
+  console.log(`[Hue Cloud] GET grouped_light → HTTP ${res.status} :`, text.slice(0, 300));
+  if (!res.ok) throw new Error(`Compte Hue injoignable (${res.status})`);
+  const data = JSON.parse(text);
+  const items = data.data || [];
+  // Échelle de luminosité CLIP v2 (0-100%) reconvertie vers l'échelle 0-254
+  // du pont local, déjà utilisée par le reste de ce module/hue.js — pour que
+  // le renderer manipule TOUJOURS la même échelle, peu importe le mode.
+  return items.map((g) => ({
+    id: g.id,
+    name: g.metadata?.name || 'Groupe',
+    type: 'cloud',
+    on: !!g.on?.on,
+    allOn: !!g.on?.on,
+    bri: Math.round((g.dimming?.brightness ?? 100) * 2.54),
+  }));
+});
+
+ipcMain.handle('hue:cloudSetGroupState', async (_e, { groupId, state }) => {
+  const accessToken = await getValidHueCloudToken();
+  if (!accessToken) throw new Error('Compte Hue non connecté ou session expirée — reconnectez-vous dans Paramètres.');
+
+  const body = {};
+  if (typeof state.on === 'boolean') body.on = { on: state.on };
+  if (typeof state.bri === 'number') body.dimming = { brightness: Math.round(state.bri / 2.54) };
+  const res = await fetch(`${HUE_CLOUD_API_BASE}/grouped_light/${groupId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  console.log(`[Hue Cloud] PUT grouped_light/${groupId} → HTTP ${res.status} :`, text.slice(0, 300));
+  if (!res.ok) throw new Error(`Compte Hue injoignable (${res.status})`);
   return true;
 });
 
@@ -2710,96 +2969,537 @@ ipcMain.handle('epicPromos:fetchDeals', async () => {
     .sort((a, b) => (b.discountPercent ?? 0) - (a.discountPercent ?? 0));
 });
 
-// Suivi de colis — scraping direct des pages de suivi publiques des
-// transporteurs (2026-08-05, sur demande explicite, remplace 17TRACK/
-// AfterShip) : plus de clé API, plus de compte, plus de quota. Aucun IPC
-// dédié nécessaire ici — le renderer (parcels.js) réutilise directement le
-// canal générique `rss:fetchFeed` ci-dessus (proxy sans restriction CORS côté
-// process main) pour la cascade jina.ai Reader → allorigins.win → fetch
-// direct, exactement comme le module ETF (voir etf.js). Détection du
-// transporteur et construction des URL dans renderer/modules/
-// parcels-carriers.js (partagé avec la page de config).
-
 // Cinéma — scraping direct d'AlloCiné (2026-08-05, sur demande explicite,
 // remplace TMDb : plus de clé API). Aucun IPC dédié : le renderer
 // (cinema.js) réutilise directement `rss:fetchFeed` ci-dessus pour la
 // cascade fetch direct → allorigins.win → jina.ai Reader.
 
-// ─── Suivi de prix Amazon (2026-08-30, sur demande explicite ; chaîne de
-// repli ajoutée le 2026-08-31, sur demande explicite, suite au rapport
-// "jina.ai renvoie Indisponible, Amazon bloque le scraping") ───────────────
-// Le fetch lui-même vit désormais ENTIÈREMENT côté process main (avant le
-// 2026-08-31, le renderer appelait directement `rss:fetchFeed`) : les 4
-// méthodes tentées (jina.ai, allorigins.win, fetch direct, rainforestapi)
-// sont TOUTES sujettes à CORS depuis le renderer sauf jina.ai (déjà proxifié
-// via rss:fetchFeed) — centraliser la cascade entière ici évite d'ajouter 3
-// canaux IPC séparés pour un seul et même besoin ("obtenir un prix"), et
+// ─── Suivi de prix Marchand (2026-08-30, sur demande explicite ; cascade de
+// repli ajoutée le 2026-08-31, suite au rapport "jina.ai renvoie
+// Indisponible, Amazon bloque le scraping" ; matrice proxy×motif
+// d'extraction + CDiscount étendue le même jour sur nouvelle demande
+// explicite, suite au rapport "échoue sur CDiscount et probablement
+// d'autres sites") ──────────────────────────────────────────────────────────
+// Le fetch lui-même vit ENTIÈREMENT côté process main (avant le 2026-08-31,
+// le renderer appelait directement `rss:fetchFeed`) : tous les proxys
+// tentés sont sujets à CORS depuis le renderer sauf jina.ai (déjà proxifié
+// via rss:fetchFeed) — centraliser la cascade entière ici évite d'ajouter un
+// canal IPC par proxy pour un seul et même besoin ("obtenir un prix"), et
 // garde le contrôle fin des en-têtes (User-Agent/Accept-Language "navigateur
-// réel", demandé explicitement) que `rss:fetchFeed` n'expose pas (en-tête
-// fixe, partagé par tous ses appelants — RSS/Colis/Cinéma/ETF).
+// réel") que `rss:fetchFeed` n'expose pas (en-tête fixe, partagé par tous
+// ses appelants — RSS/Colis/Cinéma/ETF).
+//
+// MATRICE proxy × motif d'extraction (2026-08-31) : chaque site marchand
+// structure sa page différemment (JSON-LD Schema.org, meta Open Graph,
+// attributs `itemprop`, classes CSS "price"/"prix", ou juste un montant en
+// euros dans le texte visible) — un seul motif figé (l'ancien PRICE_EURO_RE
+// seul) ne couvrait qu'Amazon. Chaque PROXY est maintenant essayé dans
+// l'ordre demandé, et pour CHAQUE réponse obtenue, TOUS les motifs sont
+// essayés dans l'ordre de fiabilité décroissante (JSON structuré d'abord,
+// texte visible en dernier recours) — la 1re combinaison proxy+motif qui
+// produit un prix l'emporte.
 //
 // AVERTISSEMENT (même statut que Colis à sa création) : non vérifié en
-// conditions réelles (aucune URL Amazon testée en direct dans cet
-// environnement) — l'extraction du prix (voir PRICE_EURO_RE ci-dessous) est
-// un motif générique best-effort, à ajuster au premier usage réel si le prix
-// affiché semble faux (voir CONTEXT.md).
+// conditions réelles pour CDiscount spécifiquement (seul Amazon.fr a pu être
+// testé en conditions réelles jusqu'ici, voir CONTEXT.md — succès confirmé
+// via "fetch direct" + motif générique) — les motifs JSON-LD/meta/CSS/
+// CDiscount sont des best-effort à ajuster au premier usage réel si le prix
+// affiché semble faux (voir logs `[Suivi de prix]`, point 6 de la demande).
 const PRICE_EURO_RE = /(\d{1,3}(?:[.\s]\d{3})*,\d{2})\s?€/;
-function priceParseEuroServer(text) {
-  const m = text.match(PRICE_EURO_RE);
-  if (!m) return null;
-  const normalized = m[1].replace(/[.\s]/g, '').replace(',', '.');
-  const value = parseFloat(normalized);
-  return Number.isFinite(value) ? value : null;
+
+// Normalise un montant capturé par n'importe lequel des motifs ci-dessous —
+// gère à la fois "129.99" (point décimal, JSON/meta) et "1 299,99"/"129,99"
+// (virgule décimale FR, avec séparateur de milliers point ou espace éventuel).
+function priceNormalizeAmount(raw) {
+  const cleaned = (raw || '').trim();
+  if (/,\d{1,2}$/.test(cleaned)) {
+    const n = parseFloat(cleaned.replace(/[.\s]/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = parseFloat(cleaned.replace(/\s/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
-// En-têtes "navigateur réel" (points 1/3 de la demande) — Amazon bloque plus
-// volontiers un User-Agent par défaut de librairie HTTP (souvent absent ou
-// générique) qu'un Chrome desktop classique + Accept-Language cohérent avec
-// un site .fr.
+// Motif 1 (le plus fiable) : JSON-LD Schema.org RÉELLEMENT parsé — pas juste
+// une recherche de `"price":` n'importe où dans le texte (2026-08-31, sur
+// demande explicite, suite au rapport "FNAC renvoie le prix d'un accessoire/
+// garantie au lieu du produit principal" — une page produit peut contenir
+// PLUSIEURS blocs JSON-LD, ex. le produit principal ET des accessoires/
+// ventes croisées ; matcher `"price"` en aveugle attrape le 1er trouvé, pas
+// forcément celui du produit). Extrait chaque `<script type="application/
+// ld+json">`, le PARSE réellement (`JSON.parse`, pas un regex sur son
+// contenu), ne retient que les nœuds `"@type":"Product"` puis leur
+// `offers.price` (ou `offers[].price`, ou `priceSpecification.price`) — le
+// chemin exact demandé explicitement ("@type":"Product" et "offers" →
+// "price"). Le 1er bloc Product+offers+price valide gagne : sur une page
+// produit normale, le JSON-LD du produit PRINCIPAL est structurellement
+// quasi toujours présent en 1er (c'est le sujet de la page), les éventuels
+// blocs JSON-LD d'accessoires/ventes croisées étant l'exception plutôt que
+// la norme.
+// Point 2 de la demande Amazon "prix barré" (2026-08-31, 3e révision même
+// sujet) : quand un nœud Product a PLUSIEURS offres (ex. neuf + occasion, ou
+// prix "conseillé" vs prix de vente réel dans le même tableau `offers`), le
+// prix de VENTE est toujours le plus bas des 2 — retient désormais le
+// MINIMUM de tous les prix trouvés dans TOUTES les offres de TOUS les nœuds
+// Product, jamais juste le 1er rencontré.
+function priceExtractJsonLdProduct(text) {
+  const scripts = text.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  let lowest = null;
+  for (const [, raw] of scripts) {
+    let json;
+    try { json = JSON.parse(raw.trim()); } catch { continue; } // bloc JSON-LD malformé/tronqué — passe au suivant plutôt que planter
+    const nodes = Array.isArray(json) ? json : (Array.isArray(json?.['@graph']) ? json['@graph'] : [json]);
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue;
+      const type = node['@type'];
+      const isProduct = type === 'Product' || (Array.isArray(type) && type.includes('Product'));
+      if (!isProduct) continue;
+      const offers = node.offers;
+      const offerList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
+      for (const offer of offerList) {
+        const raw = offer?.price ?? offer?.priceSpecification?.price;
+        if (raw == null) continue;
+        const price = priceNormalizeAmount(String(raw));
+        if (price != null && (lowest == null || price < lowest)) lowest = price;
+      }
+    }
+  }
+  return lowest != null ? { price: lowest, pattern: 'JSON-LD "@type":"Product" → offers → price (le plus bas)' } : null;
+}
+
+// Motifs Amazon SPÉCIFIQUES (2026-08-31, sur demande explicite, suite au
+// rapport "la cascade renvoie le mauvais prix") — Amazon.fr NE POSE NI
+// JSON-LD Schema.org NI meta `product:price:amount` (vérifié en direct sur
+// une VRAIE page produit réellement suivie par l'utilisateur : les 2 sont
+// absents), donc `priceExtractJsonLdProduct`/`priceExtractMetaTag` sont
+// systématiquement inopérants sur Amazon — ces motifs dédiés ciblent la
+// structure RÉELLE de ses pages produit (`.a-offscreen`, le conteneur
+// `#corePriceDisplay_desktop_feature_div`).
+//
+// BUG RÉEL confirmé sur cette même page (899 € renvoyé au lieu de 27,99 €) :
+// le motif générique de dernier recours (voir priceExtractGenericEuro plus
+// bas) retient désormais le prix LE PLUS ÉLEVÉ trouvé sur toute la page
+// (ajouté le 2026-08-31 pour corriger le cas FNAC, où les décoys —
+// accessoires/garanties — sont moins chers que le produit) — sur une page
+// Amazon, à l'inverse, les carrousels "les clients ont aussi acheté"/
+// "produits similaires" contiennent presque toujours des articles PLUS
+// CHERS que le produit suivi (899 € trouvé ailleurs sur cette page de
+// 1,8 Mo, aucun rapport avec le pyjama à 27,99 € réellement suivi) : "le
+// plus élevé" est donc une heuristique dangereuse ICI. D'où la priorité
+// ABSOLUE de ces motifs Amazon ciblés — dès que l'un d'eux réussit, la
+// cascade s'arrête avant même d'atteindre ce motif générique risqué.
+//
+// Point 4 de la demande initiale ("toujours le prix du bloc produit
+// principal, pas le 1er prix trouvé") RENFORCÉ le 2026-08-31 (2e demande, même
+// jour, "le bon prix est dans la case 'buy box' à droite, pas le 1er prix
+// trouvé sur la page") : cible maintenant explicitement le "buy box" — 3
+// ancres HTML possibles essayées DANS L'ORDRE demandé
+// (`corePriceDisplay_desktop_feature_div` → `apex_desktop` → `buybox`,
+// PAS de repli "1re occurrence sur toute la page" comme dans la version
+// précédente de ce correctif, EXPLICITEMENT retiré : c'est précisément ce
+// qui pouvait remonter un prix hors du buy box sur une page où l'ancre
+// habituelle serait absente/renommée). Pour CHAQUE ancre trouvée, ne
+// cherche QUE dans une fenêtre de texte après elle, jamais toute la page.
+const PRICE_AMAZON_BUYBOX_ANCHORS = ['corePriceDisplay_desktop_feature_div', 'apex_desktop', 'buybox'];
+// Largement suffisant pour couvrir le bloc de prix lui-même (vérifié en
+// direct sur une vraie page : le prix apparaît ~2700 caractères après
+// l'ancre `corePriceDisplay_desktop_feature_div`), sans dériver vers des
+// sections totalement différentes plus loin dans une page de plusieurs
+// centaines de Ko.
+const PRICE_AMAZON_ANCHOR_WINDOW = 8000;
+
+// Prix BARRÉ / de référence (2026-08-31, 3e révision du correctif Amazon,
+// suite au rapport "affiche le prix AVANT promotion") — confirmé en direct
+// sur la VRAIE page réellement suivie : Amazon marque le prix "Prix le plus
+// bas des 30 derniers jours" (une mention réglementaire FR/UE, PAS le prix
+// actuellement facturé) avec `data-a-strike="true"` sur l'élément `.a-price`
+// englobant, et/ou une classe `basisPrice`/`a-text-strike` à proximité — ce
+// marqueur est FIABLE (posé par Amazon lui-même pour l'accessibilité/le
+// style), contrairement à une heuristique de position dans le DOM. C'est
+// exactement ce bloc que la 2e révision du correctif Amazon (voir décision
+// précédente) attrapait par erreur en prenant "le 1er `.a-offscreen`
+// trouvé" : sur cette page réelle, il se trouve être le TOUT PREMIER
+// `.a-offscreen` de la fenêtre de recherche.
+// BUG trouvé ET corrigé PENDANT ce même correctif (vérifié en direct, avant
+// tout dégât) : une 1re version regardait juste "y a-t-il data-a-strike dans
+// les 400 caractères précédents", sans respecter la structure des balises —
+// un `.a-offscreen` GÉNUINEMENT valide situé peu après un `.a-offscreen`
+// barré se faisait donc lui aussi étiqueter à tort "barré", parce que
+// l'attribut du span barré restait dans la fenêtre de recherche même après
+// sa fermeture. Corrigé en ne regardant QUE le `<span` PARENT DIRECT de CE
+// `.a-offscreen` précis (le `<span` juste avant le sien propre) plutôt que
+// tout ce qui précède dans une fenêtre de caractères fixe.
+function priceIsStruckPriceContext(text, matchIndex) {
+  const before = text.slice(Math.max(0, matchIndex - 500), matchIndex);
+  const ownTagPos = before.lastIndexOf('<span'); // le <span ...> de ce .a-offscreen lui-même
+  if (ownTagPos === -1) return false;
+  const parentArea = before.slice(0, ownTagPos);
+  const parentTagPos = parentArea.lastIndexOf('<span'); // son span PARENT direct
+  if (parentTagPos === -1) return false;
+  const parentTagText = parentArea.slice(parentTagPos);
+  return /data-a-strike=["']true["']/i.test(parentTagText) || /\bbasisPrice\b/.test(parentTagText) || /\ba-text-strike\b/.test(parentTagText);
+}
+
+// Parcourt TOUS les `.a-offscreen` d'une fenêtre de texte (pas juste le 1er)
+// et retient le 1er qui n'est PAS dans un contexte de prix barré (voir
+// ci-dessus) — mémorise au passage le 1er prix barré rencontré : à la fois
+// pour le log demandé (point 3, format exact "[Prix] Prix barré trouvé...")
+// QUAND un prix final différent est aussi trouvé, ET comme dernier recours
+// pour l'appelant si AUCUN prix non barré n'existe nulle part (voir
+// priceExtractAmazonBuyBox) — vérifié en direct sur la vraie page suivie
+// par l'utilisateur : son prix actuel n'est structurellement présent NULLE
+// PART ailleurs que ce bloc "Prix le plus bas des 30 derniers jours"
+// (probablement injecté par JS côté client, invisible à un simple fetch) ;
+// refuser catégoriquement ce prix barré ferait retomber la cascade sur le
+// motif générique "page entière", déjà prouvé capable de renvoyer un prix
+// totalement sans rapport (899€, voir décision précédente) — un prix de
+// référence potentiellement correct (aucune promo active = référence et
+// prix réel identiques) reste un bien meilleur pari que ce risque connu.
+function priceFindNonStruckOffscreen(windowText) {
+  const re = /class=["'][^"']*\ba-offscreen\b[^"']*["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/gi;
+  let m;
+  let struckPrice = null;
+  while ((m = re.exec(windowText))) {
+    const price = priceNormalizeAmount(m[1]);
+    if (price == null) continue;
+    if (priceIsStruckPriceContext(windowText, m.index)) {
+      if (struckPrice == null) struckPrice = price;
+      continue; // JAMAIS retenir un prix barré/de référence comme prix affiché s'il existe une alternative
+    }
+    if (struckPrice != null) {
+      // Format de log EXACT demandé (2026-08-31, point 3).
+      console.log(`[Prix] Prix barré trouvé: ${struckPrice}€, Prix final: ${price}€ → affichage: ${price}€`);
+    }
+    return { price, struckPrice };
+  }
+  return { price: null, struckPrice }; // aucun prix NON barré dans cette fenêtre — struckPrice reste dispo pour l'appelant en dernier recours
+}
+
+// Sélecteurs Amazon DÉDIÉS "prix de vente" (2026-08-31, 3e révision, ordre
+// EXACT demandé) — nommés explicitement par Amazon pour désigner LE prix à
+// payer, prioritaires sur la recherche générique par ancre ci-dessous :
+// `#priceblock_saleprice` (prix promo), `#priceblock_dealprice` (offre
+// éclair), `.apexPriceToPay`/`.a-price.a-text-price.a-size-medium.apexPriceToPay`
+// (le conteneur "prix à payer" du nouveau design Amazon — traités ensemble,
+// la recherche par sous-chaîne de classe couvre les 2 formulations).
+function priceExtractAmazonSaleSelectors(text) {
+  let m = text.match(/id=["']priceblock_saleprice["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/i);
+  if (m) { const price = priceNormalizeAmount(m[1]); if (price != null) return { price, pattern: 'Amazon #priceblock_saleprice' }; }
+
+  m = text.match(/id=["']priceblock_dealprice["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/i);
+  if (m) { const price = priceNormalizeAmount(m[1]); if (price != null) return { price, pattern: 'Amazon #priceblock_dealprice' }; }
+
+  const anchorIdx = text.indexOf('apexPriceToPay');
+  if (anchorIdx !== -1) {
+    const windowText = text.slice(anchorIdx, anchorIdx + 2000);
+    m = windowText.match(/class=["'][^"']*\ba-offscreen\b[^"']*["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/i);
+    if (m) { const price = priceNormalizeAmount(m[1]); if (price != null) return { price, pattern: 'Amazon .apexPriceToPay .a-offscreen' }; }
+  }
+  return null;
+}
+
+function priceExtractAmazonBuyBox(text) {
+  const dedicated = priceExtractAmazonSaleSelectors(text);
+  if (dedicated) {
+    console.log(`[Prix] Amazon buy box price found: ${dedicated.price}€`);
+    return dedicated;
+  }
+
+  // 1re passe sur les 3 ancres : uniquement des prix NON barrés — mémorise
+  // le 1er prix barré rencontré (toutes ancres confondues) comme filet de
+  // secours, voir justification détaillée sur priceFindNonStruckOffscreen.
+  let struckFallback = null;
+  for (const anchorId of PRICE_AMAZON_BUYBOX_ANCHORS) {
+    const anchorIdx = text.indexOf(anchorId);
+    if (anchorIdx === -1) continue;
+    const windowText = text.slice(anchorIdx, anchorIdx + PRICE_AMAZON_ANCHOR_WINDOW);
+    const { price, struckPrice } = priceFindNonStruckOffscreen(windowText);
+    if (price != null) {
+      // Format de log EXACT demandé (2026-08-31).
+      console.log(`[Prix] Amazon buy box price found: ${price}€`);
+      return { price, pattern: `Amazon buy box (#${anchorId} .a-price .a-offscreen, 1er non barré)` };
+    }
+    if (struckFallback == null && struckPrice != null) struckFallback = { price: struckPrice, anchorId };
+  }
+
+  // 2e passe : AUCUN prix non barré nulle part — le prix réellement facturé
+  // n'est probablement présent dans AUCUNE réponse statique (injecté par JS
+  // côté client). Le prix barré/de référence reste un bien meilleur pari que
+  // de laisser la cascade retomber sur le motif générique "page entière"
+  // (déjà prouvé capable de renvoyer un prix totalement sans rapport, voir
+  // décision précédente) — mais avec un avertissement explicite, ce prix
+  // n'étant PAS garanti identique au prix actuellement facturé si une
+  // promotion est active.
+  if (struckFallback) {
+    console.warn(`[Prix] Amazon — aucun prix final (non barré) trouvé près de #${struckFallback.anchorId}, repli sur le prix de référence : ${struckFallback.price}€ (peut être inexact si une promotion est active)`);
+    console.log(`[Prix] Amazon buy box price found: ${struckFallback.price}€`);
+    return { price: struckFallback.price, pattern: `Amazon buy box (repli prix barré/référence, #${struckFallback.anchorId})` };
+  }
+  return null;
+}
+
+// Variante JSON du buy box — `"buyingPrice"`, alternative aux ancres HTML
+// ci-dessus pour une page où le prix serait injecté depuis un état JS
+// plutôt que déjà présent dans le HTML statique.
+function priceExtractAmazonBuyingPriceJson(text) {
+  const m = text.match(/"buyingPrice"\s*:\s*"?(\d+(?:[.,]\d{1,2})?)"?/i);
+  if (!m) return null;
+  const price = priceNormalizeAmount(m[1]);
+  if (price == null) return null;
+  console.log(`[Prix] Amazon buy box price found: ${price}€`);
+  return { price, pattern: 'Amazon JSON "buyingPrice"' };
+}
+
+// Motif 2 : JSON embarqué EN VRAC dans la page (state Next.js/Nuxt/React,
+// pas forcément un `<script type="ld+json">` conforme Schema.org) — la
+// variante CDiscount demandée explicitement (`"salePrice"`, prioritaire sur
+// `"price"` générique quand les 2 sont présents : le prix de vente réel
+// plutôt qu'un prix barré/de référence).
+function priceExtractJsonLike(text) {
+  let m = text.match(/"salePrice"\s*:\s*"?(\d+(?:[.,]\d{1,2})?)"?/i);
+  if (m) return { price: priceNormalizeAmount(m[1]), pattern: 'JSON "salePrice" (CDiscount)' };
+  m = text.match(/"price"\s*:\s*"?(\d+(?:[.,]\d{1,2})?)"?/i);
+  if (m) return { price: priceNormalizeAmount(m[1]), pattern: 'JSON "price" (générique, hors ld+json)' };
+  return null;
+}
+
+// `#priceblock_ourprice` — sélecteur Amazon hérité (prix "normal", pas une
+// promo) sur d'éventuelles pages/mises en page plus anciennes ; `saleprice`/
+// `dealprice` sont maintenant couverts par priceExtractAmazonSaleSelectors
+// plus haut (priorité plus haute, ce sont eux les vrais prix PROMO), celui-ci
+// reste en repli pour le cas "prix normal sans promo" sous l'ancien layout.
+function priceExtractAmazonLegacyBlocks(text) {
+  const m = text.match(/id=["']priceblock_ourprice["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/i);
+  return m ? { price: priceNormalizeAmount(m[1]), pattern: 'Amazon #priceblock_ourprice' } : null;
+}
+
+// Motif 3 : meta Open Graph / Product (og:price:amount, product:price:amount)
+// — attribut `content` avant OU après le nom de propriété selon les sites,
+// les 2 ordres sont essayés.
+function priceExtractMetaTag(text) {
+  let m = text.match(/<meta[^>]+(?:og:price:amount|product:price:amount)[^>]+content=["']([\d.,]+)["']/i)
+    || text.match(/<meta[^>]+content=["']([\d.,]+)["'][^>]+(?:og:price:amount|product:price:amount)/i);
+  if (!m) return null;
+  return { price: priceNormalizeAmount(m[1]), pattern: 'meta og:price' };
+}
+
+// Motifs 4/5 (les moins fiables, gardés en dernier recours) : marquage CSS
+// (`itemprop="price"`, classes contenant "price"/"prix") puis montant en
+// euros visible dans le texte — TOUS DEUX sujets au même risque signalé pour
+// FNAC (plusieurs prix sur une même page : accessoires/garanties/options).
+// Point 1/2 de la demande FNAC ("prendre le prix le plus élevé trouvé sur la
+// page" + "vérification de cohérence si le prix semble trop bas") : ces 2
+// motifs collectent DÉSORMAIS TOUTES les occurrences plutôt que la 1re, et
+// retiennent la PLUS ÉLEVÉE — un accessoire/une garantie/une option est
+// presque toujours moins cher que le produit principal lui-même, donc le
+// montant maximal trouvé sur la page est une heuristique simple et sûre
+// contre ce biais précis (jamais pire que "prendre le 1er trouvé au hasard",
+// et directement alignée sur ce que la demande suggère elle-même comme
+// stratégie alternative). Point 3 de la demande : TOUTES les valeurs
+// trouvées sont logguées, pas seulement celle retenue.
+function priceExtractCssPattern(text) {
+  const contentMatches = [...text.matchAll(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/gi)]
+    .map(m => priceNormalizeAmount(m[1])).filter(n => n != null);
+  if (contentMatches.length) {
+    console.log('[Suivi de prix] Prix trouvés (itemprop="price" content) :', contentMatches.join(', '), '€ — le plus élevé est retenu');
+    return { price: Math.max(...contentMatches), pattern: `itemprop="price" (content, max de ${contentMatches.length})` };
+  }
+  const textMatches = [...text.matchAll(/itemprop=["']price["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*(?:[.,]\d{2})?)\s*€/gi)]
+    .map(m => priceNormalizeAmount(m[1])).filter(n => n != null);
+  if (textMatches.length) {
+    console.log('[Suivi de prix] Prix trouvés (itemprop="price" texte) :', textMatches.join(', '), '€ — le plus élevé est retenu');
+    return { price: Math.max(...textMatches), pattern: `itemprop="price" (texte, max de ${textMatches.length})` };
+  }
+  const classMatches = [...text.matchAll(/class=["'][^"']*\b(?:price|prix)\b[^"']*["'][^>]*>\s*([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\s*€/gi)]
+    .map(m => priceNormalizeAmount(m[1])).filter(n => n != null);
+  if (classMatches.length) {
+    console.log('[Suivi de prix] Prix trouvés (class~="price"/"prix") :', classMatches.join(', '), '€ — le plus élevé est retenu');
+    return { price: Math.max(...classMatches), pattern: `class~="price"/"prix" (max de ${classMatches.length})` };
+  }
+  return null;
+}
+
+// Motif 6 (dernier recours absolu) : montant en euros visible n'importe où
+// dans le texte, format FR "12,34 €" — l'ancien (et jusqu'ici SEUL) motif de
+// cette fonctionnalité ; conservé, mais retient désormais le MAXIMUM de
+// toutes les occurrences (voir justification ci-dessus) plutôt que la 1re.
+function priceExtractGenericEuro(text) {
+  const matches = [...text.matchAll(new RegExp(PRICE_EURO_RE, 'g'))]
+    .map(m => priceNormalizeAmount(m[1])).filter(n => n != null);
+  if (!matches.length) return null;
+  console.log('[Suivi de prix] Prix trouvés (motif générique "XX,XX €") :', matches.join(', '), '€ — le plus élevé est retenu');
+  return { price: Math.max(...matches), pattern: `motif générique "XX,XX €" (max de ${matches.length})` };
+}
+
+// Ordre EXACT demandé (2026-08-31, 2e révision même jour) : JSON-LD Product
+// → buy box Amazon (3 ancres HTML dans l'ordre → JSON "buyingPrice") →
+// sélecteurs Amazon hérités → meta og:price → repli générique (JSON en
+// vrac, CSS itemprop/class, texte "XX,XX €"). PLUS de repli Amazon "1re
+// occurrence non scopée" (retiré à la 2e révision, voir
+// priceExtractAmazonBuyBox) — un prix hors buy box ne doit plus jamais être
+// retenu au nom d'Amazon spécifiquement, seuls les replis GÉNÉRIQUES
+// (identiques pour tous les sites) restent en dernier recours.
+const PRICE_EXTRACTORS = [
+  priceExtractJsonLdProduct,
+  priceExtractAmazonBuyBox,
+  priceExtractAmazonBuyingPriceJson,
+  priceExtractAmazonLegacyBlocks,
+  priceExtractMetaTag,
+  priceExtractJsonLike,
+  priceExtractCssPattern,
+  priceExtractGenericEuro,
+];
+
+// Point 3 de la demande de debug Amazon (2026-08-31) : logge TOUS les
+// montants "XX,XX €" présents sur la page AVANT de tenter quoi que ce soit
+// — indépendant du motif qui finit par gagner, pour pouvoir comparer à l'œil
+// la valeur retenue face à toutes les autres candidates (utile précisément
+// pour repérer un futur cas comme celui du 899 € trouvé sur la page Amazon
+// testée ce jour-là, sans rapport avec le produit réellement suivi).
+// Plafonné à 40 valeurs pour ne pas noyer le terminal sur une page dense.
+function priceLogAllAmountsFound(text) {
+  const all = [...text.matchAll(new RegExp(PRICE_EURO_RE, 'g'))].map(m => m[1]);
+  if (!all.length) { console.log('[Suivi de prix] Aucun montant "XX,XX €" trouvé sur la page.'); return; }
+  console.log(`[Suivi de prix] TOUS les montants "XX,XX €" trouvés sur la page (${all.length}) :`, all.slice(0, 40).join(', ') + (all.length > 40 ? ', …' : ''));
+}
+
+function priceExtractPrice(text) {
+  priceLogAllAmountsFound(text);
+  for (const extractor of PRICE_EXTRACTORS) {
+    const result = extractor(text);
+    if (result && result.price != null) return result;
+  }
+  return null;
+}
+
+// En-têtes "navigateur réel" — un site marchand bloque plus volontiers un
+// User-Agent par défaut de librairie HTTP (souvent absent ou générique)
+// qu'un Chrome desktop classique + Accept-Language cohérent avec un site .fr.
 const PRICE_BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
   'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
 };
 
-// Étape 1 : jina.ai Reader, avec en-têtes navigateur (point 1 de la demande —
-// avant le 2026-08-31, aucun en-tête personnalisé n'était envoyé).
-async function priceTryJina(url) {
-  const res = await fetch(`https://r.jina.ai/${url}`, { headers: PRICE_BROWSER_HEADERS });
-  if (!res.ok) throw new Error(`jina.ai HTTP ${res.status}`);
-  const price = priceParseEuroServer(await res.text());
-  if (price == null) throw new Error('jina.ai : prix introuvable dans le texte reçu');
-  return price;
+// Proxys tentés DANS L'ORDRE demandé (jina.ai, allorigins.win, corsproxy.io),
+// PLUS le fetch direct — conservé après les 3 demandés explicitement car
+// déjà confirmé comme la méthode qui fonctionne réellement pour Amazon.fr en
+// conditions réelles (voir CONTEXT.md) : le retirer aurait été une
+// régression sur un chemin déjà prouvé.
+//
+// corsproxy.io — BUG RÉEL trouvé le 2026-08-31 en testant ce lot sur une
+// VRAIE URL CDiscount : l'URL "legacy" sans clé (`corsproxy.io/?{url}`, ce
+// que ce code envoyait) ne fonctionne PLUS DU TOUT — le service répond
+// systématiquement `403 keyless_legacy_url`, quelle que soit l'URL cible
+// (vérifié aussi sur https://example.com), le service a changé son API et
+// exige désormais `?key=VOTRE_CLE&url=...`. Traité comme rainforestapi
+// juste en dessous : DÉSACTIVÉ sans clé (`CORSPROXY_API_KEY` absente du
+// `.env`), aucun échec bruyant tant qu'aucune clé n'est fournie — la fonction
+// bascule automatiquement vers le nouveau format dès qu'une clé est ajoutée.
+const CORSPROXY_API_KEY = process.env.CORSPROXY_API_KEY || null;
+
+// ─── ASIN + méthodes dédiées Amazon (2026-08-31, sur demande explicite,
+// "DRASTIC FIX" suite au rapport "Amazon obfusque trop ses prix") ──────────
+// Amazon encode toujours l'ASIN (10 caractères alphanumériques) dans le
+// chemin après /dp/ ou /product/, quel que soit le reste de l'URL (slug
+// produit, paramètres de tracking...).
+function priceExtractAsin(url) {
+  const m = url.match(/\/(?:dp|product)\/([A-Z0-9]{10})(?:[/?]|$)/i);
+  return m ? m[1].toUpperCase() : null;
 }
 
-// Étape 2 : proxy allorigins.win (point 2 de la demande) — sert de repli
-// générique déjà utilisé ailleurs dans l'app (Colis/Cinéma) pour contourner
-// un blocage CORS/anti-bot, jamais encore essayé pour ce module précis.
-async function priceTryAllorigins(url) {
-  const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { headers: PRICE_BROWSER_HEADERS });
-  if (!res.ok) throw new Error(`allorigins HTTP ${res.status}`);
-  const price = priceParseEuroServer(await res.text());
-  if (price == null) throw new Error('allorigins : prix introuvable dans le texte reçu');
-  return price;
+// Keepa — tentée AVANT toute la cascade de scraping (voir priceTracking:
+// fetchPrice plus bas) pour les URLs Amazon avec un ASIN détecté : une API
+// structurée, quand elle répond, est intrinsèquement plus fiable qu'un
+// scraping HTML tributaire de la mise en page du jour. DÉSACTIVÉE sans clé
+// (`KEEPA_API_KEY` absente du `.env`, même convention que
+// CORSPROXY_API_KEY/RAINFOREST_API_KEY ci-dessus/plus bas) — Keepa exige un
+// compte (gratuit possible, quota de tokens limité/jour) ET une clé API,
+// PAS un accès anonyme malgré la formulation "API gratuite" de la demande.
+//
+// Endpoint RÉEL (celui suggéré dans la demande, `keepa.com/api/deals`,
+// n'existe pas sous cette forme — corrigé vers le véritable endpoint produit
+// documenté par Keepa) : `api.keepa.com/product?key=...&domain=4&asin=...`
+// (domain 4 = amazon.fr, comme demandé — code de domaine confirmé exact).
+// La réponse encode l'HISTORIQUE de prix en CENTIMES dans
+// `products[0].csv[<index>]` (un seul tableau À PLAT de paires [timestamp
+// Keepa-minutes, prix], -1 = absence de donnée à ce point), PAS un simple
+// champ "prix actuel" — `csv[1]` (index "New", 3ᵉ partie/buy box en
+// pratique) est utilisé ici, dernière valeur valide (≠ -1) de la série
+// retenue comme prix courant.
+// NON VÉRIFIÉ EN CONDITIONS RÉELLES (aucune clé Keepa dans cet
+// environnement) : structure implémentée au plus près de la documentation
+// publique Keepa, à ajuster au premier usage réel si la réponse diffère
+// (voir logs `[Prix Amazon]`).
+const KEEPA_API_KEY = process.env.KEEPA_API_KEY || null;
+const KEEPA_DOMAIN_FR = 4;
+
+async function priceTryKeepa(asin) {
+  if (!KEEPA_API_KEY) throw new Error('KEEPA_API_KEY absente du .env — étape ignorée (compte + clé gratuits requis sur keepa.com)');
+  const res = await fetch(`https://api.keepa.com/product?key=${KEEPA_API_KEY}&domain=${KEEPA_DOMAIN_FR}&asin=${asin}`);
+  if (!res.ok) throw new Error(`Keepa HTTP ${res.status}`);
+  const data = await res.json();
+  const series = data.products?.[0]?.csv?.[1]; // index 1 = historique prix "New", voir commentaire ci-dessus
+  if (!Array.isArray(series)) throw new Error('Keepa : pas d\'historique de prix "New" dans la réponse');
+  for (let i = series.length - 1; i >= 1; i -= 2) { // parcourt à rebours les valeurs de prix (indices impairs) de la série [timestamp, prix] aplatie
+    if (series[i] !== -1) return series[i] / 100; // centimes → euros
+  }
+  throw new Error('Keepa : aucune valeur de prix valide dans l\'historique');
 }
 
-// Étape 3 : fetch direct de la page Amazon, avec en-têtes navigateur (point 3
-// de la demande) — depuis le process MAIN, aucune restriction CORS (contrairement
-// à un fetch direct depuis le renderer), donc réellement testable ici là où
-// il ne l'aurait pas été côté renderer.
-async function priceTryDirect(url) {
-  const res = await fetch(url, { headers: PRICE_BROWSER_HEADERS });
-  if (!res.ok) throw new Error(`fetch direct HTTP ${res.status}`);
-  const price = priceParseEuroServer(await res.text());
-  if (price == null) throw new Error('fetch direct : prix introuvable dans le texte reçu');
-  return price;
+// Endpoint AJAX mobile Amazon — utilisé par la page produit pour rafraîchir
+// le bloc "options d'achat" sans recharger toute la page. Tentée en dernier
+// recours (voir priceTracking:fetchPrice), AVANT rainforestapi (payant) :
+// contrairement à la demande initiale, la réponse n'est PAS un JSON propre
+// avec un champ "priceAmount" — c'est un FRAGMENT HTML, comme le reste des
+// pages Amazon scrapées ici — routée à travers le MÊME pipeline
+// d'extraction que le reste (priceExtractPrice), qui sait déjà cibler le
+// buy box Amazon spécifiquement, plutôt que de chercher un champ JSON qui
+// n'existe pas dans cette réponse.
+function priceAmazonMobileAjaxUrl(asin) {
+  return `https://www.amazon.fr/gp/product/ajax/ref=dp_aod_NEW_mbc?asin=${asin}&experienceId=aodAjaxMain`;
 }
 
-// Étape 4 (point 4 de la demande) : API tierce payante (rainforestapi.com ou
-// équivalent) — DÉSACTIVÉE par défaut, aucune clé `RAINFOREST_API_KEY` dans
-// le `.env` de ce développement (voir CONTEXT.md pour la liste des clés
-// disponibles) : ignorée silencieusement plutôt qu'un échec bruyant tant
-// qu'aucune clé n'est fournie. À activer en ajoutant `RAINFOREST_API_KEY=...`
-// au `.env` — aucun autre changement de code nécessaire.
+const PRICE_PROXIES = [
+  // `X-No-Cache` (2026-08-31, sur demande explicite) — jina.ai Reader met en
+  // cache ses réponses ; ce header lui demande de re-fetcher la page
+  // d'origine plutôt que de servir un prix potentiellement périmé. (La
+  // demande proposait `?no_cache=true` en paramètre d'URL, mais ce
+  // paramètre irait sur l'URL AMAZON cible, pas sur jina.ai lui-même — sans
+  // effet réel. Le vrai mécanisme jina.ai est ce header, voir sa doc.)
+  ['jina.ai', (url) => fetch(`https://r.jina.ai/${url}`, { headers: { ...PRICE_BROWSER_HEADERS, 'X-No-Cache': 'true' } })],
+  ['allorigins.win', (url) => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { headers: PRICE_BROWSER_HEADERS })],
+  ['corsproxy.io', (url) => {
+    if (!CORSPROXY_API_KEY) return Promise.reject(new Error('CORSPROXY_API_KEY absente du .env — étape ignorée (API legacy sans clé abandonnée par corsproxy.io, confirmé le 2026-08-31)'));
+    return fetch(`https://corsproxy.io/?key=${CORSPROXY_API_KEY}&url=${encodeURIComponent(url)}`, { headers: PRICE_BROWSER_HEADERS });
+  }],
+  ['fetch direct', (url) => fetch(url, { headers: PRICE_BROWSER_HEADERS })],
+];
+
+// Longueur de l'extrait loggué pour chaque réponse brute (point 2 de la
+// demande de debug CDiscount, 2026-08-31) — la réponse entière (souvent
+// 10-60 Ko de HTML) noierait le terminal ; un extrait suffit à repérer une
+// page de blocage/challenge anti-bot (titre "Just a moment"/"Maintenance",
+// mention JavaScript requis...) sans avoir à relire des dizaines de Ko.
+const PRICE_RAW_LOG_LENGTH = 400;
+
+async function priceTryProxy(fetchFn, url) {
+  const res = await fetchFn(url);
+  const text = await res.text();
+  console.log(`[Suivi de prix] Réponse brute (${text.length} caractères, HTTP ${res.status}) :`, text.slice(0, PRICE_RAW_LOG_LENGTH).replace(/\s+/g, ' '));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const extracted = priceExtractPrice(text);
+  if (!extracted) throw new Error(`aucun motif de prix reconnu dans la réponse (${text.length} caractères)`);
+  return extracted;
+}
+
+// Étape optionnelle, tentée en tout dernier recours : API tierce payante
+// (rainforestapi.com ou équivalent) — DÉSACTIVÉE par défaut, aucune clé
+// `RAINFOREST_API_KEY` dans le `.env` de ce développement (voir CONTEXT.md
+// pour la liste des clés disponibles) : ignorée silencieusement plutôt
+// qu'un échec bruyant tant qu'aucune clé n'est fournie. À activer en
+// ajoutant `RAINFOREST_API_KEY=...` au `.env` — aucun autre changement de
+// code nécessaire. Réponse déjà structurée (JSON de l'API elle-même), donc
+// aucun des 4 motifs d'extraction ci-dessus ne s'applique ici.
 async function priceTryRainforest(url) {
   const apiKey = process.env.RAINFOREST_API_KEY;
   if (!apiKey) throw new Error('RAINFOREST_API_KEY absente du .env — étape ignorée');
@@ -2811,26 +3511,70 @@ async function priceTryRainforest(url) {
   return price;
 }
 
-// Tente chaque méthode DANS L'ORDRE demandé, s'arrête à la 1re qui réussit.
-// Point 6 de la demande : logge la méthode qui a réussi ET chaque échec
-// intermédiaire (avec sa raison), pour pouvoir diagnostiquer lequel des 4
-// chemins fonctionne réellement une fois en conditions réelles.
-const PRICE_FETCH_METHODS = [
-  ['jina.ai (en-têtes navigateur)', priceTryJina],
-  ['allorigins.win', priceTryAllorigins],
-  ['fetch direct (en-têtes navigateur)', priceTryDirect],
-  ['rainforestapi', priceTryRainforest],
-];
+// Tente chaque proxy DANS L'ORDRE, chacun avec TOUS les motifs d'extraction
+// (voir PRICE_EXTRACTORS), s'arrête à la 1re combinaison qui réussit. Point 6
+// de la demande : logge le proxy ET le motif d'extraction qui ont réussi,
+// ainsi que chaque échec intermédiaire (avec sa raison) — pour diagnostiquer
+// lequel des chemins fonctionne réellement pour un site marchand donné.
+// Format de log EXACT demandé (2026-08-31, "DRASTIC FIX") pour toute URL
+// Amazon avec un ASIN détecté, quelle que soit la méthode qui a fini par
+// réussir — en plus (pas à la place) des logs `[Suivi de prix]`/`[Prix]`
+// existants, plus détaillés mais génériques à tous les sites marchands.
+function priceLogAmazonAsinResult(asin, price, method) {
+  console.log(`[Prix Amazon] ASIN: ${asin} → Prix trouvé: ${price}€ via method ${method}`);
+}
 
 ipcMain.handle('priceTracking:fetchPrice', async (_e, url) => {
-  for (const [name, fn] of PRICE_FETCH_METHODS) {
+  const asin = priceExtractAsin(url);
+  if (asin) console.log(`[Prix Amazon] ASIN détecté : ${asin} (depuis ${url})`);
+
+  // Keepa EN PREMIER pour les URLs Amazon (voir priceTryKeepa ci-dessus) —
+  // silencieusement ignorée sans clé, comme rainforestapi plus bas.
+  if (asin) {
     try {
-      const price = await fn(url);
-      console.log(`[Suivi de prix] ${url} — succès via "${name}" : ${price} €`);
-      return { price, method: name };
+      const price = await priceTryKeepa(asin);
+      priceLogAmazonAsinResult(asin, price, 'Keepa');
+      return { price, method: 'Keepa' };
     } catch (err) {
-      console.warn(`[Suivi de prix] ${url} — échec via "${name}" :`, err.message);
+      console.warn(`[Suivi de prix] ${url} — échec via "Keepa" :`, err.message);
     }
+  }
+
+  for (const [name, fetchFn] of PRICE_PROXIES) {
+    try {
+      const { price, pattern } = await priceTryProxy(fetchFn, url);
+      const method = `${name} — ${pattern}`;
+      console.log(`[Suivi de prix] ${url} — succès via proxy "${name}", motif "${pattern}" : ${price} €`);
+      if (asin) priceLogAmazonAsinResult(asin, price, method);
+      return { price, method };
+    } catch (err) {
+      console.warn(`[Suivi de prix] ${url} — échec via proxy "${name}" :`, err.message);
+    }
+  }
+
+  // Endpoint AJAX mobile Amazon (voir priceAmazonMobileAjaxUrl ci-dessus) —
+  // dernier recours SPÉCIFIQUE Amazon avant l'API tierce payante, tenté
+  // seulement si un ASIN a été détecté (URL construite à partir de lui, pas
+  // de l'URL produit d'origine).
+  if (asin) {
+    try {
+      const ajaxUrl = priceAmazonMobileAjaxUrl(asin);
+      const { price, pattern } = await priceTryProxy((u) => fetch(u, { headers: PRICE_BROWSER_HEADERS }), ajaxUrl);
+      const method = `Amazon AJAX mobile — ${pattern}`;
+      priceLogAmazonAsinResult(asin, price, method);
+      return { price, method };
+    } catch (err) {
+      console.warn(`[Suivi de prix] ${url} — échec via "Amazon AJAX mobile" :`, err.message);
+    }
+  }
+
+  try {
+    const price = await priceTryRainforest(url);
+    console.log(`[Suivi de prix] ${url} — succès via "rainforestapi" : ${price} €`);
+    if (asin) priceLogAmazonAsinResult(asin, price, 'rainforestapi');
+    return { price, method: 'rainforestapi' };
+  } catch (err) {
+    console.warn(`[Suivi de prix] ${url} — échec via "rainforestapi" :`, err.message);
   }
   console.error(`[Suivi de prix] ${url} — TOUTES les méthodes ont échoué`);
   throw new Error('Prix introuvable (toutes les méthodes ont échoué)');
@@ -3048,6 +3792,53 @@ function notifyDriveSync(status) {
   }
 }
 ipcMain.handle('driveSync:getLastStatus', () => lastDriveSyncStatus);
+
+// ─── Section "☁️ Google Drive" de la popup Paramètres → Sauvegardes
+// (2026-08-31, sur demande explicite) — au-delà du simple indicateur
+// transitoire ci-dessus, cette section affiche l'état RÉEL de Drive à la
+// DEMANDE (interrogé en direct à chaque ouverture de la popup, pas un flag
+// figé) : connecté ou non, et l'horodatage de dernière modification du
+// fichier distant LUI-MÊME (`modifiedTime`, répond à "Drive a-t-il des
+// données que je n'ai pas encore ?" — plus utile ici qu'un simple horodatage
+// de dernière synchro déjà tentée par CETTE installation).
+ipcMain.handle('driveSync:getInfo', async () => {
+  const token = await getValidGoogleToken();
+  if (!token?.accessToken) return { connected: false };
+  try {
+    const remote = await driveFindUserdataFile(token.accessToken);
+    return { connected: true, modifiedTime: remote?.modifiedTime || null };
+  } catch (err) {
+    console.error('[Drive Sync] Échec driveSync:getInfo', err);
+    return { connected: true, error: err.message };
+  }
+});
+
+// Bouton "Restaurer depuis Drive" (même popup) — contrairement à
+// performDriveLaunchSync plus bas (qui ne restaure QUE si Drive est plus
+// récent que le local, comparaison d'horodatages), télécharge et applique le
+// contenu de Drive INCONDITIONNELLEMENT : couvre le scénario "je sais que
+// Drive a la bonne version, écrase le local" qu'aucune comparaison
+// automatique ne gère (ex. local corrompu mais horodaté plus récemment que
+// Drive). Même garde anti-perte que le reste de ce fichier (voir
+// isUserdataEmptyModules) : refuse si Drive lui-même n'a rien de réel, jamais
+// d'écrasement par du vide même sur une action explicite de l'utilisateur.
+ipcMain.handle('driveSync:forceRestore', async () => {
+  const token = await getValidGoogleToken();
+  if (!token?.accessToken) throw new Error('Aucun compte Google connecté (Paramètres → Compte Google)');
+
+  const remote = await driveFindUserdataFile(token.accessToken);
+  if (!remote) throw new Error('Aucune sauvegarde trouvée sur Google Drive pour ce compte');
+
+  const data = await driveDownloadUserdata(token.accessToken, remote.id);
+  const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
+  if (isUserdataEmptyModules(downloadedModules)) throw new Error('La sauvegarde sur Google Drive est vide — rien à restaurer');
+
+  store.set('driveSync.fileId', remote.id);
+  driveApplyDownloadedUserdata(data);
+  notifyDriveSync({ type: 'synced' });
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+  return { modifiedTime: remote.modifiedTime };
+});
 
 // Recherche le fichier matin-userdata.json dans appDataFolder (il n'y a qu'un
 // seul fichier de ce nom possible côté Matin, mais Drive n'empêche pas

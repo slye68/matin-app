@@ -76,6 +76,17 @@ contextBridge.exposeInMainWorld('matin', {
     onUpdated:        (cb)   => ipcRenderer.on('displayMode:updated', (_e, mode) => cb(mode)),
   },
 
+  // ── Défilement automatique du dashboard (2026-08-31, voir main.js
+  // app:setAutoScroll/app:setAutoScrollSpeed et "🎨 Personnaliser" → section
+  // "Défilement automatique") — onUpdated reçoit TOUJOURS l'objet combiné
+  // `{ autoScroll, autoScrollSpeed }`, que ce soit le toggle ou la vitesse
+  // qui vienne de changer (voir main.js, même événement pour les 2). ────────
+  autoScroll: {
+    set:       (enabled) => ipcRenderer.invoke('app:setAutoScroll', enabled),
+    setSpeed:  (speed)   => ipcRenderer.invoke('app:setAutoScrollSpeed', speed),
+    onUpdated: (cb)       => ipcRenderer.on('autoScroll:updated', (_e, data) => cb(data)),
+  },
+
   // ── Restauration automatique au lancement (voir main.js
   // autoRestoreUserdataIfEmpty, 2026-08-10) ───────────────────────────────────
   getAutoRestoreNotice: () => ipcRenderer.invoke('app:getAutoRestoreNotice'),
@@ -87,6 +98,15 @@ contextBridge.exposeInMainWorld('matin', {
     updateLayout: (data) => ipcRenderer.invoke('modules:updateLayout', data),
     updateCollapsed: (key, collapsed) => ipcRenderer.invoke('modules:updateCollapsed', { key, collapsed }),
     onUpdated: (cb)   => ipcRenderer.on('modules:updated', (_e, data) => cb(data)),
+  },
+
+  // ── Emplacements de disposition sauvegardés (2026-08-31, voir main.js
+  // layoutSlots:get/save) — 2 emplacements fixes ("1"/"2"), stockés dans
+  // matin-userdata (synchronisé automatiquement via Drive). `save` renvoie
+  // l'entrée fraîchement écrite `{ layout, savedAt }`. ──────────────────────
+  layoutSlots: {
+    get:  ()               => ipcRenderer.invoke('layoutSlots:get'),
+    save: (slot, layout)   => ipcRenderer.invoke('layoutSlots:save', { slot, layout }),
   },
 
   // ── Fenêtres ──────────────────────────────────────────────────────────────
@@ -108,7 +128,7 @@ contextBridge.exposeInMainWorld('matin', {
     fetchFeed: (url) => ipcRenderer.invoke('rss:fetchFeed', url),
   },
 
-  // ── Suivi de prix Amazon (2026-08-30) — le fetch lui-même a déménagé côté
+  // ── Suivi de prix Marchand (2026-08-30) — le fetch lui-même a déménagé côté
   // process main le 2026-08-31 (voir main.js priceTracking:fetchPrice,
   // cascade jina.ai/allorigins/direct/rainforestapi) : le renderer
   // n'orcheste plus rien, juste `fetchPrice` puis `reportPrices` (persistance
@@ -130,6 +150,13 @@ contextBridge.exposeInMainWorld('matin', {
     pair: (bridgeIp) => ipcRenderer.invoke('hue:pair', bridgeIp),
     getGroups: (params) => ipcRenderer.invoke('hue:getGroups', params),
     setGroupState: (params) => ipcRenderer.invoke('hue:setGroupState', params),
+    // ── Sans pont — compte cloud (2026-08-31, voir main.js hue-oauth.js) ──
+    // Le rafraîchissement du token est géré ENTIÈREMENT côté main
+    // (getValidHueCloudToken, voir main.js) — `cloudGetGroups`/
+    // `cloudSetGroupState` n'ont besoin d'aucun identifiant en paramètre.
+    cloudLogin:        (params) => ipcRenderer.invoke('hue:cloudLogin', params),
+    cloudGetGroups:    ()       => ipcRenderer.invoke('hue:cloudGetGroups'),
+    cloudSetGroupState:(params) => ipcRenderer.invoke('hue:cloudSetGroupState', params),
   },
 
   // ── TP-Link Kasa (réseau local, exécuté dans le process main — vraies
@@ -212,6 +239,13 @@ contextBridge.exposeInMainWorld('matin', {
     // automatique, voir main.js driveApplyDownloadedUserdata) — un re-rendu
     // EN PLACE des seules cartes concernées, pas un rechargement de page.
     onUserdataRestored: (cb) => ipcRenderer.on('drive:userdataRestored', (_e, modules) => cb(modules)),
+    // Section "☁️ Google Drive" de la popup Sauvegardes (2026-08-31, voir
+    // main.js driveSync:getInfo/driveSync:forceRestore) — getInfo interroge
+    // Drive en direct (connecté ? dernière modification distante ?),
+    // forceRestore télécharge et applique le contenu de Drive SANS comparer
+    // les horodatages (contrairement à la sync automatique de lancement).
+    getInfo:       () => ipcRenderer.invoke('driveSync:getInfo'),
+    forceRestore:  () => ipcRenderer.invoke('driveSync:forceRestore'),
   },
 
   // ── Alertes (bandeau plein écran, voir main.js checkAlerts) ─────────────────

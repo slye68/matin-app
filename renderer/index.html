@@ -127,13 +127,53 @@
        réorganiser"/"Annuler"), impossible avec un confirm() natif (labels
        fixes, non personnalisables), d'où cette popup HTML maison. Masquée
        par défaut, `.open` l'affiche (voir style.css, même mécanisme que la
-       popup Sauvegardes de Paramètres). -->
+       popup Sauvegardes de Paramètres). Complétée le 2026-08-31 (sur demande
+       explicite) avec 2 emplacements de disposition sauvegardés manuellement
+       (Sauvegarder/Charger disposition 1 et 2), voir dashboard.js
+       loadLayoutSlot/saveLayoutSlot. -->
   <div class="autoarrange-confirm-overlay" id="autoArrangeConfirmOverlay">
     <div class="autoarrange-confirm-modal">
       <p class="autoarrange-confirm-text">Voulez-vous réorganiser automatiquement vos modules ?</p>
       <div class="autoarrange-confirm-actions">
         <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="autoArrangeConfirmOk">Oui, réorganiser</button>
         <button type="button" class="autoarrange-confirm-btn" id="autoArrangeConfirmCancel">Annuler</button>
+      </div>
+
+      <!-- Emplacements de disposition sauvegardés (2026-08-31, sur demande
+           explicite) — 2 emplacements fixes, stockés dans matin-userdata
+           (voir main.js layoutSlots:get/save, synchronisé automatiquement via
+           Drive comme le reste de userdata). "Charger" reste désactivé tant
+           que l'emplacement correspondant n'a jamais été sauvegardé (voir
+           dashboard.js refreshLayoutSlotsUI). -->
+      <div class="layout-slots-section">
+        <div class="layout-slot-row" data-slot="1">
+          <span class="layout-slot-label" id="layoutSlot1Label">Disposition 1 — non sauvegardée</span>
+          <div class="layout-slot-actions">
+            <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotSave1">💾 Sauvegarder disposition 1</button>
+            <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotLoad1" disabled>📂 Charger disposition 1</button>
+          </div>
+        </div>
+        <div class="layout-slot-row" data-slot="2">
+          <span class="layout-slot-label" id="layoutSlot2Label">Disposition 2 — non sauvegardée</span>
+          <div class="layout-slot-actions">
+            <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotSave2">💾 Sauvegarder disposition 2</button>
+            <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotLoad2" disabled>📂 Charger disposition 2</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation d'écrasement d'un emplacement de disposition déjà
+       sauvegardé (2026-08-31, sur demande explicite) — même mécanisme .open
+       que la popup ci-dessus, empilée par-dessus elle (voir style.css,
+       z-index supérieur). -->
+  <div class="autoarrange-confirm-overlay layout-slot-overwrite-overlay" id="layoutSlotOverwriteOverlay">
+    <div class="autoarrange-confirm-modal">
+      <p class="autoarrange-confirm-text" id="layoutSlotOverwriteText">Écraser cette disposition ?</p>
+      <div class="autoarrange-confirm-actions">
+        <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="layoutSlotOverwriteConfirm">Confirmer</button>
+        <button type="button" class="autoarrange-confirm-btn" id="layoutSlotOverwriteCancel">Annuler</button>
       </div>
     </div>
   </div>
@@ -206,8 +246,6 @@
   <script src="modules/fuel-prices.js"></script>
   <script src="modules/steam-promos.js"></script>
   <script src="modules/epic-promos.js"></script>
-  <script src="modules/parcels-carriers.js"></script>
-  <script src="modules/parcels.js"></script>
   <script src="modules/price-tracking.js"></script>
   <script src="modules/cinema.js"></script>
   <script src="modules/reminders-categories.js"></script>

@@ -26,6 +26,22 @@ function monEquipeFormatDate(dateStr) {
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
+// "06/09 à 14h00" (reformaté le 2026-08-31, sur demande explicite — remplace
+// date et heure séparées par " · ") — `item.time` vient d'un <input
+// type="time"> ("HH:MM"), converti au format FR "HHhMM".
+function monEquipeFormatDateTime(item) {
+  const datePart = monEquipeFormatDate(item.date);
+  if (!datePart) return '';
+  const timePart = item.time ? item.time.replace(':', 'h') : '';
+  return timePart ? `${datePart} à ${timePart}` : datePart;
+}
+
+// Domicile = jaune, Extérieur = rouge (2026-08-31, sur demande explicite —
+// remplace une seule couleur partagée par les deux).
+function monEquipeVenueClass(venue) {
+  return venue === 'away' ? 'monequipe-info-venue-away' : 'monequipe-info-venue-home';
+}
+
 // Combine date + heure en un instant comparable — sert au tri chronologique
 // ET au filtrage "pas encore joué" (voir render ci-dessous). Une heure
 // absente (facultative en config) vaut minuit, cohérent avec un tri par
@@ -35,23 +51,32 @@ function monEquipeDateTimeValue(item) {
   return Number.isNaN(t) ? 0 : t;
 }
 
-// Couleurs dédiées par type d'info (2026-08-16, sur demande explicite) —
-// date/type/heure/domicile-extérieur/adversaire ont chacun leur propre
-// classe `.monequipe-info-*` (voir style.css), en couleurs fixes (pas de
-// variable de thème) puisque demandées comme valeurs hex précises.
+// Couleurs dédiées par type d'info (2026-08-16, sur demande explicite ;
+// format réécrit en UNE seule ligne le 2026-08-31, 2e demande explicite —
+// "Match amical · 05/09 · 15h00 · Domicile · vs Francheville", remplace les
+// 2 lignes séparées meta/adversaire d'origine, jugées moins lisibles ;
+// 3e demande explicite le même jour — date+heure fusionnées "à" au lieu de
+// séparées par " · ", type recoloré en bleu, Domicile/Extérieur désormais
+// 2 couleurs distinctes au lieu d'une seule partagée) — compétition/
+// date-heure/domicile-extérieur/adversaire ont chacun leur propre classe
+// `.monequipe-info-*` (voir style.css), en couleurs fixes (pas de variable
+// de thème) puisque demandées comme valeurs hex précises.
+// Partagée entre "Prochain match" (mise en avant) et "Prochains matchs"
+// (liste) — même format de ligne pour les 2, voir monEquipeNextMatchHtml/
+// monEquipeUpcomingRowHtml plus bas.
+function monEquipeMatchLineHtml(item) {
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  return [
+    item.competition ? `<span class="monequipe-info-type">${item.competition}</span>` : '',
+    item.date ? `<span class="monequipe-info-datetime">${monEquipeFormatDateTime(item)}</span>` : '',
+    `<span class="${monEquipeVenueClass(item.venue)}">${venue}</span>`,
+    `<span class="monequipe-info-opponent">vs ${item.opponent || ''}</span>`,
+  ].filter(Boolean).join(' · ');
+}
+
 function monEquipeNextMatchHtml(item) {
   if (!item) return '<span class="sports-no-data">Aucun match prévu</span>';
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
-  const meta = [
-    item.date ? `<span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>` : '',
-    item.time ? `<span class="monequipe-info-time">${item.time}</span>` : '',
-    `<span class="monequipe-info-venue">${venue}</span>`,
-    item.competition ? `<span class="monequipe-info-type">${item.competition}</span>` : '',
-  ].filter(Boolean).join(' · ');
-  return `
-    <div class="sports-next-detail">${meta}</div>
-    <div class="sports-next-opp"><span class="monequipe-info-opponent">${item.opponent || ''}</span></div>
-  `;
+  return `<div class="sports-next-detail monequipe-next-line">${monEquipeMatchLineHtml(item)}</div>`;
 }
 
 function monEquipeLastResultHtml(item) {
@@ -59,28 +84,12 @@ function monEquipeLastResultHtml(item) {
   const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
   return `
     <div class="sports-next-detail">${item.score || '—'}</div>
-    <div class="sports-next-opp"><span class="monequipe-info-venue">${venue}</span> ${item.opponent || ''} · <span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>
+    <div class="sports-next-opp"><span class="${monEquipeVenueClass(item.venue)}">${venue}</span> ${item.opponent || ''} · <span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>
   `;
 }
 
 function monEquipeUpcomingRowHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
-  return `
-    <div class="monequipe-list-row">
-      <span class="monequipe-list-date"><span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>${item.time ? ` <span class="monequipe-info-time">${item.time}</span>` : ''}</span>
-      <span class="monequipe-list-opp"><span class="monequipe-info-venue">${venue}</span> · <span class="monequipe-info-opponent">${item.opponent || ''}</span></span>
-      ${item.competition ? `<span class="monequipe-list-meta monequipe-info-type">${item.competition}</span>` : ''}
-    </div>`;
-}
-
-function monEquipeResultRowHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
-  return `
-    <div class="monequipe-list-row">
-      <span class="monequipe-list-date monequipe-info-date">${monEquipeFormatDate(item.date)}</span>
-      <span class="monequipe-list-opp"><span class="monequipe-info-venue">${venue}</span> · ${item.opponent || ''}</span>
-      <span class="monequipe-list-meta">${item.score || ''}</span>
-    </div>`;
+  return `<div class="monequipe-list-row monequipe-list-row-line">${monEquipeMatchLineHtml(item)}</div>`;
 }
 
 window.MatinModules.monEquipe = {
@@ -127,11 +136,6 @@ window.MatinModules.monEquipe = {
           // deux fois (bug corrigé le 2026-08-16, signalé explicitement).
           upcoming.slice(1, 1 + MON_EQUIPE_LIST_SIZE).map(monEquipeUpcomingRowHtml).join('')
           || '<span class="sports-no-data">Aucun autre match à venir</span>'
-        }</div>
-        <div class="monequipe-list-label">Derniers résultats</div>
-        <div class="monequipe-list">${
-          results.slice(0, MON_EQUIPE_LIST_SIZE).map(monEquipeResultRowHtml).join('')
-          || '<span class="sports-no-data">Aucun résultat</span>'
         }</div>
       </div>
     `;

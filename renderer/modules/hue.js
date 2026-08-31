@@ -1,11 +1,26 @@
 /**
- * Module Philips Hue — pont local, aucune clé API externe
+ * Module Philips Hue — pont local OU compte cloud (2026-08-31, sur demande
+ * explicite, support des ampoules Hue de nouvelle génération SANS pont)
  *
- * Voir main.js (IPC hue:*) pour l'appairage/la découverte et la raison du
- * passage par le process main (pas de CORS côté pont). L'appairage exige un
- * appui physique sur le bouton du pont — entièrement géré côté page de
- * config (config.js), ce module ne fait que lire/écrire l'état une fois
- * bridgeIp + username déjà enregistrés.
+ * Voir main.js (IPC hue:*) pour l'appairage/la découverte/le contrôle cloud
+ * et la raison du passage par le process main (pas de CORS côté pont, et
+ * rafraîchissement de token géré là-bas pour le cloud). L'appairage pont
+ * exige un appui physique sur son bouton — entièrement géré côté page de
+ * config (config.js), ce module ne fait que lire/écrire l'état une fois la
+ * configuration (pont OU cloud) déjà enregistrée.
+ *
+ * Point 4 de la demande ("auto-detect based on which fields are filled") :
+ * `hueDetectMode` choisit le pont ou le cloud selon les champs RÉELLEMENT
+ * remplis dans `config`, indépendamment de `config.mode` (qui ne pilote que
+ * QUELLE section est visible en Paramètres, voir renderHueConfigSection dans
+ * config.js) — un `accessToken` cloud présent l'emporte sur bridgeIp/username
+ * s'ils sont TOUS les deux remplis (cas rare, l'utilisateur ayant configuré
+ * les 2 à un moment ou un autre), car un token cloud valide est un signal
+ * plus fort d'intention actuelle qu'un pont configuré autrefois.
+ *
+ * AVERTISSEMENT (mode cloud uniquement, voir main.js) : NON VÉRIFIÉ en
+ * conditions réelles — aucun compte Hue "sans pont" disponible pendant ce
+ * développement, le format exact de l'API cloud est un best-effort.
  *
  * Rafraîchissement toutes les 30s (voir dashboard.js MODULE_REGISTRY.hue) —
  * plus fréquent que tout autre module de l'app, ce qui peut interrompre un
@@ -16,6 +31,12 @@
  * dépliés — hors scope pour une première version).
  */
 window.MatinModules = window.MatinModules || {};
+
+function hueDetectMode(config) {
+  if (config?.accessToken) return 'cloud';
+  if (config?.bridgeIp?.trim() && config?.username?.trim()) return 'bridge';
+  return null;
+}
 
 // Conversion RVB (input[type=color], "#rrggbb") → Hue/Sat au format Philips
 // Hue (hue: 0-65535, sat: 0-254) — formule HSV standard.
@@ -37,7 +58,13 @@ function hueRgbToHueSat(hex) {
   return { hue: Math.round((h / 360) * 65535), sat: Math.round(s * 254) };
 }
 
-function hueGroupRowHtml(group) {
+// Couleur (RVB → Hue/Sat) : uniquement disponible en mode PONT — l'API
+// cloud CLIP v2 attend des coordonnées CIE xy pour la couleur (format
+// différent), non implémenté ici faute d'avoir pu vérifier ce chemin en
+// conditions réelles (voir avertissement d'en-tête) ; le sélecteur de
+// couleur est donc masqué en mode cloud plutôt que d'envoyer une commande
+// qui échouerait ou n'aurait aucun effet silencieusement.
+function hueGroupRowHtml(group, mode) {
   return `
     <div class="hue-group-row" data-group-id="${group.id}">
       <label class="toggle hue-toggle">
@@ -48,11 +75,14 @@ function hueGroupRowHtml(group) {
         <span class="hue-group-name">${group.name}</span>
         <input type="range" class="hue-bri-slider" min="1" max="254" value="${group.bri}" ${group.on ? '' : 'disabled'}>
       </div>
-      <input type="color" class="hue-color-picker" value="#ffffff" title="Couleur">
+      ${mode === 'bridge' ? '<input type="color" class="hue-color-picker" value="#ffffff" title="Couleur">' : ''}
     </div>`;
 }
 
-function hueBindGroupRow(row, bridgeIp, username) {
+// `setState(groupId, state)` abstrait l'appel réel (pont ou cloud, voir
+// render ci-dessous) — ce binding n'a plus besoin de savoir lequel des 2 est
+// actif.
+function hueBindGroupRow(row, setState) {
   const groupId = row.dataset.groupId;
   const onToggle = row.querySelector('.hue-on-toggle');
   const briSlider = row.querySelector('.hue-bri-slider');
@@ -61,7 +91,7 @@ function hueBindGroupRow(row, bridgeIp, username) {
   onToggle.addEventListener('change', async () => {
     briSlider.disabled = !onToggle.checked;
     try {
-      await window.matin.hue.setGroupState({ bridgeIp, username, groupId, state: { on: onToggle.checked } });
+      await setState(groupId, { on: onToggle.checked });
     } catch (err) {
       console.error('[Hue] Échec on/off', err);
     }
@@ -72,62 +102,197 @@ function hueBindGroupRow(row, bridgeIp, username) {
     clearTimeout(briDebounce);
     briDebounce = setTimeout(async () => {
       try {
-        await window.matin.hue.setGroupState({ bridgeIp, username, groupId, state: { bri: parseInt(briSlider.value, 10) } });
+        await setState(groupId, { bri: parseInt(briSlider.value, 10) });
       } catch (err) {
         console.error('[Hue] Échec luminosité', err);
       }
     }, 250);
   });
 
-  let colorDebounce;
-  colorPicker.addEventListener('input', () => {
-    clearTimeout(colorDebounce);
-    colorDebounce = setTimeout(async () => {
-      const { hue, sat } = hueRgbToHueSat(colorPicker.value);
-      try {
-        await window.matin.hue.setGroupState({ bridgeIp, username, groupId, state: { hue, sat, on: true } });
-        onToggle.checked = true;
-        briSlider.disabled = false;
-      } catch (err) {
-        console.error('[Hue] Échec couleur', err);
-      }
-    }, 250);
-  });
+  if (colorPicker) {
+    let colorDebounce;
+    colorPicker.addEventListener('input', () => {
+      clearTimeout(colorDebounce);
+      colorDebounce = setTimeout(async () => {
+        const { hue, sat } = hueRgbToHueSat(colorPicker.value);
+        try {
+          await setState(groupId, { hue, sat, on: true });
+          onToggle.checked = true;
+          briSlider.disabled = false;
+        } catch (err) {
+          console.error('[Hue] Échec couleur', err);
+        }
+      }, 250);
+    });
+  }
 }
 
 function hueSetupPromptHtml() {
   return `
     <div class="hue-setup-prompt">
       <span class="hue-setup-icon">💡</span>
-      <p>Pont Hue non configuré.</p>
-      <p class="hue-setup-hint">Renseignez l'IP du pont et appairez-le depuis Paramètres (appui sur le bouton physique du pont requis).</p>
+      <p>Hue non configuré.</p>
+      <p class="hue-setup-hint">Choisissez votre modèle (avec ou sans bridge) et connectez-vous depuis Paramètres → Maison → Philips Hue.</p>
     </div>`;
+}
+
+// ─── Sections repliables par pièce (2026-08-31, sur demande explicite,
+// "comme les modules FDJ") ───────────────────────────────────────────────
+// "Salon · 3 lampes · Allumées" — `lightCount` vient de hue:getGroups (mode
+// pont uniquement, voir main.js : `g.lights.length` de l'API REST v1 du
+// pont) ; `null` en mode cloud (CLIP v2 grouped_light n'expose pas
+// directement le nombre de lampes de la pièce sans un appel supplémentaire
+// au endpoint "room" — non ajouté ici pour ne pas alourdir un chemin cloud
+// déjà non vérifié en conditions réelles, voir en-tête du fichier) : le
+// segment "N lampes" est alors simplement omis plutôt que d'afficher un
+// nombre inventé.
+function hueGroupStatusLabel(group) {
+  const status = group.allOn ? 'Allumées' : (group.on ? 'Partiellement allumées' : 'Éteintes');
+  const countLabel = group.lightCount != null ? `${group.lightCount} lampe${group.lightCount > 1 ? 's' : ''} · ` : '';
+  return `${countLabel}${status}`;
+}
+
+// `collapsed` = état RÉEL de CETTE pièce (déjà résolu par l'appelant à
+// partir de `config.collapsed[group.id]`, voir render ci-dessous) — repliée
+// par défaut (aucune préférence enregistrée), comme les sections repliables
+// de Paramètres et le module Prêts (voir leur commentaire respectif).
+function hueRoomSectionHtml(group, mode, collapsed) {
+  return `
+    <div class="hue-room${collapsed ? ' hue-room-collapsed' : ''}" data-room-id="${group.id}">
+      <div class="hue-room-header">
+        <span class="hue-room-chevron">▶</span>
+        <span class="hue-room-name" title="${group.name}">${group.name}</span>
+        <span class="hue-room-summary">${hueGroupStatusLabel(group)}</span>
+      </div>
+      <div class="hue-room-body">
+        <div class="hue-room-body-inner">
+          ${hueGroupRowHtml(group, mode)}
+        </div>
+      </div>
+    </div>`;
+}
+
+// Repli/dépli d'une pièce — PUREMENT CSS/JS local (même principe que
+// prets.js pretsScheduleCollapsedSave : un re-render/reload complet à chaque
+// clic sur une flèche serait perceptible et inutile). Persisté PAR PIÈCE
+// dans `modules.hue.config.collapsed` — contrairement à Prêts (1 seul
+// booléen par groupe/carte), c'est ici un OBJET `{ [roomId]: boolean }` : le
+// canal `modules:updateCollapsed` (voir main.js) fusionne tel quel n'importe
+// quelle valeur reçue dans `config.collapsed`, donc aucun changement côté
+// process main n'est nécessaire pour ce changement de FORME (booléen → objet)
+// — seul ce module en tient compte au rendu.
+const HUE_COLLAPSE_SAVE_DEBOUNCE_MS = 500;
+let huePendingCollapseSave = null; // { timer, value } — `value` = la carte ENTIÈRE {roomId: bool}, pas juste la pièce qui vient de changer
+let hueFlushOnCloseRegistered = false;
+
+function hueSaveCollapsedNow(instanceKey, collapsedMap) {
+  window.matin.modules.updateCollapsed(instanceKey, collapsedMap)
+    .catch(err => console.error('[Hue] Échec sauvegarde état replié/déplié', err));
+}
+
+function hueScheduleCollapsedSave(instanceKey, collapsedMap) {
+  if (huePendingCollapseSave) clearTimeout(huePendingCollapseSave.timer);
+  const timer = setTimeout(() => {
+    huePendingCollapseSave = null;
+    hueSaveCollapsedNow(instanceKey, collapsedMap);
+  }, HUE_COLLAPSE_SAVE_DEBOUNCE_MS);
+  huePendingCollapseSave = { timer, value: collapsedMap };
+}
+
+// Enregistré UNE SEULE FOIS (pas à chaque render()) : vide un debounce encore
+// en attente si la fenêtre se ferme avant l'échéance des 500ms, même
+// principe que prets.js pretsEnsureFlushOnClose.
+function hueEnsureFlushOnClose(instanceKey) {
+  if (hueFlushOnCloseRegistered) return;
+  hueFlushOnCloseRegistered = true;
+  window.addEventListener('beforeunload', () => {
+    if (huePendingCollapseSave) {
+      clearTimeout(huePendingCollapseSave.timer);
+      hueSaveCollapsedNow(instanceKey, huePendingCollapseSave.value);
+      huePendingCollapseSave = null;
+    }
+  });
 }
 
 window.MatinModules.hue = {
   async render(container, config, _google, setBadge) {
     setBadge('');
-    const bridgeIp = config?.bridgeIp?.trim();
-    const username = config?.username?.trim();
+    const mode = hueDetectMode(config);
 
-    if (!bridgeIp || !username) {
+    if (!mode) {
       container.innerHTML = hueSetupPromptHtml();
       setBadge('⚠');
       return;
     }
 
+    // Même dérivation que prets.js (container.id posé par dashboard.js/
+    // createModuleCard comme "content-<clé>") — Hue n'a aujourd'hui qu'une
+    // seule instance possible ("hue"), mais dérivé plutôt que codé en dur
+    // pour rester cohérent si ce module devenait multi-instance un jour.
+    const instanceKey = (container.id || '').replace('content-', '') || 'hue';
+    hueEnsureFlushOnClose(instanceKey);
+    const collapsedMap = (config?.collapsed && typeof config.collapsed === 'object') ? config.collapsed : {};
+
+    const bridgeIp = config?.bridgeIp?.trim();
+    const username = config?.username?.trim();
+    const getGroups = mode === 'cloud'
+      ? () => window.matin.hue.cloudGetGroups()
+      : () => window.matin.hue.getGroups({ bridgeIp, username });
+    const setState = mode === 'cloud'
+      ? (groupId, state) => window.matin.hue.cloudSetGroupState({ groupId, state })
+      : (groupId, state) => window.matin.hue.setGroupState({ bridgeIp, username, groupId, state });
+
     try {
-      const groups = await window.matin.hue.getGroups({ bridgeIp, username });
+      const groups = await getGroups();
+
+      if (!groups.length) {
+        container.innerHTML = `<div class="module-empty">Aucune pièce trouvée ${mode === 'cloud' ? 'sur le compte Hue' : 'sur le bridge'}.</div>`;
+        setBadge('');
+        return;
+      }
+
       container.innerHTML = `
         <div class="hue-module">
-          ${groups.length ? `<div class="hue-groups">${groups.map(hueGroupRowHtml).join('')}</div>` : '<div class="module-empty">Aucune pièce trouvée sur le pont.</div>'}
+          <div class="hue-bulk-actions">
+            <button type="button" class="hue-bulk-btn hue-bulk-on">💡 Tout allumer</button>
+            <button type="button" class="hue-bulk-btn hue-bulk-off">🌑 Tout éteindre</button>
+          </div>
+          <div class="hue-groups">${groups.map((g) => hueRoomSectionHtml(g, mode, collapsedMap[g.id] !== false)).join('')}</div>
         </div>`;
-      container.querySelectorAll('.hue-group-row').forEach(row => hueBindGroupRow(row, bridgeIp, username));
+
+      container.querySelectorAll('.hue-group-row').forEach((row) => hueBindGroupRow(row, setState));
+
+      // Tout allumer/éteindre — ré-appelle setState pour CHAQUE pièce en
+      // parallèle (Promise.allSettled : une pièce injoignable ne doit pas
+      // empêcher les autres de recevoir la commande), puis re-render pour
+      // refléter le nouvel état réel (pas juste basculer les toggles en
+      // local, au cas où une commande aurait échoué pour une pièce donnée).
+      container.querySelector('.hue-bulk-on')?.addEventListener('click', async () => {
+        await Promise.allSettled(groups.map(g => setState(g.id, { on: true })));
+        window.MatinModules.hue.render(container, config, _google, setBadge);
+      });
+      container.querySelector('.hue-bulk-off')?.addEventListener('click', async () => {
+        await Promise.allSettled(groups.map(g => setState(g.id, { on: false })));
+        window.MatinModules.hue.render(container, config, _google, setBadge);
+      });
+
+      // Repli/dépli — bascule locale PURE (classList, voir style.css pour
+      // l'animation), aucun re-render, aucune écriture disque synchrone
+      // (voir hueScheduleCollapsedSave).
+      container.querySelectorAll('.hue-room').forEach((roomEl) => {
+        const roomId = roomEl.dataset.roomId;
+        roomEl.querySelector('.hue-room-header').addEventListener('click', () => {
+          const nowCollapsed = roomEl.classList.toggle('hue-room-collapsed');
+          collapsedMap[roomId] = nowCollapsed;
+          config.collapsed = collapsedMap; // reflet mémoire pour un futur re-render (ex. Tout allumer)
+          hueScheduleCollapsedSave(instanceKey, collapsedMap);
+        });
+      });
 
       const onCount = groups.filter(g => g.on).length;
-      setBadge(groups.length ? `${onCount}/${groups.length}` : '');
+      setBadge(`${onCount}/${groups.length}`);
     } catch (err) {
-      container.innerHTML = `<span class="module-error">Pont Hue injoignable</span>`;
+      container.innerHTML = `<span class="module-error">${mode === 'cloud' ? 'Compte Hue injoignable' : 'Bridge Hue injoignable'}</span>`;
       console.error('[Hue]', err);
       setBadge('⚠');
     }

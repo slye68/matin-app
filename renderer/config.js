@@ -38,7 +38,6 @@ const MODULE_META = {
   airQuality: { label: 'Qualité air', icon: '🌡️', requiresGoogle: false }, // pas de config : réutilise la ville de Météo
   fuelPrices: { label: 'Carburants',  icon: '⛽', requiresGoogle: false,
                 configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' } },
-  parcels:    { label: 'Colis',       icon: '📦', requiresGoogle: false, parcelsField: true },
   priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, priceTrackingField: true },
   cinema:     { label: 'Cinéma',      icon: '🎬', requiresGoogle: false }, // pas de config : scraping AlloCiné, aucune clé requise
   steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false }, // pas de config
@@ -144,7 +143,7 @@ const TAB_MODULE_ORDER = {
   actualites: ['france', 'tech', 'bourse', 'science', 'gaming', 'sante'],
   loisirs:    ['ol', 'live', 'monEquipe', 'fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast'],
   maison:     ['hue', 'kasa', 'tradfri'],
-  services:   ['parcels', 'fuelPrices', 'priceTracking', 'maps', 'nasa', 'youtube'],
+  services:   ['fuelPrices', 'priceTracking', 'maps', 'nasa', 'youtube'],
   utile:      ['reminders', 'weather', 'airQuality', 'calendar', 'gmail', 'googleTasks', 'birthdays', 'alerts'],
 };
 
@@ -561,6 +560,57 @@ function createStartOnBootRow() {
   return wrapper;
 }
 
+// ℹ (U+2139) + sélecteur de présentation TEXTE (U+FE0E, PAS U+FE0F/émoji) —
+// 2026-08-31, 2e demande le même jour ("changer sa couleur en bleu") : la
+// variante émoji (celle qu'un simple "ℹ️" tapé au clavier produit) est un
+// glyphe couleur FIXE sur la plupart des systèmes, qui ignore `color` en
+// CSS — seule la variante texte hérite réellement de `currentColor`/`color`
+// (voir .price-tracking-info-btn dans config.html).
+const PRICE_TRACKING_INFO_ICON = 'ℹ︎';
+
+// ─── Popup "Sites compatibles" — module Suivi de prix (2026-08-31, sur
+// demande explicite) ─────────────────────────────────────────────────────
+// Petit popover ancré sous l'icône ℹ️ (pas une modale plein écran comme
+// Sauvegardes/Personnaliser — texte trop court pour ça, demandé explicitement
+// "small popup/tooltip") — `position: fixed` + coordonnées calculées depuis
+// `getBoundingClientRect()` plutôt qu'un positionnement CSS relatif au
+// parent : la ligne de module vit dans un panneau d'onglet qui défile
+// (`overflow`), un popover positionné relativement à son parent pourrait s'y
+// retrouver coupé selon le défilement en cours.
+function showPriceTrackingInfoPopup(anchorEl) {
+  document.getElementById('priceTrackingInfoPopup')?.remove(); // jamais 2 popups ouverts à la fois
+
+  const popup = document.createElement('div');
+  popup.id = 'priceTrackingInfoPopup';
+  popup.className = 'price-tracking-info-popup';
+  popup.innerHTML = `
+    <div class="price-tracking-info-title">Sites compatibles testés :</div>
+    <div class="price-tracking-info-sites">
+      <span>✅ Darty</span><span>✅ Fnac</span><span>✅ LDLC</span>
+      <span>✅ Vinted</span><span>✅ Boulanger</span><span class="price-tracking-info-incompatible">❌ Amazon (non compatible)</span>
+    </div>
+    <div class="price-tracking-info-warning">⚠️ Peut fonctionner avec d'autres sites marchands.</div>
+  `;
+  document.body.appendChild(popup);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  popup.style.top = `${rect.bottom + 6}px`;
+  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popupRect.width - 8))}px`;
+
+  // `setTimeout(0)` : sans lui, le clic qui vient d'ouvrir ce popup (déjà en
+  // cours de propagation sur `document`) déclencherait immédiatement sa
+  // propre fermeture — l'écouteur n'est posé qu'APRÈS que ce clic-ci soit
+  // terminé. Capture (3e argument `true`) pour intercepter le clic avant
+  // qu'un autre gestionnaire ne l'arrête via stopPropagation.
+  const closeOnOutsideClick = (e) => {
+    if (popup.contains(e.target)) return;
+    popup.remove();
+    document.removeEventListener('click', closeOnOutsideClick, true);
+  };
+  setTimeout(() => document.addEventListener('click', closeOnOutsideClick, true), 0);
+}
+
 function createModuleRow(key, mod, meta) {
   const wrapper = document.createElement('div');
   wrapper.className = 'module-row-wrap' + (mod.enabled ? '' : ' module-disabled');
@@ -584,7 +634,7 @@ function createModuleRow(key, mod, meta) {
 
   row.innerHTML = `
     <span class="module-row-icon">${meta.icon}</span>
-    <span class="module-row-name">${meta.label}${key === 'tradfri' ? ' <span class="beta-badge">Bêta</span>' : ''}</span>
+    <span class="module-row-name">${meta.label}${key === 'tradfri' ? ' <span class="beta-badge">Bêta</span>' : ''}${key === 'priceTracking' ? ` <button type="button" class="price-tracking-info-btn" title="Sites compatibles">${PRICE_TRACKING_INFO_ICON}</button>` : ''}</span>
     ${showAddInstance ? `<button class="row-add-btn" ${maxedOut ? 'disabled' : ''} title="${addTitle}">+</button>` : ''}
     ${showDelete ? `<button class="row-delete-btn" title="${deleteTitle}">×</button>` : ''}
     ${meta.requiresGoogle ? '<span class="module-row-requires">Google requis</span>' : ''}
@@ -593,6 +643,13 @@ function createModuleRow(key, mod, meta) {
       <span class="toggle-slider"></span>
     </label>
   `;
+
+  // Popup "Sites compatibles" (2026-08-31, sur demande explicite) — voir
+  // showPriceTrackingInfoPopup plus bas, seul module à porter ce bouton.
+  row.querySelector('.price-tracking-info-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showPriceTrackingInfoPopup(e.currentTarget);
+  });
 
   // Toggle — bascule aussi .module-disabled sur le wrapper : la config
   // ci-dessous (etf-lines-field/parcels-config-field/fdj-config-field/...)
@@ -813,10 +870,6 @@ function createModuleRow(key, mod, meta) {
     wrapper.appendChild(collapsible.wrap);
   }
 
-  if (meta.parcelsField) {
-    wrapper.appendChild(renderParcelsConfigSection(modulesState[key]));
-  }
-
   if (meta.priceTrackingField) {
     wrapper.appendChild(renderPriceTrackingConfigSection(modulesState[key]));
   }
@@ -1006,6 +1059,9 @@ function renderMonEquipeConfigSection(mod) {
   function renderUpcoming() {
     upcomingList.innerHTML = '';
     cfg.upcoming.forEach((item) => {
+      const group = document.createElement('div');
+      group.className = 'monequipe-upcoming-group';
+
       const row = document.createElement('div');
       row.className = 'monequipe-upcoming-row';
       row.innerHTML = `
@@ -1027,7 +1083,40 @@ function renderMonEquipeConfigSection(mod) {
         renderUpcoming();
         syncAddButtons();
       });
-      upcomingList.appendChild(row);
+      group.appendChild(row);
+
+      // Score du match (2026-08-31, sur demande explicite) — renseigné une
+      // fois le match joué : déplace AUTOMATIQUEMENT ce match vers "Derniers
+      // résultats". Au `change` (donc au blur, pas à chaque frappe) : un
+      // déplacement en cours de saisie serait déroutant, l'utilisateur doit
+      // pouvoir taper "78-6" sans perdre la ligne avant d'avoir fini
+      // "78-65". Ce champ n'écrit JAMAIS dans `item.score` (les matchs à
+      // venir n'ont pas ce champ) : il sert uniquement de déclencheur du
+      // transfert vers `cfg.results`, où `score` est le champ normal —
+      // volontairement SANS respecter MON_EQUIPE_MAX_MATCHES ici (un vrai
+      // résultat de match joué ne doit jamais être silencieusement perdu
+      // parce que la liste des résultats est pleine ; le plafond ne gate que
+      // le bouton "+ Ajouter un résultat" manuel).
+      const scoreRow = document.createElement('div');
+      scoreRow.className = 'monequipe-upcoming-score-row';
+      scoreRow.innerHTML = `
+        <label>Score</label>
+        <input type="text" class="monequipe-upcoming-score-input" placeholder="Si déjà joué, ex : 78-65">
+        <span class="monequipe-upcoming-score-hint">→ déplace vers "Derniers résultats"</span>
+      `;
+      scoreRow.querySelector('.monequipe-upcoming-score-input').addEventListener('change', (e) => {
+        const score = e.target.value.trim();
+        if (!score) return;
+        const idx = cfg.upcoming.indexOf(item);
+        if (idx !== -1) cfg.upcoming.splice(idx, 1);
+        cfg.results.push({ date: item.date, opponent: item.opponent, score, venue: item.venue });
+        renderUpcoming();
+        renderResults();
+        syncAddButtons();
+      });
+      group.appendChild(scoreRow);
+
+      upcomingList.appendChild(group);
     });
   }
 
@@ -1284,100 +1373,9 @@ function renderFdjGameConfig(game, gameConfig) {
   return section;
 }
 
-// ─── Colis (suivi de paquets, transporteur auto-détecté) ───────────────────
-// Plus de sélecteur de transporteur manuel depuis le passage au scraping
-// direct (2026-08-05, sur demande explicite) — le transporteur est déduit du
-// format du numéro de suivi (voir parcels-carriers.js, partagé avec le
-// module dashboard pour garantir la même détection des deux côtés). L'indice
-// affiché ici est purement informatif (aide à repérer une saisie erronée
-// avant même de sauvegarder) : rien n'est stocké en config, la détection est
-// refaite à chaque rendu du module dashboard.
-const MAX_PARCELS = 20;
-
-// Texte d'indice affiché à côté du numéro de suivi — reflète le repli La
-// Poste (voir parcels.js, parcelsFetchItemStatus) plutôt que d'afficher
-// "non reconnu" sans plus de précision quand aucun format connu ne matche :
-// un numéro non détecté sera quand même essayé via La Poste au premier
-// rendu du module dashboard, autant l'annoncer ici. Champ vide : pas encore
-// de numéro à deviner, hint vide plutôt qu'un repli prématuré.
-function parcelsCarrierHint(trackingNumber) {
-  const detected = window.ParcelsCarriers.detectCarrier(trackingNumber);
-  if (detected) return { text: detected, unknown: false };
-  if (!trackingNumber) return { text: '', unknown: false };
-  return { text: `${window.ParcelsCarriers.DEFAULT_FALLBACK_CARRIER} (repli)`, unknown: true };
-}
-
-function renderParcelsConfigSection(mod) {
-  if (!mod.config) mod.config = {};
-  if (!Array.isArray(mod.config.items)) mod.config.items = [];
-  const items = mod.config.items;
-
-  const wrap = document.createElement('div');
-  wrap.className = 'module-config-field parcels-config-field';
-  wrap.innerHTML = `
-    <label>Mes colis (max ${MAX_PARCELS})</label>
-    <div class="parcels-list"></div>
-    <button type="button" class="etf-add-line-btn parcels-add-btn">+ Ajouter un colis</button>
-  `;
-
-  const listEl = wrap.querySelector('.parcels-list');
-  const addBtn = wrap.querySelector('.parcels-add-btn');
-
-  function renderItems() {
-    listEl.innerHTML = '';
-    items.forEach((item) => {
-      const row = document.createElement('div');
-      row.className = 'parcels-row';
-      const hint0 = parcelsCarrierHint(item.trackingNumber);
-      row.innerHTML = `
-        <input type="text" class="parcels-label-input" placeholder="Ex : Cadeau anniv" value="${item.label || ''}">
-        <input type="text" class="parcels-tracking-input" placeholder="N° de suivi" value="${item.trackingNumber || ''}">
-        <span class="parcels-carrier-hint ${hint0.unknown ? 'unknown' : ''}">${hint0.text}</span>
-        <button type="button" class="row-delete-btn parcels-delete-btn" title="Supprimer ce colis">×</button>
-      `;
-
-      row.querySelector('.parcels-label-input').addEventListener('input', (e) => { item.label = e.target.value; });
-      row.querySelector('.parcels-tracking-input').addEventListener('input', (e) => {
-        item.trackingNumber = e.target.value.trim();
-        const hint = row.querySelector('.parcels-carrier-hint');
-        const h = parcelsCarrierHint(item.trackingNumber);
-        hint.textContent = h.text;
-        hint.classList.toggle('unknown', h.unknown);
-      });
-
-      row.querySelector('.parcels-delete-btn').addEventListener('click', () => {
-        const idx = items.indexOf(item);
-        if (idx !== -1) items.splice(idx, 1);
-        renderItems();
-        syncAddBtn();
-      });
-
-      listEl.appendChild(row);
-    });
-  }
-
-  function syncAddBtn() {
-    const maxed = items.length >= MAX_PARCELS;
-    addBtn.disabled = maxed;
-    addBtn.title = maxed ? `Maximum de ${MAX_PARCELS} colis atteint` : '';
-  }
-
-  addBtn.addEventListener('click', () => {
-    if (items.length >= MAX_PARCELS) return;
-    items.push({ label: '', trackingNumber: '' });
-    renderItems();
-    syncAddBtn();
-  });
-
-  renderItems();
-  syncAddBtn();
-
-  return wrap;
-}
-
-// ─── Suivi de prix Amazon (libellé + URL produit + prix cible, max 10)
-// (2026-08-30, sur demande explicite) — même structure que Colis
-// juste au-dessus (`.parcels-row`/`.parcels-list`), sa grille 4 colonnes
+// ─── Suivi de prix Marchand (libellé + URL produit + prix cible, max 10)
+// (2026-08-30, sur demande explicite) — même structure que l'ancien module
+// Colis (supprimé le 2026-08-31, sur demande explicite), sa grille 4 colonnes
 // (1.2fr 1.2fr 0.8fr 22px) tombe pile pour ce module : label | URL | prix
 // cible | ×, à la place de label | n° suivi | indice transporteur | ×.
 const MAX_PRICE_TRACKING = 10;
@@ -1405,7 +1403,7 @@ function renderPriceTrackingConfigSection(mod) {
       row.className = 'parcels-row';
       row.innerHTML = `
         <input type="text" class="parcels-label-input" placeholder="Ex : Casque Bluetooth" value="${item.label || ''}">
-        <input type="text" class="parcels-tracking-input" placeholder="URL du produit Amazon.fr" value="${item.url || ''}">
+        <input type="text" class="parcels-tracking-input" placeholder="URL du produit Marchand" value="${item.url || ''}">
         <input type="number" min="0" step="0.01" class="price-tracking-target-input" placeholder="Prix cible €" value="${item.targetPrice ?? ''}">
         <button type="button" class="row-delete-btn price-tracking-delete-btn" title="Supprimer ce produit">×</button>
       `;
@@ -1694,64 +1692,149 @@ function renderYoutubeConfigSection(mod) {
   return collapsible.wrap;
 }
 
-// ─── Philips Hue (IP du pont + appairage) ───────────────────────────────────
-// L'appairage exige un appui physique sur le bouton du pont dans les ~30s
-// précédant l'appel — impossible à automatiser depuis ce code, d'où le
-// bouton "Appairer" qui se contente de relayer une tentative et d'afficher
+// ─── Philips Hue — pont local OU compte cloud (2026-08-31, sur demande
+// explicite, support des ampoules Hue de nouvelle génération SANS pont) ────
+// `cfg.mode` ("bridge"/"cloud") détermine QUELLE section est visible/utilisée
+// ici en Paramètres — au moment de l'utilisation réelle (dashboard, voir
+// hue.js), la détection est plutôt basée sur les champs RÉELLEMENT remplis
+// (point 4 de la demande, "auto-detect based on which fields are filled") :
+// les 2 mécanismes ne sont pas censés diverger en usage normal (basculer le
+// mode ici ne vide jamais les champs de l'autre mode), mais le second reste
+// la source de vérité au moment de contrôler une vraie ampoule.
+//
+// Pont : l'appairage exige un appui physique sur le bouton du pont dans les
+// ~30s précédant l'appel — impossible à automatiser depuis ce code, d'où le
+// bouton "Connecter" qui se contente de relayer une tentative et d'afficher
 // clairement l'échec ("bouton non pressé") plutôt que de retenter en boucle.
+//
+// Cloud : OAuth2 via un compte developers.meethue.com PERSONNEL (voir
+// main/auth/hue-oauth.js) — `clientId`/`clientSecret` saisis par
+// l'utilisateur lui-même, jamais dans le `.env` de cette app (Hue n'accorde
+// pas d'accès "partenaire" au grand public pour ce genre d'app tierce).
 function renderHueConfigSection(mod) {
   if (!mod.config) mod.config = {};
-  if (typeof mod.config.bridgeIp !== 'string') mod.config.bridgeIp = '';
-  if (typeof mod.config.username !== 'string') mod.config.username = '';
   const cfg = mod.config;
+  if (typeof cfg.bridgeIp !== 'string') cfg.bridgeIp = '';
+  if (typeof cfg.username !== 'string') cfg.username = '';
+  if (cfg.mode !== 'cloud') cfg.mode = 'bridge'; // défaut historique, comportement inchangé pour une config existante
+  if (typeof cfg.clientId !== 'string') cfg.clientId = '';
+  if (typeof cfg.clientSecret !== 'string') cfg.clientSecret = '';
 
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field hue-config-field';
   wrap.innerHTML = `
-    <div class="hue-config-row">
-      <label>Adresse IP du pont</label>
-      <input type="text" class="hue-ip-input" placeholder="192.168.1.XX" value="${cfg.bridgeIp}">
-      <button type="button" class="hue-discover-btn etf-add-line-btn">Découvrir</button>
+    <div class="hue-mode-toggle-row">
+      <label>Mon modèle Hue</label>
+      <div class="hue-mode-toggle">
+        <button type="button" class="hue-mode-btn" data-mode="bridge">Avec bridge (ancien modèle)</button>
+        <button type="button" class="hue-mode-btn" data-mode="cloud">Sans bridge (nouveau modèle)</button>
+      </div>
     </div>
-    <div class="hue-config-row">
-      <label>Nom d'utilisateur API</label>
-      <input type="text" class="hue-username-input" placeholder="Généré par Appairer" value="${cfg.username}" readonly>
-      <button type="button" class="hue-pair-btn etf-add-line-btn">Appairer</button>
+
+    <div class="hue-mode-section" data-mode-section="bridge">
+      <div class="hue-config-row">
+        <label>Adresse IP du bridge</label>
+        <input type="text" class="hue-ip-input" placeholder="192.168.1.XX" value="${cfg.bridgeIp}">
+        <button type="button" class="hue-discover-btn etf-add-line-btn">Découvrir</button>
+      </div>
+      <div class="hue-config-row">
+        <label>Nom d'utilisateur API</label>
+        <input type="text" class="hue-username-input" placeholder="Généré par Connecter" value="${cfg.username}" readonly>
+        <button type="button" class="hue-pair-btn etf-add-line-btn">Connecter</button>
+      </div>
+      <p class="hue-config-status" data-status="bridge"></p>
+      <p class="hue-config-hint">Entrez l'IP de votre bridge Hue (boîtier blanc). Appuyez sur le bouton du bridge puis cliquez Connecter.</p>
     </div>
-    <p class="hue-config-status"></p>
-    <p class="hue-config-hint">Avant de cliquer sur "Appairer", appuyez sur le gros bouton rond au centre du pont Hue (délai ~30s).</p>
+
+    <div class="hue-mode-section" data-mode-section="cloud">
+      <div class="hue-cloud-instructions">
+        Pour connecter vos ampoules Hue sans bridge :<br>
+        1. Créez un compte gratuit sur developers.meethue.com<br>
+        2. Créez une nouvelle application → récupérez votre Client ID et Client Secret<br>
+        3. Entrez-les ci-dessous et cliquez Connecter<br>
+        4. Autorisez l'accès à votre compte Hue
+      </div>
+      <div class="hue-config-row">
+        <label>Client ID</label>
+        <input type="text" class="hue-client-id-input" placeholder="Client ID Hue" value="${cfg.clientId}">
+      </div>
+      <div class="hue-config-row">
+        <label>Client Secret</label>
+        <input type="password" class="hue-client-secret-input" placeholder="Client Secret Hue" value="${cfg.clientSecret}">
+      </div>
+      <button type="button" class="hue-cloud-connect-btn etf-add-line-btn">Connecter mon compte Hue</button>
+      <p class="hue-config-status" data-status="cloud">${cfg.accessToken ? '✓ Compte Hue connecté.' : 'Non connecté.'}</p>
+    </div>
   `;
 
+  // ── Bascule de mode ────────────────────────────────────────────────────
+  const modeButtons = wrap.querySelectorAll('.hue-mode-btn');
+  const modeSections = wrap.querySelectorAll('.hue-mode-section');
+  function applyMode(mode) {
+    cfg.mode = mode;
+    modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+    modeSections.forEach((s) => s.classList.toggle('active', s.dataset.modeSection === mode));
+  }
+  modeButtons.forEach((b) => b.addEventListener('click', () => applyMode(b.dataset.mode)));
+  applyMode(cfg.mode);
+
+  // ── Mode "Avec bridge" (comportement historique, libellés ajustés) ─────
   const ipInput = wrap.querySelector('.hue-ip-input');
   const usernameInput = wrap.querySelector('.hue-username-input');
-  const statusEl = wrap.querySelector('.hue-config-status');
+  const bridgeStatusEl = wrap.querySelector('[data-status="bridge"]');
 
   ipInput.addEventListener('input', (e) => { cfg.bridgeIp = e.target.value.trim(); });
 
   wrap.querySelector('.hue-discover-btn').addEventListener('click', async () => {
-    statusEl.textContent = 'Recherche du pont sur le réseau…';
+    bridgeStatusEl.textContent = 'Recherche du bridge sur le réseau…';
     try {
       const ip = await window.matin.hue.discoverBridge();
       ipInput.value = ip;
       cfg.bridgeIp = ip;
-      statusEl.textContent = `Pont trouvé : ${ip}`;
+      bridgeStatusEl.textContent = `Bridge trouvé : ${ip}`;
     } catch (err) {
-      statusEl.textContent = 'Aucun pont trouvé automatiquement — saisissez l\'IP manuellement.';
+      bridgeStatusEl.textContent = 'Aucun bridge trouvé automatiquement — saisissez l\'IP manuellement.';
       console.warn('[Config] Découverte Hue échouée', err);
     }
   });
 
   wrap.querySelector('.hue-pair-btn').addEventListener('click', async () => {
-    if (!cfg.bridgeIp) { statusEl.textContent = 'Renseignez d\'abord l\'IP du pont.'; return; }
-    statusEl.textContent = 'Appairage… (bouton du pont déjà pressé ?)';
+    if (!cfg.bridgeIp) { bridgeStatusEl.textContent = 'Renseignez d\'abord l\'IP du bridge.'; return; }
+    bridgeStatusEl.textContent = 'Connexion… (bouton du bridge déjà pressé ?)';
     try {
       const username = await window.matin.hue.pair(cfg.bridgeIp);
       usernameInput.value = username;
       cfg.username = username;
-      statusEl.textContent = '✓ Appairé avec succès.';
+      bridgeStatusEl.textContent = '✓ Connecté avec succès.';
     } catch (err) {
-      statusEl.textContent = `Échec : ${err.message}`;
-      console.warn('[Config] Appairage Hue échoué', err);
+      bridgeStatusEl.textContent = `Échec : ${err.message}`;
+      console.warn('[Config] Connexion Hue (bridge) échouée', err);
+    }
+  });
+
+  // ── Mode "Sans bridge" (compte cloud) ───────────────────────────────────
+  const clientIdInput = wrap.querySelector('.hue-client-id-input');
+  const clientSecretInput = wrap.querySelector('.hue-client-secret-input');
+  const cloudStatusEl = wrap.querySelector('[data-status="cloud"]');
+
+  clientIdInput.addEventListener('input', (e) => { cfg.clientId = e.target.value.trim(); });
+  clientSecretInput.addEventListener('input', (e) => { cfg.clientSecret = e.target.value.trim(); });
+
+  wrap.querySelector('.hue-cloud-connect-btn').addEventListener('click', async () => {
+    if (!cfg.clientId || !cfg.clientSecret) {
+      cloudStatusEl.textContent = 'Renseignez le Client ID et le Client Secret avant de vous connecter.';
+      return;
+    }
+    cloudStatusEl.textContent = 'Connexion à votre compte Hue… (une page va s\'ouvrir dans votre navigateur)';
+    try {
+      const tokens = await window.matin.hue.cloudLogin({ clientId: cfg.clientId, clientSecret: cfg.clientSecret });
+      cfg.accessToken = tokens.accessToken;
+      cfg.refreshToken = tokens.refreshToken;
+      cfg.expiresAt = tokens.expiresAt;
+      cloudStatusEl.textContent = '✓ Compte Hue connecté.';
+    } catch (err) {
+      cloudStatusEl.textContent = `Échec : ${err.message}`;
+      console.warn('[Config] Connexion Hue (cloud) échouée', err);
     }
   });
 
@@ -2142,10 +2225,12 @@ function renderPretsLoansSection(key, mod) {
       const box = document.createElement('div');
       box.className = 'prets-loan-config';
       box.innerHTML = `
+        <div class="prets-loan-config-labels">
+          <span>Nom</span><span>Montant</span><span>Début</span><span>Fin</span><span>Type</span><span></span>
+        </div>
         <div class="prets-loan-config-header">
-          <input type="text" class="prets-loan-name" placeholder="Nom (ex : Optiplan 00371308)" value="${loan.name || ''}">
-          <input type="number" min="0" step="0.01" class="prets-loan-amount" placeholder="Emprunté €" value="${loan.amount ?? ''}">
-          <input type="number" min="0" step="0.01" class="prets-loan-rate" placeholder="Taux %" value="${loan.rate ?? ''}">
+          <input type="text" class="prets-loan-name" placeholder="Ex: Optiplan" value="${loan.name || ''}">
+          <input type="number" min="0" step="0.01" class="prets-loan-amount" placeholder="Montant (€)" value="${loan.amount ?? ''}">
           <input type="date" class="prets-loan-start" title="Date de début" value="${loan.startDate || ''}">
           <input type="date" class="prets-loan-end" title="Date de fin" value="${loan.endDate || ''}">
           <select class="prets-loan-type" title="Type de remboursement">
@@ -2161,24 +2246,35 @@ function renderPretsLoansSection(key, mod) {
       const line2El = box.querySelector('.prets-loan-line2');
       const bodyEl = box.querySelector('.prets-loan-body');
 
-      // Ligne 2 (2026-08-09, sur demande explicite) — "Jour de prélèvement",
-      // en retrait, texte réduit ; la Mensualité fixe l'accompagne sur la
-      // MÊME ligne (elle n'a de sens qu'en type Fixe — un prêt à paliers a
+      // Ligne 2 (2026-08-09, sur demande explicite ; Taux déplacé ici depuis
+      // l'en-tête le 2026-08-31, sur nouvelle demande explicite) — "Taux",
+      // "Jour de prélèvement" puis "Mensualité", en retrait, texte réduit ;
+      // la Mensualité fixe n'apparaît qu'en type Fixe (un prêt à paliers a
       // une mensualité PAR palier, affichée plus bas dans sa propre liste,
-      // jamais ici). Reconstruite entièrement à chaque appel plutôt que
-      // patchée : plus simple que de fiddler avec l'affichage conditionnel
-      // d'un seul champ, et la valeur affichée vient toujours de `loan`
-      // (jamais perdue au changement de type).
+      // jamais ici) — Taux et Jour de prélèvement, eux, restent des
+      // propriétés du prêt entier, affichées quel que soit le type.
+      // Reconstruite entièrement à chaque appel plutôt que patchée : plus
+      // simple que de fiddler avec l'affichage conditionnel d'un seul champ,
+      // et la valeur affichée vient toujours de `loan` (jamais perdue au
+      // changement de type).
       function renderLine2() {
         line2El.innerHTML = `
+          <span class="prets-loan-line2-label">Taux</span>
+          <input type="number" min="0" step="0.01" class="prets-loan-rate" placeholder="Taux (%)" value="${loan.rate ?? ''}">
           <span class="prets-loan-line2-label">Prél.</span>
           <input type="number" min="1" max="31" step="1" class="prets-loan-debit-day" placeholder="Jour" title="Jour de prélèvement (1-31)" value="${loan.debitDay ?? ''}">
           ${loan.paymentType === 'fixe' ? `
           <span class="prets-loan-line2-label">| Mensualité :</span>
-          <input type="number" min="0" step="0.01" class="prets-loan-payment" value="${loan.monthlyPayment ?? ''}">
+          <input type="number" min="0" step="0.01" class="prets-loan-payment" placeholder="Mensualité €" value="${loan.monthlyPayment ?? ''}">
           ` : ''}
         `;
 
+        // Taux (2026-08-31, déplacé ici depuis l'en-tête) — sa propre
+        // écoute, indépendante de `syncHeader` ci-dessous qui ne scope plus
+        // que `.prets-loan-config-header input` (l'en-tête n'a plus ce champ).
+        line2El.querySelector('.prets-loan-rate').addEventListener('input', (e) => {
+          loan.rate = parseFloat(e.target.value) || 0;
+        });
         line2El.querySelector('.prets-loan-debit-day').addEventListener('input', (e) => {
           // 1-31 borné à la main : `max="31"` seul n'empêche pas de taper 45
           // au clavier (contrairement aux flèches natives), et une valeur
@@ -2215,10 +2311,12 @@ function renderPretsLoansSection(key, mod) {
         }
       }
 
+      // Taux n'en fait plus partie (déplacé en ligne 2, voir renderLine2 —
+      // sa propre écoute y est posée séparément) — cette fonction ne
+      // synchronise plus que les 4 champs RÉELLEMENT dans l'en-tête.
       const syncHeader = () => {
         loan.name = box.querySelector('.prets-loan-name').value.trim();
         loan.amount = parseFloat(box.querySelector('.prets-loan-amount').value) || 0;
-        loan.rate = parseFloat(box.querySelector('.prets-loan-rate').value) || 0;
         loan.startDate = box.querySelector('.prets-loan-start').value;
         loan.endDate = box.querySelector('.prets-loan-end').value;
       };
@@ -2365,7 +2463,7 @@ async function initBackupsSection() {
 
   const openModal = async () => {
     overlay.classList.add('open');
-    await renderBackupsList();
+    await Promise.all([renderBackupsList(), renderDriveSection()]);
   };
   const closeModal = () => overlay.classList.remove('open');
 
@@ -2449,17 +2547,26 @@ async function renderBackupsList() {
     return;
   }
 
-  listEl.innerHTML = backups.map(b => `
-    <div class="backups-row" data-file="${b.file}">
-      <span class="backups-date">${new Date(b.mtimeMs).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+  // `data-date-label` (2026-08-31) porte le libellé de date SEUL, séparé du
+  // HTML affiché dans .backups-date (qui peut désormais aussi contenir
+  // l'étiquette "auto" — voir .backups-type-tag, config.html) : le message
+  // de confirmation ci-dessous doit rester juste la date, pas "…auto" collé
+  // au bout si on lisait .textContent directement.
+  listEl.innerHTML = backups.map(b => {
+    const dateLabel = new Date(b.mtimeMs).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+    const typeTag = b.type === 'change' ? '<span class="backups-type-tag">auto</span>' : '';
+    return `
+    <div class="backups-row" data-file="${b.file}" data-date-label="${dateLabel}">
+      <span class="backups-date">${dateLabel}${typeTag}</span>
       <button type="button" class="backups-restore-btn etf-add-line-btn">Restaurer</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   listEl.querySelectorAll('.backups-restore-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const row = btn.closest('.backups-row');
       const file = row.dataset.file;
-      const dateLabel = row.querySelector('.backups-date').textContent;
+      const dateLabel = row.dataset.dateLabel;
       if (!confirm(`Restaurer la sauvegarde du ${dateLabel} ?\n\nTOUTES les données actuelles (ETF, Crypto, Prêts, Podcasts, FDJ, réglages...) seront remplacées par celles de cette sauvegarde.`)) return;
 
       btn.disabled = true;
@@ -2474,6 +2581,64 @@ async function renderBackupsList() {
         console.error('[Config] Échec restauration', err);
       }
     });
+  });
+}
+
+// ─── Section "☁️ Google Drive" (2026-08-31, sur demande explicite, même
+// popup Sauvegardes) — interroge Drive EN DIRECT à chaque ouverture de la
+// popup (main.js driveSync:getInfo), affiche la dernière modification du
+// fichier distant, et propose une restauration FORCÉE (driveSync:
+// forceRestore) qui écrase le local avec le contenu de Drive SANS comparer
+// les horodatages — différent de la sync automatique de lancement, qui elle
+// ne restaure que si Drive est réellement plus récent.
+async function renderDriveSection() {
+  const el = document.getElementById('backupsDriveSection');
+  if (!el) return;
+  el.innerHTML = '<span class="backups-empty">Chargement…</span>';
+
+  let info;
+  try {
+    info = await window.matin.driveSync.getInfo();
+  } catch (err) {
+    el.innerHTML = '<span class="backups-empty">Statut Google Drive indisponible.</span>';
+    console.error('[Config] Échec chargement statut Drive', err);
+    return;
+  }
+
+  if (!info.connected) {
+    el.innerHTML = '<span class="backups-empty">Aucun compte Google connecté (Paramètres → Compte Google).</span>';
+    return;
+  }
+  if (info.error) {
+    el.innerHTML = `<span class="backups-empty">Drive indisponible : ${info.error}</span>`;
+    return;
+  }
+
+  const dateLabel = info.modifiedTime
+    ? new Date(info.modifiedTime).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
+
+  el.innerHTML = `
+    <div class="backups-row backups-drive-row">
+      <span class="backups-date">${dateLabel ? `Dernière modification sur Drive : ${dateLabel}` : 'Aucune sauvegarde sur Drive pour le moment'}</span>
+      <button type="button" class="backups-restore-btn etf-add-line-btn" id="btnDriveForceRestore" ${dateLabel ? '' : 'disabled'}>Restaurer depuis Drive</button>
+    </div>`;
+
+  document.getElementById('btnDriveForceRestore')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (!confirm('Restaurer depuis Google Drive ?\n\nTOUTES les données actuelles (ETF, Crypto, Prêts, Podcasts, FDJ, réglages...) seront remplacées par celles de Drive — même si votre version locale est plus récente.')) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Restauration…';
+    try {
+      await window.matin.driveSync.forceRestore();
+      window.location.reload();
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Restaurer depuis Drive';
+      alert(`Échec de la restauration Drive : ${err.message}`);
+      console.error('[Config] Échec restauration forcée Drive', err);
+    }
   });
 }
 
@@ -2511,6 +2676,7 @@ async function initPersonnaliserSection() {
     overlay.classList.add('open');
     await renderPersonnaliserOptions();
     await renderDisplayModeOptions();
+    await renderAutoScrollOptions();
   };
   const closeModal = () => overlay.classList.remove('open');
 
@@ -2589,6 +2755,48 @@ async function renderDisplayModeOptions() {
     edgeSelect.dataset.wired = '1';
     edgeSelect.addEventListener('change', () => {
       window.matin.displayMode.setSidebarEdge(edgeSelect.value);
+    });
+  }
+}
+
+// ─── Défilement automatique — même popup Personnaliser, section distincte
+// sous Mode d'affichage (2026-08-31, sur demande explicite). S'applique
+// instantanément (window.matin.autoScroll.set/setSpeed), comme le fond/mode
+// d'affichage ci-dessus — pas de bouton "Enregistrer" dédié. Le sélecteur de
+// vitesse n'apparaît que si le toggle est activé, même principe que
+// sidebarEdgeRow pour le mode d'affichage.
+async function renderAutoScrollOptions() {
+  const toggle = document.getElementById('autoScrollToggle');
+  const speedRow = document.getElementById('autoScrollSpeedRow');
+  const speedSelect = document.getElementById('autoScrollSpeedSelect');
+  if (!toggle || !speedRow || !speedSelect) return;
+
+  // `undefined` sur une installation existante (defaults ne comble pas un
+  // champ manquant dans un objet `app` déjà présent sur disque, même limite
+  // que background/displayMode ci-dessus) — traité comme désactivé/moyen,
+  // mêmes valeurs que le défaut réel (voir main.js).
+  const enabled = (await window.matin.store.get('app.autoScroll')) === true;
+  const speed = (await window.matin.store.get('app.autoScrollSpeed')) || 'medium';
+
+  toggle.checked = enabled;
+  speedSelect.value = speed;
+  speedRow.style.display = enabled ? 'flex' : 'none';
+
+  // Écouteurs posés une seule fois (dataset.wired) — renderAutoScrollOptions
+  // est appelée à CHAQUE ouverture de la popup (voir openModal ci-dessus),
+  // contrairement à un container re-généré via innerHTML, ces éléments
+  // statiques de config.html survivraient à un 2e addEventListener.
+  if (!toggle.dataset.wired) {
+    toggle.dataset.wired = '1';
+    toggle.addEventListener('change', () => {
+      window.matin.autoScroll.set(toggle.checked);
+      speedRow.style.display = toggle.checked ? 'flex' : 'none';
+    });
+  }
+  if (!speedSelect.dataset.wired) {
+    speedSelect.dataset.wired = '1';
+    speedSelect.addEventListener('change', () => {
+      window.matin.autoScroll.setSpeed(speedSelect.value);
     });
   }
 }

@@ -1,21 +1,28 @@
 /**
- * Module Suivi de prix Amazon (2026-08-30, sur demande explicite)
+ * Module Suivi de prix Marchand (2026-08-30, sur demande explicite ; renommé
+ * de "Amazon" à "Marchand" le 2026-08-31 — fonctionne avec n'importe quel
+ * site e-commerce, pas seulement Amazon)
  *
  * Le fetch/parsing du prix vit ENTIÈREMENT côté process main depuis le
  * 2026-08-31 (voir main.js, `priceTracking:fetchPrice`) — avant cette date,
  * ce module appelait directement `window.matin.rss.fetchFeed` (jina.ai
- * seul) ; suite au rapport "Amazon bloque le scraping, toujours
- * Indisponible", la cascade de repli (jina.ai → allorigins.win → fetch
- * direct → rainforestapi) a été centralisée côté main (seul endroit où
- * fetch direct et allorigins.win échappent à CORS, et où les en-têtes
- * "navigateur réel" personnalisés sont réellement appliqués). Ce fichier ne
- * fait plus que demander un prix et afficher le résultat.
+ * seul). Suite à 2 rapports successifs ("Amazon bloque le scraping" puis
+ * "échoue sur CDiscount et probablement d'autres sites"), la cascade
+ * couvre maintenant plusieurs PROXYS (jina.ai → allorigins.win →
+ * corsproxy.io → fetch direct → rainforestapi optionnelle) ET, pour chaque
+ * réponse obtenue, plusieurs MOTIFS d'extraction (JSON-LD/CDiscount →
+ * meta og:price → attributs/classes CSS → montant visible en dernier
+ * recours) — centralisée côté main (seul endroit où la plupart de ces
+ * proxys échappent à CORS, et où les en-têtes "navigateur réel"
+ * personnalisés sont réellement appliqués). Ce fichier ne fait plus que
+ * demander un prix et afficher le résultat.
  *
- * Dernier prix connu (2026-08-31, sur demande explicite, point 5) : si
- * TOUTES les méthodes échouent, affiche `lastKnownPrice` (persisté côté
- * main, jamais remis à null par un échec — voir priceTracking:reportPrices)
- * avec la mention "(non mis à jour)" plutôt que juste "Indisponible", tant
- * qu'un prix a déjà été obtenu au moins une fois par le passé.
+ * Dernier prix connu (2026-08-31, sur demande explicite) : si TOUTES les
+ * combinaisons proxy/motif échouent, affiche `lastKnownPrice` (persisté
+ * côté main, jamais remis à null par un échec — voir
+ * priceTracking:reportPrices) avec la mention "(non mis à jour)" plutôt que
+ * juste "Indisponible", tant qu'un prix a déjà été obtenu au moins une fois
+ * par le passé.
  *
  * La persistance du dernier prix connu + la décision de notifier (passage
  * sous le prix cible) vivent côté process main (voir main.js,
@@ -24,16 +31,14 @@
  * résultat, une seule source de vérité pour la comparaison "prix précédent"
  * plutôt que de la dupliquer ici.
  *
- * AVERTISSEMENT : non testé en conditions réelles (aucune URL Amazon.fr
- * disponible pendant le développement) — le motif d'extraction du prix
- * (voir main.js, PRICE_EURO_RE) est un best-effort volontairement générique
- * (premier montant en euros trouvé dans le texte, en pratique celui affiché
- * en tête de page produit avant tout prix barré "avant remise"), pas un
- * ciblage précis d'un sélecteur. À vérifier en priorité au premier usage
- * réel (voir CONTEXT.md) : si le prix affiché semble faux, ou si aucune des
- * 4 méthodes ne fonctionne, les logs `[Suivi de prix]` du process main
- * (terminal `npm run dev`) indiquent laquelle a été tentée et pourquoi elle
- * a échoué (point 6 de la demande).
+ * AVERTISSEMENT : seul Amazon.fr a pu être testé en conditions réelles
+ * jusqu'ici (succès confirmé via "fetch direct" + motif générique "XX,XX €",
+ * voir CONTEXT.md) — les motifs JSON-LD/meta/CSS/CDiscount ajoutés le
+ * 2026-08-31 sont des best-effort non encore vérifiés sur un vrai produit
+ * CDiscount. À vérifier en priorité au premier usage réel sur un autre site
+ * marchand : les logs `[Suivi de prix]` du process main (terminal
+ * `npm run dev`) indiquent quel PROXY et quel MOTIF ont réussi ou échoué
+ * pour chaque tentative (point 6 de la demande).
  */
 window.MatinModules = window.MatinModules || {};
 
@@ -66,7 +71,7 @@ function priceRowHtml(item) {
       <div class="price-tracking-value">
         ${below ? '<span class="price-tracking-alert-badge" title="Sous le prix cible">🔔</span>' : ''}
         <span class="price-tracking-trend price-tracking-trend-${trend.cls}">${trend.icon}</span>
-        <span class="price-tracking-price${item.price == null && item.lastKnownPrice != null ? ' price-tracking-price-stale' : ''}">${priceLabel}</span>
+        <span class="price-tracking-price${below ? ' price-tracking-price-alert' : (item.price == null && item.lastKnownPrice != null ? ' price-tracking-price-stale' : '')}">${priceLabel}</span>
       </div>
     </div>`;
 }
@@ -75,7 +80,7 @@ window.MatinModules.priceTracking = {
   async render(container, config, _google, setBadge) {
     const items = (config?.items || []).filter(i => i.url);
     if (!items.length) {
-      container.innerHTML = `<div class="module-empty">Ajoutez un produit Amazon.fr à suivre dans Paramètres.</div>`;
+      container.innerHTML = `<div class="module-empty">Ajoutez un produit Marchand à suivre dans Paramètres.</div>`;
       setBadge('—');
       return;
     }

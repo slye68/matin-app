@@ -2,8 +2,8 @@
  * Indices/matières premières suivis par le module Indices — partagé entre le
  * dashboard (indices.js, affichage) et la page Paramètres (config.js,
  * sélecteur d'indices à afficher), même convention que fdj-games.js/
- * parcels-carriers.js/reminders-categories.js : un seul fichier chargé via
- * <script> dans index.html ET config.html.
+ * reminders-categories.js : un seul fichier chargé via <script> dans
+ * index.html ET config.html.
  *
  * Noms affichés fixés en dur plutôt que le `shortName`/`longName` renvoyé par
  * Yahoo Finance : vérifié en direct le 2026-08-07 que ces champs sont parfois

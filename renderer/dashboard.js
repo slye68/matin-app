@@ -48,10 +48,9 @@ const MODULE_REGISTRY = {
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air',   icon: '🌡️', requiresGoogle: false, defaultSize: { w: 300, h: 200 }, refreshMs: 30 * 60 * 1000, theme: 'maison' },
   fuelPrices: { label: 'Carburants',    icon: '⛽', requiresGoogle: false, defaultSize: { w: 360, h: 320 }, refreshMs: 2 * 60 * 60 * 1000, theme: 'services' },
-  parcels:    { label: 'Colis',         icon: '📦', requiresGoogle: false, defaultSize: { w: 340, h: 300 }, refreshMs: 60 * 60 * 1000, theme: 'services' },
-  // Suivi de prix Amazon (2026-08-30, sur demande explicite) — pas de
+  // Suivi de prix Marchand (2026-08-30, sur demande explicite) — pas de
   // refreshMs ici : auto-refresh géré en interne (setInterval propre au
-  // module, voir price-tracking.js), même principe que Colis/Podcasts/ETF/
+  // module, voir price-tracking.js), même principe que Podcasts/ETF/
   // Crypto/Spotify (voir commentaire d'en-tête plus haut sur ce point).
   priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, defaultSize: { w: 340, h: 320 }, theme: 'services' },
   // Hauteur portée à 520px (depuis 320px) le 2026-08-15, sur demande
@@ -237,7 +236,9 @@ const MODULE_CLICK_URLS = {
   maps: 'https://maps.google.com',
   live: 'https://www.lequipe.fr/Football/',
   youtube: 'https://www.youtube.com/feed/subscriptions',
-  priceTracking: 'https://www.amazon.fr',
+  // priceTracking retiré (2026-08-31, sur demande explicite) — le titre de
+  // carte n'ouvre plus rien au clic. Chaque LIGNE de produit garde son propre
+  // clic vers SA page (voir renderer/modules/price-tracking.js), inchangé.
 };
 
 // `card` requis pour Sports : lu dynamiquement au moment du clic (pas figé à
@@ -1927,6 +1928,164 @@ function initPreciseScrolling() {
   }, { passive: false });
 }
 
+// ─── Défilement automatique (2026-08-31, sur demande explicite, "🎨
+// Personnaliser" → section "Défilement automatique") ───────────────────────
+// Défile `#dashboard` (voir style.css — seul élément réellement
+// `overflow-y: auto` de ce module, `#dashboardCanvas` n'est que son contenu
+// en flux normal) à vitesse constante, piloté par requestAnimationFrame
+// (delta de temps réel entre 2 frames, pas un setInterval à pas fixe) pour
+// rester fluide quel que soit le framerate réel de la fenêtre. `maxScroll`
+// est recalculé À CHAQUE frame (jamais mis en cache) : s'adapte tout seul si
+// l'utilisateur déplace/redimensionne des cartes pendant que ça défile déjà.
+const AUTO_SCROLL_SPEEDS_PX_PER_SEC = { slow: 1, medium: 2, fast: 4 };
+const AUTO_SCROLL_START_DELAY_MS = 3000; // point 3 de la demande — au LANCEMENT seulement, voir applyState
+const AUTO_SCROLL_RESUME_DELAY_MS = 2000; // point 5 de la demande
+const AUTO_SCROLL_LOOP_DURATION_MS = 600; // durée de l'animation "retour en haut" (point 6)
+
+function initAutoScroll() {
+  const dashboard = document.getElementById('dashboard');
+  if (!dashboard) return;
+
+  let enabled = false;
+  let speedKey = 'medium';
+  let rafId = null;
+  let lastFrameTime = null;
+  let paused = false;
+  let looping = false; // vrai pendant l'animation de retour en haut (voir scrollBackToTopSmoothly) — bloque le défilement normal, gère sa PROPRE boucle rAF indépendante de `rafId`
+  let resumeTimer = null;
+  let startTimer = null;
+
+  function speedPxPerSec() {
+    return AUTO_SCROLL_SPEEDS_PX_PER_SEC[speedKey] ?? AUTO_SCROLL_SPEEDS_PX_PER_SEC.medium;
+  }
+
+  function stopLoop() {
+    if (rafId != null) cancelAnimationFrame(rafId);
+    rafId = null;
+    lastFrameTime = null;
+  }
+
+  // Bas de page atteint (point 6) — anime `scrollTop` jusqu'à 0 sur
+  // AUTO_SCROLL_LOOP_DURATION_MS (ease-out quadratique), PUIS `onDone` reprend
+  // le défilement normal — SEULEMENT si toujours activé (`enabled` revérifié
+  // au moment de la reprise, pas juste au déclenchement) : évite qu'une
+  // désactivation survenue PENDANT cette animation de ~600ms ne relance quand
+  // même le défilement normal juste après coup.
+  function scrollBackToTopSmoothly(onDone) {
+    looping = true;
+    const start = dashboard.scrollTop;
+    const startTime = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - startTime) / AUTO_SCROLL_LOOP_DURATION_MS);
+      const eased = 1 - (1 - t) * (1 - t);
+      dashboard.scrollTop = start * (1 - eased);
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        looping = false;
+        onDone();
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function tick(now) {
+    if (looping) return; // l'animation de bouclage gère sa propre reprise via onDone, voir plus haut
+    if (paused) {
+      lastFrameTime = now;
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+    if (lastFrameTime == null) lastFrameTime = now;
+    const deltaSec = (now - lastFrameTime) / 1000;
+    lastFrameTime = now;
+
+    const maxScroll = dashboard.scrollHeight - dashboard.clientHeight;
+    if (maxScroll <= 0) {
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
+
+    dashboard.scrollTop += speedPxPerSec() * deltaSec;
+
+    if (dashboard.scrollTop >= maxScroll - 1) { // tolérance 1px pour l'arrondi flottant
+      scrollBackToTopSmoothly(() => {
+        lastFrameTime = null;
+        if (enabled) rafId = requestAnimationFrame(tick);
+      });
+      return; // ne PAS re-planifier tick ici — scrollBackToTopSmoothly (puis son onDone) prend le relais
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function startLoop() {
+    if (rafId != null || looping) return; // déjà en cours (défilement normal OU animation de bouclage)
+    lastFrameTime = null;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function scheduleStart() {
+    clearTimeout(startTimer);
+    startTimer = setTimeout(() => {
+      if (enabled) startLoop();
+    }, AUTO_SCROLL_START_DELAY_MS);
+  }
+
+  // Souris entre dans le dashboard → pause IMMÉDIATE (point 4) ; souris en
+  // sort → reprend après 2s (point 5), annulé si la souris revient avant
+  // l'échéance (clearTimeout). `mouseenter`/`mouseleave` (PAS `mouseover`/
+  // `mouseout`, qui bullent entre les cartes enfants) : ne se déclenchent
+  // QUE sur l'entrée/sortie réelle de `#dashboard` lui-même.
+  dashboard.addEventListener('mouseenter', () => {
+    paused = true;
+    clearTimeout(resumeTimer);
+  });
+  dashboard.addEventListener('mouseleave', () => {
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => { paused = false; }, AUTO_SCROLL_RESUME_DELAY_MS);
+  });
+
+  // Reçoit l'état à jour à chaque changement depuis Paramètres (popup
+  // Personnaliser, fenêtre DISTINCTE de celle-ci — voir main.js
+  // app:setAutoScroll/app:setAutoScrollSpeed). Activé en direct (pas au
+  // lancement) : démarre TOUT DE SUITE, sans le délai de 3s (ce délai ne
+  // s'applique qu'au lancement de l'app, point 3 de la demande — pas à
+  // chaque réactivation manuelle ultérieure, qui doit réagir immédiatement).
+  function applyState(data) {
+    const wasEnabled = enabled;
+    enabled = data.autoScroll === true;
+    speedKey = data.autoScrollSpeed || 'medium';
+
+    if (enabled && !wasEnabled) {
+      clearTimeout(startTimer);
+      startLoop();
+    } else if (!enabled && wasEnabled) {
+      stopLoop();
+      clearTimeout(startTimer);
+      clearTimeout(resumeTimer);
+      paused = false;
+    }
+    // Vitesse changée seule (enabled inchangé) : rien de spécial à faire,
+    // `speedPxPerSec()` relit `speedKey` à chaque frame de `tick`.
+  }
+
+  window.matin.autoScroll.onUpdated(applyState);
+
+  // État initial au lancement — lu une seule fois, PUIS le délai de 3s
+  // démarre (point 3). `undefined` sur une installation existante (defaults
+  // ne comble pas un champ manquant dans un objet `app` déjà présent sur
+  // disque, même limite que background/displayMode ailleurs dans ce fichier)
+  // traité comme désactivé/moyen, mêmes valeurs que le défaut réel.
+  Promise.all([
+    window.matin.store.get('app.autoScroll'),
+    window.matin.store.get('app.autoScrollSpeed'),
+  ]).then(([autoScrollValue, speedValue]) => {
+    enabled = autoScrollValue === true;
+    speedKey = speedValue || 'medium';
+    if (enabled) scheduleStart();
+  }).catch(err => console.error('[Matin] Échec lecture préférence défilement automatique', err));
+}
+
 // ─── Sync Google Drive — indicateur titlebar (2026-08-21, voir main.js
 // performDriveLaunchSync/scheduleDriveUploadAfterChange) ───────────────────
 // Purement cosmétique : la synchronisation elle-même tourne entièrement côté
@@ -2018,6 +2177,7 @@ async function initDashboard() {
   initAlertsBanner();
   initMissingDataWarning();
   initPreciseScrolling();
+  initAutoScroll();
 
   // Restauration automatique au lancement (voir main.js
   // autoRestoreUserdataIfEmpty, 2026-08-10) — une notification native a déjà
@@ -2210,6 +2370,7 @@ async function initDashboard() {
   const autoArrangeConfirmOverlay = document.getElementById('autoArrangeConfirmOverlay');
   document.getElementById('btnAutoArrange')?.addEventListener('click', () => {
     autoArrangeConfirmOverlay?.classList.add('open');
+    loadLayoutSlotsCache(); // rafraîchit dates/état des boutons Charger à chaque ouverture
   });
   document.getElementById('autoArrangeConfirmCancel')?.addEventListener('click', () => {
     autoArrangeConfirmOverlay?.classList.remove('open');
@@ -2228,6 +2389,139 @@ async function initDashboard() {
     lastAutoArrangeSnapshot = null;
     const notice = document.getElementById('autoArrangeNotice');
     if (notice) { notice.classList.remove('show'); clearTimeout(notice._hideTimer); }
+  });
+
+  // ─── Emplacements de disposition sauvegardés ("💾 Sauvegarder disposition
+  // 1/2" / "📂 Charger disposition 1/2", 2026-08-31 sur demande explicite) —
+  // 2 emplacements fixes, stockés dans matin-userdata (voir main.js
+  // layoutSlots:get/save, synchronisé automatiquement via Drive comme le
+  // reste de userdata). `layoutSlotsCache` reflète le dernier layoutSlots:get
+  // connu, rafraîchi à chaque ouverture de la popup "⊞ Réorganiser" (voir
+  // btnAutoArrange ci-dessus) pour peupler dates/état des boutons Charger.
+  let layoutSlotsCache = {};
+
+  function formatLayoutSlotDate(iso) {
+    return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  }
+
+  function refreshLayoutSlotsUI() {
+    for (const slot of [1, 2]) {
+      const entry = layoutSlotsCache[slot];
+      const label = document.getElementById(`layoutSlot${slot}Label`);
+      const loadBtn = document.getElementById(`layoutSlotLoad${slot}`);
+      if (label) {
+        label.textContent = entry
+          ? `Disposition ${slot} — sauvegardée le ${formatLayoutSlotDate(entry.savedAt)}`
+          : `Disposition ${slot} — non sauvegardée`;
+      }
+      if (loadBtn) loadBtn.disabled = !entry;
+    }
+  }
+
+  async function loadLayoutSlotsCache() {
+    try {
+      layoutSlotsCache = await window.matin.layoutSlots.get();
+    } catch (err) {
+      console.error('[Matin] Échec lecture des emplacements de disposition', err);
+      layoutSlotsCache = {};
+    }
+    refreshLayoutSlotsUI();
+  }
+
+  // Même format que la disposition persistée normalement (voir persistLayout/
+  // performAutoArrange plus haut) — {x,y,width,height,z} par clé de module,
+  // lu directement depuis les cartes affichées (jamais depuis modulesConf,
+  // qui peut encore porter le layout d'un module désactivé depuis retiré du
+  // DOM).
+  function snapshotCurrentLayout(cards) {
+    const layout = {};
+    for (const card of cards) {
+      const key = card.id.replace('module-', '');
+      layout[key] = {
+        x: parseFloat(card.dataset.x) || 0,
+        y: parseFloat(card.dataset.y) || 0,
+        width: card.offsetWidth,
+        height: card.offsetHeight,
+        z: parseInt(card.style.zIndex, 10) || 10,
+      };
+    }
+    return layout;
+  }
+
+  async function saveLayoutSlot(slot) {
+    const cards = Array.from(canvas.querySelectorAll('.module-card'));
+    if (!cards.length) return;
+    try {
+      layoutSlotsCache[slot] = await window.matin.layoutSlots.save(slot, snapshotCurrentLayout(cards));
+      refreshLayoutSlotsUI();
+    } catch (err) {
+      console.error('[Matin] Échec sauvegarde de la disposition', err);
+    }
+  }
+
+  // Réutilise applyAutoArrangeLayouts (transition + persistance) — même
+  // mécanique qu'un tirage aléatoire, seule la source des layouts change.
+  // Alimente lastAutoArrangeSnapshot AVANT d'appliquer pour que "Annuler"
+  // dans la notice qui suit restaure l'état juste précédent, comme après un
+  // tirage aléatoire.
+  function loadLayoutSlot(slot) {
+    const entry = layoutSlotsCache[slot];
+    if (!entry) return;
+    const cards = Array.from(canvas.querySelectorAll('.module-card'));
+    if (!cards.length) return;
+    lastAutoArrangeSnapshot = snapshotCurrentLayout(cards);
+    applyAutoArrangeLayouts(cards, entry.layout);
+
+    const notice = document.getElementById('autoArrangeNotice');
+    if (notice) {
+      const text = document.getElementById('autoArrangeNoticeText');
+      if (text) text.textContent = `✓ Disposition ${slot} restaurée`;
+      notice.classList.add('show');
+      clearTimeout(notice._hideTimer);
+      notice._hideTimer = setTimeout(() => notice.classList.remove('show'), 2000);
+    }
+  }
+
+  const layoutSlotOverwriteOverlay = document.getElementById('layoutSlotOverwriteOverlay');
+  let pendingLayoutSlotSave = null; // emplacement en attente de confirmation d'écrasement
+
+  function requestSaveLayoutSlot(slot) {
+    const entry = layoutSlotsCache[slot];
+    if (!entry) { saveLayoutSlot(slot); return; } // emplacement vide — aucune confirmation nécessaire
+    pendingLayoutSlotSave = slot;
+    const text = document.getElementById('layoutSlotOverwriteText');
+    if (text) text.textContent = `Écraser la disposition ${slot} ? Cette action remplacera la disposition sauvegardée le ${formatLayoutSlotDate(entry.savedAt)}.`;
+    layoutSlotOverwriteOverlay?.classList.add('open');
+  }
+
+  document.getElementById('layoutSlotSave1')?.addEventListener('click', () => requestSaveLayoutSlot(1));
+  document.getElementById('layoutSlotSave2')?.addEventListener('click', () => requestSaveLayoutSlot(2));
+  // "Charger" ferme la popup (comme "Oui, réorganiser") pour laisser voir
+  // tout de suite le résultat sur le dashboard, plutôt que de le masquer
+  // derrière l'overlay.
+  document.getElementById('layoutSlotLoad1')?.addEventListener('click', () => {
+    autoArrangeConfirmOverlay?.classList.remove('open');
+    loadLayoutSlot(1);
+  });
+  document.getElementById('layoutSlotLoad2')?.addEventListener('click', () => {
+    autoArrangeConfirmOverlay?.classList.remove('open');
+    loadLayoutSlot(2);
+  });
+
+  document.getElementById('layoutSlotOverwriteCancel')?.addEventListener('click', () => {
+    pendingLayoutSlotSave = null;
+    layoutSlotOverwriteOverlay?.classList.remove('open');
+  });
+  layoutSlotOverwriteOverlay?.addEventListener('click', (e) => {
+    if (e.target === layoutSlotOverwriteOverlay) {
+      pendingLayoutSlotSave = null;
+      layoutSlotOverwriteOverlay.classList.remove('open');
+    }
+  });
+  document.getElementById('layoutSlotOverwriteConfirm')?.addEventListener('click', () => {
+    layoutSlotOverwriteOverlay?.classList.remove('open');
+    if (pendingLayoutSlotSave != null) saveLayoutSlot(pendingLayoutSlotSave);
+    pendingLayoutSlotSave = null;
   });
 
   // Bouton config

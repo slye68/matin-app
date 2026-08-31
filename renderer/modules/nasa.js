@@ -48,12 +48,36 @@ function nasaFormatDate(dateStr) {
   return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+// Logging détaillé (2026-08-31, sur demande explicite, suite au rapport
+// "les images ont arrêté de s'afficher, ça marchait ce matin") — diagnostic
+// réel confirmé HORS de l'app (fetch brut vers l'endpoint réel) : DEMO_KEY
+// n'est PAS invalide, elle est RATE-LIMITÉE (429, `x-ratelimit-remaining: 0`,
+// `retry-after` ≈ 11-12h) — quota PARTAGÉ MONDIALEMENT entre tous les usages
+// de DEMO_KEY, pas spécifique à cette app ni à cet utilisateur (voir
+// commentaire d'en-tête de ce fichier). Le corps de la réponse ET les
+// en-têtes `x-ratelimit-*` sont maintenant loggués pour rendre ce diagnostic
+// immédiat depuis la console de l'app plutôt que de devoir tester l'endpoint
+// à la main comme fait ici.
 async function nasaFetchApodOnce(apiKey, extraParams = '') {
   const res = await fetch(`${NASA_APOD_URL}?api_key=${encodeURIComponent(apiKey)}${extraParams}`);
-  if (res.status === 403) throw new Error('Clé API NASA invalide');
-  if (res.status === 429) throw new Error('Limite de requêtes NASA atteinte (réessaie plus tard)');
-  if (!res.ok) throw new Error(`NASA APOD indisponible (${res.status})`);
-  return res.json();
+  const rawText = await res.text();
+  console.log(`[NASA] Réponse brute API (HTTP ${res.status}) :`, rawText.slice(0, 500));
+
+  const fail = (message) => { const err = new Error(message); err.status = res.status; throw err; };
+
+  if (res.status === 429) {
+    console.warn(
+      '[NASA] Limite de requêtes DEMO_KEY atteinte — quota PARTAGÉ mondialement (pas spécifique à cette app) :',
+      `x-ratelimit-limit=${res.headers.get('x-ratelimit-limit')}`,
+      `x-ratelimit-remaining=${res.headers.get('x-ratelimit-remaining')}`,
+      `retry-after=${res.headers.get('retry-after')}s`,
+    );
+    fail('Limite de requêtes NASA atteinte (réessaie plus tard)');
+  }
+  if (res.status === 503) fail('NASA APOD temporairement indisponible (503, panne serveur NASA)');
+  if (res.status === 403) fail('Clé API NASA invalide');
+  if (!res.ok) fail(`NASA APOD indisponible (${res.status})`);
+  return JSON.parse(rawText);
 }
 
 // 2e essai avec `&thumbs=true` demandé explicitement en repli si le 1er
@@ -217,6 +241,16 @@ function nasaRenderFallback(container, onRetry) {
   container.querySelector('.nasa-retry-btn').addEventListener('click', onRetry);
 }
 
+// "AAAA-MM-JJ" en heure LOCALE — même format que `data.date` renvoyé par
+// l'API NASA (voir nasaApodPageUrl) et déjà stocké tel quel dans
+// `nasa.cache.date` depuis la mise en cache du 2026-08-10 : comparer les 2
+// chaînes directement suffit, aucune conversion de fuseau nécessaire.
+function nasaTodayDateStr() {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
 window.MatinModules.nasa = {
   async render(container, _config, _google, setBadge) {
     const apiKey = NASA_DEMO_KEY;
@@ -266,6 +300,10 @@ window.MatinModules.nasa = {
         // jamais réussi une seule fois) → message dédié avec bouton Réessayer
         // (voir nasaRenderFallback) plutôt qu'une carte vide.
         const cached = await window.matin.store.get('nasa.cache').catch(() => null);
+        // Format exact demandé (2026-08-31, point 6) — `err.status` posé par
+        // nasaFetchApodOnce (absent pour une erreur réseau pure, ex. hors
+        // ligne, d'où le repli "réseau/inconnu").
+        console.log(`[NASA] Status: ${err.status ?? 'réseau/inconnu'}, using cache: ${!!cached}`);
         if (cached) {
           nasaRenderModule(container, cached, { stale: true, onRetry: () => loadAndRender().catch(e => console.error('[NASA] Échec du nouvel essai manuel', e)) });
         } else {
@@ -280,6 +318,26 @@ window.MatinModules.nasa = {
     }
 
     container.innerHTML = `<div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>`;
+
+    // Cache par date (2026-08-31, sur demande explicite, suite au rapport
+    // "un appel API à chaque lancement au lieu d'utiliser le cache") : si le
+    // cache correspond DÉJÀ à AUJOURD'HUI, l'affiche directement SANS appeler
+    // l'API — au plus 1 appel API par jour, quel que soit le nombre de
+    // relances de l'app (ou de rafraîchissements planifiés, voir
+    // dashboard.js MODULE_REGISTRY, 24h) dans la même journée. Un clic
+    // manuel sur "Réessayer" (voir nasaRenderModule/nasaRenderFallback)
+    // appelle `loadAndRender()` DIRECTEMENT, sans repasser par ce
+    // court-circuit — une demande explicite de nouvel essai ne doit jamais
+    // être bloquée par "on a déjà les données du jour", en particulier
+    // quand ce qui est affiché est justement la bannière "indisponible".
+    const cachedToday = await window.matin.store.get('nasa.cache').catch(() => null);
+    if (cachedToday?.date === nasaTodayDateStr()) {
+      console.log(`[NASA] Cache déjà à jour pour aujourd'hui (${cachedToday.date}) — aucun appel API`);
+      nasaRenderModule(container, cachedToday);
+      setBadge(new Date(`${cachedToday.date}T00:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }));
+      return;
+    }
+
     await loadAndRender();
   },
 };

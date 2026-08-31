@@ -11,6 +11,9 @@
  *    un seul nom, et gère nativement les championnats sans couverture ESPN
  *    comme National). Le dropdown "Mon championnat" sert uniquement à
  *    départager plusieurs clubs homonymes dans les résultats de recherche.
+ *    Repli ESPN (2026-08-31, sur demande explicite, voir liveFetchClub) si
+ *    TheSportsDB ne renvoie rien d'exploitable pour ce club (équipe
+ *    introuvable, ou calendrier vide/périmé pour cette équipe précise).
  *  - 'league' ("Tout le championnat") — scoreboard ESPN complet du
  *    championnat sélectionné (8 des 10 entrées du dropdown ont un endpoint
  *    ESPN vérifié en direct ; National/Autre n'en ont pas — repli
@@ -287,6 +290,151 @@ async function liveFetchClubTsdb(clubName, champLabel) {
   return { matches: upcoming.slice(0, 1), isNext: true };
 }
 
+// ─── ESPN (mode club, repli si TheSportsDB ne renvoie rien d'exploitable) ──
+// Ajouté le 2026-08-31 (sur demande explicite — même symptôme que Sports/
+// ol.js signalé pour Olympique Lyonnais : "Aucun match prévu" malgré un club
+// bien réel) : `liveFetchClubTsdb` ci-dessus dépendait ENTIÈREMENT de
+// TheSportsDB en mode club, sans aucun repli — si son calendrier est vide ou
+// périmé pour cette équipe (déjà documenté comme un risque connu côté
+// Sports/ol.js), rien ne prenait le relais ici. Mêmes 2 championnats que
+// Sports/ol.js (fra.1 + Ligue des Champions — OL joue les deux), même besoin
+// de passer par le proxy process main (`rss:fetchFeed`) puisque ESPN ne pose
+// aucun en-tête CORS.
+const LIVE_ESPN_SOCCER_LEAGUES = ['fra.1', 'uefa.champions'];
+const LIVE_ESPN_LEAGUE_LABEL = { 'fra.1': 'Ligue 1', 'uefa.champions': 'Ligue des Champions' };
+
+async function liveEspnFindTeam(clubName) {
+  const needle = (clubName || '').trim().toLowerCase();
+  if (!needle) return null;
+  for (const slug of LIVE_ESPN_SOCCER_LEAGUES) {
+    try {
+      const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams`);
+      const data = JSON.parse(raw);
+      console.log(`[Live] ESPN liste équipes (${slug}) →`, data);
+      const teams = data.sports?.[0]?.leagues?.[0]?.teams || [];
+      const found = teams.find(t => {
+        const name = (t.team.displayName || '').toLowerCase();
+        return name.includes(needle) || needle.includes(name);
+      });
+      if (found) {
+        console.log(`[Live] Équipe trouvée sur ESPN (${slug}) : teamId=${found.team.id} (${found.team.displayName})`);
+        return { espnId: found.team.id, slug };
+      }
+    } catch (err) {
+      console.warn(`[Live] ESPN liste équipes (${slug}) indisponible`, err);
+    }
+  }
+  return null;
+}
+
+// Même forme normalisée que liveNormalizeEspnEvent (mode championnat) —
+// distincte quand même (pas de réutilisation directe) : celle-ci n'a pas
+// accès à `champ.label`/`champ.espn` (pas de championnat sélectionné en mode
+// club) et ne construit jamais d'URL L'Équipe (`matchUrl: null`, comme le
+// mode club TheSportsDB déjà en place — voir liveNormalizeTsdbEvent).
+function liveEspnEventToMatch(event, slug) {
+  const competition = event.competitions?.[0];
+  if (!competition) return null;
+  const competitors = competition.competitors || [];
+  const home = competitors.find(c => c.homeAway === 'home') || competitors[0];
+  const away = competitors.find(c => c.homeAway === 'away') || competitors[1];
+  if (!home || !away) return null;
+  const statusType = competition.status?.type || event.status?.type || {};
+  return {
+    id: `espn-${competition.id || event.id}`,
+    league: LIVE_ESPN_LEAGUE_LABEL[slug] || '',
+    date: new Date(event.date),
+    state: statusType.state || 'pre',
+    detail: statusType.shortDetail || statusType.detail || '',
+    homeName: home.team?.shortDisplayName || home.team?.displayName || '?',
+    homeScore: home.score ?? null,
+    homeLogo: home.team?.logo || null,
+    awayName: away.team?.shortDisplayName || away.team?.displayName || '?',
+    awayScore: away.score ?? null,
+    awayLogo: away.team?.logo || null,
+    matchUrl: null,
+    needsUrlCheck: false,
+  };
+}
+
+// Log EXACT demandé le 2026-08-31 (même format que Sports/ol.js, préfixe
+// `[Live]` au lieu de `[Sports]`) — permet de voir d'un coup d'œil si le
+// problème est la RÉSOLUTION d'équipe (`Team ID trouvé: aucun`) ou le
+// CALENDRIER une fois l'équipe trouvée.
+//
+// `?fixture=true` sur le 2e appel : BUG RÉEL vérifié en direct contre la
+// vraie API ESPN (voir le commentaire équivalent dans ol.js/fetchEspnSchedule
+// pour le détail complet) — `.../schedule` SANS ce paramètre ne renvoie
+// qu'une petite fenêtre de matchs RÉCEMMENT joués, jamais les matchs à venir,
+// quel que soit le club. Sans lui, ce repli ESPN n'aurait jamais pu trouver
+// le moindre "prochain match", rendant tout l'effort de repli inutile pour
+// le cas exact qu'il est censé couvrir.
+async function liveFetchClubEspn(clubName) {
+  const found = await liveEspnFindTeam(clubName);
+  if (!found) {
+    console.log('[Live] Team ID trouvé: aucun, prochains matchs: 0, derniers résultats: 0');
+    return { matches: [], isNext: false };
+  }
+  const { espnId, slug } = found;
+  const baseUrl = `http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${espnId}/schedule`;
+
+  try {
+    const [rawPast, rawFuture] = await Promise.all([
+      window.matin.rss.fetchFeed(baseUrl),
+      window.matin.rss.fetchFeed(`${baseUrl}?fixture=true`),
+    ]);
+    const pastData = JSON.parse(rawPast);
+    const futureData = JSON.parse(rawFuture);
+    console.log(`[Live] ESPN schedule brut — résultats récents (teamId=${espnId}, ${slug}) →`, pastData);
+    console.log(`[Live] ESPN schedule brut — prochains matchs (teamId=${espnId}, ${slug}, ?fixture=true) →`, futureData);
+
+    const completedEvents = (pastData.events || []).filter(e => e.competitions?.[0]?.status?.type?.completed);
+    const upcomingEvents = (futureData.events || []).filter(e => !e.competitions?.[0]?.status?.type?.completed);
+    console.log(`[Live] Team ID trouvé: ${espnId}, prochains matchs: ${upcomingEvents.length}, derniers résultats: ${completedEvents.length}`);
+
+    const upcoming = upcomingEvents.map(e => liveEspnEventToMatch(e, slug)).filter(Boolean).sort((a, b) => a.date - b.date);
+    const completed = completedEvents.map(e => liveEspnEventToMatch(e, slug)).filter(Boolean).sort((a, b) => b.date - a.date);
+
+    const today = [...upcoming, ...completed].filter(m => liveIsToday(m.date));
+    if (today.length) return { matches: today, isNext: false };
+
+    const now = Date.now();
+    const future = upcoming.filter(m => m.date.getTime() >= now);
+    if (future.length) return { matches: future.slice(0, 1), isNext: true };
+
+    return { matches: [], isNext: false };
+  } catch (err) {
+    console.warn(`[Live] ESPN schedule (teamId=${espnId}, ${slug}) indisponible`, err);
+    return { matches: [], isNext: false };
+  }
+}
+
+// Point d'entrée mode club : TheSportsDB d'abord (déjà en place, généralement
+// suffisant), repli ESPN SEULEMENT si TheSportsDB ne renvoie aucun match
+// exploitable — QUE l'équipe y ait été introuvable, ou trouvée mais avec un
+// calendrier vide/périmé pour cette équipe précise (les 2 cas laissent
+// `matches` vide). "Club introuvable" (message dédié, voir liveRenderModule)
+// n'est renvoyé QUE si TheSportsDB n'a même pas trouvé l'équipe ET qu'ESPN
+// n'a rien donné non plus — un club bien réel mais sans calendrier nulle part
+// affiche "Aucun match prévu" (message générique), jamais "introuvable" qui
+// suggérerait une faute de frappe alors qu'il n'y en a pas.
+async function liveFetchClub(clubName, champLabel) {
+  let tsdb;
+  try {
+    tsdb = await liveFetchClubTsdb(clubName, champLabel);
+  } catch (err) {
+    console.warn('[Live] TheSportsDB indisponible, repli ESPN', err);
+    tsdb = { matches: [], isNext: false, notFound: false };
+  }
+  if (tsdb.matches.length) return tsdb;
+
+  console.log('[Live] TheSportsDB sans match exploitable — tentative de repli ESPN');
+  const espnResult = await liveFetchClubEspn(clubName).catch(err => { console.warn('[Live] Repli ESPN a échoué', err); return { matches: [], isNext: false }; });
+  if (espnResult.matches.length) return espnResult;
+
+  return tsdb.notFound ? tsdb : { matches: [], isNext: false };
+}
+
 // Repli National (mode championnat, pas de slug ESPN) — filtre le flux du
 // jour toutes ligues confondues par nom de championnat approximatif ; se
 // dégrade proprement en liste vide (→ "aucun match") si rien ne correspond,
@@ -409,7 +557,7 @@ window.MatinModules.live = {
       try {
         const champLabel = liveChampionship(championshipKey).label;
         const result = mode === 'club'
-          ? await liveFetchClubTsdb(club, champLabel)
+          ? await liveFetchClub(club, champLabel)
           : await liveFetchLeague(championshipKey);
 
         liveRenderModule(container, result, { club, championshipKey });

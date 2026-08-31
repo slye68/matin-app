@@ -77,9 +77,10 @@ const CINEMA_NEWS_VISIBLE = 4;
 const CINEMA_TICKER_SEC_PER_ITEM = 12;
 const CINEMA_TICKER_MIN_SEC = 48;
 
-// Diaporama "sorties à venir" — un film affiché 6s pile, puis glissement
-// rapide (~300ms) vers le suivant, demandé explicitement en 2 temps distincts.
-const CINEMA_SLIDESHOW_DISPLAY_MS = 6000;
+// Diaporama "sorties à venir" — un film affiché 10s pile (6s à l'origine,
+// allongé le 2026-08-31 sur demande explicite), puis glissement rapide
+// (~300ms) vers le suivant, demandé explicitement en 2 temps distincts.
+const CINEMA_SLIDESHOW_DISPLAY_MS = 10000;
 const CINEMA_SLIDESHOW_TRANSITION_MS = 300;
 
 const CINEMA_MONTHS_FR = {

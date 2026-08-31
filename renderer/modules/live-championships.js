@@ -2,8 +2,8 @@
  * Championnats proposés par le module LIVE! — partagé entre le dashboard
  * (live.js, résolution du endpoint ESPN + repli) et Paramètres (config.js,
  * peuplement du <select> "Mon championnat"), même convention que
- * indices-defs.js/fdj-games.js/parcels-carriers.js : un seul fichier chargé
- * via <script> dans index.html ET config.html.
+ * indices-defs.js/fdj-games.js : un seul fichier chargé via <script> dans
+ * index.html ET config.html.
  *
  * 8 des 10 entrées ont un endpoint ESPN "site API" vérifié en direct (curl,
  * voir CONTEXT.md) — National et Autre n'en ont pas : National, faute de

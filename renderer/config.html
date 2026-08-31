@@ -211,6 +211,52 @@
     }
     .module-row-icon { font-size: 18px; }
     .module-row-name { flex: 1; font-size: 13px; font-weight: 500; }
+    /* Bouton ℹ️ "Sites compatibles" — module Suivi de prix uniquement
+       (2026-08-31, sur demande explicite). Nu (pas de fond/bordure), taille
+       proche du texte du titre pour rester discret à côté du libellé.
+       `margin-left`/`color` ajustés le 2026-08-31 (2e demande, même jour) —
+       `color` n'a d'effet que si la police système rend ℹ️ en style TEXTE
+       (glyphe monochrome héritant de `currentColor`) plutôt qu'en style
+       ÉMOJI (glyphe couleur fixe, ignore `color`) ; les 2 rendus existent
+       selon la plateforme, sans garantie universelle depuis du CSS seul. */
+    .price-tracking-info-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+      margin-left: 8px;
+      vertical-align: middle;
+      opacity: 0.8;
+      color: #4f8ef7;
+    }
+    .price-tracking-info-btn:hover { opacity: 1; }
+    /* Popover "Sites compatibles" (position: fixed, coordonnées posées en JS
+       — voir showPriceTrackingInfoPopup dans config.js) : fond sombre,
+       coins arrondis, ombre portée pour se détacher du reste de la fenêtre. */
+    .price-tracking-info-popup {
+      position: fixed;
+      z-index: 300;
+      width: 260px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+    .price-tracking-info-title { font-weight: 600; margin-bottom: 8px; }
+    .price-tracking-info-sites {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+      margin-bottom: 10px;
+    }
+    .price-tracking-info-warning { color: var(--text-secondary); line-height: 1.4; }
+    /* Amazon signalé non compatible (2026-08-31, sur demande explicite) —
+       rouge vif pour bien le distinguer des ✅ verts par défaut du texte. */
+    .price-tracking-info-incompatible { color: #ef4444; }
     .module-row-requires {
       font-size: 10px;
       color: var(--text-muted);
@@ -454,6 +500,35 @@
     .monequipe-upcoming-row .row-delete-btn,
     .monequipe-results-row .row-delete-btn { width: 20px; height: 20px; font-size: 12px; }
 
+    /* Score sous chaque match à venir (2026-08-31, sur demande explicite) —
+       voir renderMonEquipeConfigSection (config.js) : un groupe = la ligne
+       de match existante + cette petite ligne de score juste en dessous,
+       remplie une fois le match joué pour déplacer AUTOMATIQUEMENT
+       l'entrée vers "Derniers résultats" (voir le listener 'change' sur
+       .monequipe-upcoming-score-input). `gap:4px` (au lieu des 6px entre
+       matchs de .monequipe-upcoming-list) : rapproche visuellement la ligne
+       de score de SON match, pas du suivant. */
+    .monequipe-upcoming-group { display: flex; flex-direction: column; gap: 4px; }
+    .monequipe-upcoming-score-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 24px 0 4px;
+    }
+    .monequipe-upcoming-score-row label { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+    .monequipe-upcoming-score-input {
+      width: 110px;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 5px 7px;
+      font-size: 11px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .monequipe-upcoming-score-input:focus { outline: none; border-color: var(--accent); }
+    .monequipe-upcoming-score-hint { font-size: 10px; color: var(--text-muted); font-style: italic; }
+
     /* Profil */
     .profile-field {
       display: flex;
@@ -519,6 +594,12 @@
 
     /* Sauvegardes (2026-08-10) */
     .backups-list { display: flex; flex-direction: column; gap: 6px; }
+    /* Section Drive (2026-08-31) — même structure de ligne que .backups-row
+       (réutilisée telle quelle par config.js), juste son propre conteneur
+       pour rester une section visuellement distincte de la liste locale
+       ci-dessus. */
+    .backups-drive-section { display: flex; flex-direction: column; gap: 6px; }
+    .backups-drive-row { flex-wrap: wrap; }
     .backups-row {
       display: flex;
       align-items: center;
@@ -531,6 +612,22 @@
     }
     .backups-date { font-size: 12px; color: var(--text-primary); }
     .backups-empty { font-size: 12px; color: var(--text-muted); }
+    /* Étiquette "auto" (2026-08-31) — distingue dans la liste fusionnée les
+       instantanés par CHANGEMENT (voir scheduleUserdataBackup, main.js) des
+       instantanés par LANCEMENT (sans étiquette, comportement historique) :
+       sans ce repère, la liste passerait soudain de quelques entrées à
+       potentiellement 6, sans que l'utilisateur comprenne pourquoi. */
+    .backups-type-tag {
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: var(--bg-panel-alt);
+      border-radius: 99px;
+      padding: 1px 6px;
+      margin-left: 6px;
+    }
 
     /* Popup Sauvegardes (2026-08-10) — overlay plein écran, masqué par défaut
        (display:none), .open l'affiche (voir config.js openBackupsModal). */
@@ -723,6 +820,36 @@
       font-family: var(--font-ui);
     }
     .display-mode-edge-row select:focus { outline: none; border-color: var(--accent); }
+
+    /* Défilement automatique (2026-08-31, sur demande explicite) —
+       .autoscroll-speed-row réutilise EXACTEMENT le style de
+       .display-mode-edge-row ci-dessus (même besoin : un <select> qui
+       n'apparaît que si une option précédente est activée). */
+    .autoscroll-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 2px;
+    }
+    .autoscroll-speed-row {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 0 2px;
+    }
+    .autoscroll-speed-row label { font-size: 11px; color: var(--text-secondary); }
+    .autoscroll-speed-row select {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .autoscroll-speed-row select:focus { outline: none; border-color: var(--accent); }
 
     /* Miniatures — mêmes recettes CSS que les vrais fonds (voir style.css
        .app-background-layer.bg-*), condensées ici en statique/petit format
@@ -1147,7 +1274,17 @@
   <div class="backups-modal-overlay" id="backupsModalOverlay">
     <div class="backups-modal">
       <div class="backups-modal-title">💾 Sauvegardes</div>
+
+      <!-- 2 sections distinctes (2026-08-31, sur demande explicite) — locale
+           (voir config.js renderBackupsList, main.js backups:list) et Google
+           Drive (renderDriveSection, main.js driveSync:getInfo/
+           driveSync:forceRestore) : avant cette date, seule la liste locale
+           existait ici, sans distinction visuelle des 2 mécanismes. -->
+      <div class="config-section-title">💾 Sauvegardes locales</div>
       <div class="backups-list" id="backupsList"></div>
+
+      <div class="config-section-title">☁️ Google Drive</div>
+      <div class="backups-drive-section" id="backupsDriveSection"></div>
 
       <!-- Export/Import manuel (2026-08-30, sur demande explicite, suite à
            l'incident de perte de données ETF/Crypto/Prêts) — voir config.js
@@ -1189,6 +1326,29 @@
         </select>
       </div>
 
+      <!-- Défilement automatique (2026-08-31, sur demande explicite) —
+           s'applique instantanément comme le fond/mode d'affichage ci-dessus
+           (voir config.js initAutoScrollSection, window.matin.autoScroll.*),
+           pas via le bouton "Enregistrer" général de Paramètres. Sélecteur
+           de vitesse visible seulement si le toggle est activé, même
+           principe que sidebarEdgeRow ci-dessus. -->
+      <div class="personnaliser-section-title">Défilement automatique</div>
+      <div class="autoscroll-toggle-row">
+        <span>↕️ Défilement automatique</span>
+        <label class="toggle">
+          <input type="checkbox" id="autoScrollToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="autoscroll-speed-row" id="autoScrollSpeedRow">
+        <label for="autoScrollSpeedSelect">Vitesse</label>
+        <select id="autoScrollSpeedSelect">
+          <option value="slow">Lent</option>
+          <option value="medium">Moyen</option>
+          <option value="fast">Rapide</option>
+        </select>
+      </div>
+
       <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>
     </div>
   </div>
@@ -1197,7 +1357,6 @@
 
   <script src="modules/sports-sources.js"></script>
   <script src="modules/fdj-games.js"></script>
-  <script src="modules/parcels-carriers.js"></script>
   <script src="modules/reminders-categories.js"></script>
   <script src="modules/indices-defs.js"></script>
   <script src="modules/live-championships.js"></script>

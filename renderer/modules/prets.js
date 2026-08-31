@@ -241,15 +241,24 @@ function pretsFmtNextChange(nextChange) {
   return `${when}, mensualité → ${pretsFmtEUR(nextChange.monthlyPayment)}`;
 }
 
-// "174,54 €/mois — Prél. 5" (2026-08-09, sur demande explicite ; libellé
-// raccourci le 2026-08-11, sur demande explicite, pour gagner de la place
-// horizontale) — le jour de prélèvement n'a de sens que s'il a été saisi
-// (repli silencieux sur la date de départ dans pretsSimulateLoan, jamais
-// `null` en pratique une fois `start` connu, mais gardé défensif ici au cas
-// où).
+// "174,54 € le 5 du mois" (reformaté le 2026-08-31, sur demande explicite —
+// remplace l'ancien "174,54 €/mois — Prél. 5") — le jour de prélèvement n'a
+// de sens que s'il a été saisi (repli silencieux sur la date de départ dans
+// pretsSimulateLoan, jamais `null` en pratique une fois `start` connu, mais
+// gardé défensif ici au cas où). Version texte pur (pour l'attribut `title`,
+// qui ne peut pas contenir de HTML) — voir pretsFmtCurrentPaymentHtml pour
+// la version affichée avec le montant en couleur.
 function pretsFmtCurrentPayment(amount, debitDay) {
-  const base = `${pretsFmtEUR(amount)}/mois`;
-  return debitDay ? `${base} — Prél. ${debitDay}` : base;
+  const base = pretsFmtEUR(amount);
+  return debitDay ? `${base} le ${debitDay} du mois` : base;
+}
+
+// Version HTML (montant en vert, sur demande explicite) de la fonction
+// ci-dessus — même texte, montant isolé dans un span dédié pour le colorer
+// sans toucher au reste de la phrase.
+function pretsFmtCurrentPaymentHtml(amount, debitDay) {
+  const amountHtml = `<span class="prets-payment-amount">${pretsFmtEUR(amount)}</span>`;
+  return debitDay ? `${amountHtml} le ${debitDay} du mois` : amountHtml;
 }
 
 function pretsLoanRowHtml(loan, calc) {
@@ -263,17 +272,17 @@ function pretsLoanRowHtml(loan, calc) {
     <div class="prets-loan">
       <div class="prets-loan-header">
         <span class="prets-loan-name">${loan.name || '(sans nom)'}</span>
-        <span class="prets-loan-rate">${rate} %</span>
+        <span class="prets-loan-rate"><span class="prets-loan-rate-label">Taux :</span> ${rate}%</span>
         <span class="prets-loan-end">fin ${endLabel}</span>
       </div>
       <div class="prets-loan-stats">
         <div class="prets-loan-stat">
-          <span class="prets-loan-stat-label">CRD</span>
+          <span class="prets-loan-stat-label prets-stat-label-orange">Reste à payer</span>
           <span class="prets-loan-stat-value etf-money">${pretsFmtEUR(calc.crd)}</span>
         </div>
         <div class="prets-loan-stat">
           <span class="prets-loan-stat-label">Mensualité actuelle</span>
-          <span class="prets-loan-stat-value etf-money" title="${pretsFmtCurrentPayment(calc.currentPayment, calc.debitDay)}">${pretsFmtCurrentPayment(calc.currentPayment, calc.debitDay)}</span>
+          <span class="prets-loan-stat-value etf-money" title="${pretsFmtCurrentPayment(calc.currentPayment, calc.debitDay)}">${pretsFmtCurrentPaymentHtml(calc.currentPayment, calc.debitDay)}</span>
         </div>
         <div class="prets-loan-stat">
           <span class="prets-loan-stat-label">Intérêts payés</span>

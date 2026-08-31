@@ -1124,6 +1124,20 @@ body.ultrawide .module-card { max-width: 500px; }
 
 .sports-no-data { font-size: 12px; color: var(--text-muted); }
 
+/* Classement (2026-08-31, sur demande explicite) — placeholder TOUJOURS posé
+   dans le DOM (voir ol.js renderNextMatchHtml), rempli seulement si le
+   classement est disponible : `:not(:empty)` porte la seule marge, pour que
+   le cas "indisponible" (div vide) reste réellement invisible (0 hauteur,
+   0 espacement) plutôt qu'un vide avec un blanc résiduel au-dessus. */
+.sports-standings-line {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sports-standings-line:not(:empty) { margin-top: 4px; }
+
 /* ─── Module : Mon Équipe (2026-08-15, sur demande explicite) ───────────────
    Réutilise .sports-module/.sports-next/.sports-next-label/-detail/-opp/
    .sports-no-data tels quels (voir plus haut) pour "Prochain match"/"Dernier
@@ -1158,6 +1172,13 @@ body.ultrawide .module-card { max-width: 500px; }
   border-radius: var(--radius-sm);
   font-size: 12px;
 }
+/* Lignes "Prochains matchs" reformatées en une seule chaîne fluide (2026-08-31,
+   sur demande explicite — voir monEquipeMatchLineHtml/monEquipeUpcomingRowHtml,
+   mon-equipe.js) : `display:flex` de .monequipe-list-row ci-dessus casserait
+   l'espacement des séparateurs " · " (texte brut entre les <span> colorés,
+   pas des enfants flex distincts comme l'ancien format à 3 colonnes) —
+   repasse donc en flux normal pour cette variante uniquement. */
+.monequipe-list-row-line { display: block; }
 .monequipe-list-date {
   font-family: var(--font-mono);
   color: var(--text-secondary);
@@ -1178,16 +1199,22 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 
 /* Couleurs dédiées par type d'info sur les lignes de match (2026-08-16, sur
-   demande explicite) — appliquées via des <span> imbriqués dans les blocs
-   "Prochain match"/"Prochains matchs" (voir mon-equipe.js). Même
+   demande explicite ; heure alignée sur la couleur de la date le 2026-08-31,
+   2e demande explicite — "date/heure en bleu" comme un seul groupe plutôt
+   que l'heure grise d'origine) — appliquées via des <span> imbriqués dans
+   les blocs "Prochain match"/"Prochains matchs" (voir mon-equipe.js). Même
    spécificité (une seule classe) que les règles ci-dessus qu'elles
    remplacent (date/type) ou complètent (venue/heure) : venant après dans ce
    fichier, elles l'emportent en cas d'égalité — ordre de déclaration
    important, ne pas déplacer avant .monequipe-list-date/-meta. */
 .monequipe-info-date  { color: #4f8ef7; }
-.monequipe-info-type  { color: #34d399; }
-.monequipe-info-time  { color: #8b95a8; }
-.monequipe-info-venue { color: #fbbf24; }
+/* Type en bleu, date+heure fusionnées en vert, Domicile/Extérieur en 2
+   couleurs distinctes (2026-08-31, sur demande explicite — voir
+   mon-equipe.js). */
+.monequipe-info-type  { color: #4f8ef7; }
+.monequipe-info-datetime { color: #34d399; }
+.monequipe-info-venue-home { color: #fbbf24; }
+.monequipe-info-venue-away { color: #ef4444; }
 .monequipe-info-opponent { color: #e8eaf0; }
 
 /* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
@@ -1985,6 +2012,33 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 }
 .autoarrange-confirm-btn-primary:hover { background: var(--accent); opacity: 0.9; }
 
+/* Emplacements de disposition sauvegardés (2026-08-31, sur demande explicite)
+   — dans la même popup que la confirmation "⊞ Réorganiser" ci-dessus (voir
+   index.html), séparés visuellement par une bordure supérieure, même esprit
+   que .backups-manual-section dans config.html. */
+.layout-slots-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.layout-slot-row { display: flex; flex-direction: column; gap: 6px; }
+.layout-slot-label { font-size: 11px; color: var(--text-muted); }
+.layout-slot-actions { display: flex; gap: 8px; }
+.layout-slot-btn { font-size: 11px; padding: 7px; }
+.layout-slot-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: var(--bg-panel-alt);
+}
+.layout-slot-btn:disabled:hover { background: var(--bg-panel-alt); }
+
+/* Confirmation d'écrasement d'un emplacement (2026-08-31) — empilée par-dessus
+   la popup "⊞ Réorganiser"/emplacements (z-index supérieur), même overlay
+   plein écran que .autoarrange-confirm-overlay. */
+.layout-slot-overwrite-overlay { z-index: 10110; }
+
 /* Glissement visible vers la nouvelle position pendant "⊞ Réorganiser" (voir
    dashboard.js) — classe posée juste avant de changer left/top, retirée
    ~350ms après (durée de la transition + marge) pour ne jamais s'appliquer
@@ -2350,7 +2404,88 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 
 /* ─── Module : Philips Hue ───────────────────────────────────── */
 .hue-module { display: flex; flex-direction: column; gap: 8px; height: 100%; }
-.hue-groups { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+
+/* "Tout allumer"/"Tout éteindre" (2026-08-31, sur demande explicite) —
+   TOUJOURS visibles, en dehors des sections repliables ci-dessous (jamais
+   masquées par un repli de pièce). */
+.hue-bulk-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.hue-bulk-btn {
+  flex: 1;
+  padding: 7px 8px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hue-bulk-btn:hover { background: var(--bg-hover); }
+
+.hue-groups { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+
+/* Sections repliables par pièce (2026-08-31, sur demande explicite, "comme
+   les modules FDJ") — même mécanique que .prets-group-header/-chevron/-body
+   plus bas dans ce fichier (grid-template-rows 0fr→1fr + transition 300ms,
+   PAS display:none qui ne peut pas s'animer), mais RÉPÉTÉE une fois par
+   pièce au lieu d'une seule fois par carte : chaque `.hue-room` porte son
+   PROPRE état replié/déplié (`.hue-room-collapsed`), indépendant des autres
+   pièces de la même carte. Repliée par défaut (voir hue.js render — collapsé
+   sauf `false` explicite dans `config.collapsed[roomId]`, persisté par pièce
+   via le canal silencieux `modules:updateCollapsed`, voir prets.js pour le
+   même principe). */
+.hue-room { display: flex; flex-direction: column; }
+.hue-room-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.hue-room-header:hover { background: var(--bg-hover); }
+/* Section dépliée : coins bas de l'en-tête carrés pour se fondre visuellement
+   avec .hue-group-row juste en dessous (même fond, aucune coupure nette). */
+.hue-room:not(.hue-room-collapsed) .hue-room-header { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.hue-room-chevron {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform 300ms ease;
+  flex-shrink: 0;
+}
+.hue-room:not(.hue-room-collapsed) .hue-room-chevron { transform: rotate(90deg); }
+.hue-room-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.hue-room-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.hue-room-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  transition: grid-template-rows 300ms ease;
+}
+.hue-room-collapsed .hue-room-body { grid-template-rows: 0fr; }
+.hue-room-body-inner { overflow: hidden; min-height: 0; padding-top: 4px; }
+
 .hue-group-row {
   display: flex;
   align-items: center;
@@ -2580,12 +2715,15 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .etf-line-row.has-type { grid-template-columns: 80px 110px 120px 55px 80px 60px 20px; }
 
 /* Prêts — config de CHAQUE prêt d'un groupe (page Paramètres), RECONSTRUIT le
-   2026-08-08 pour les paliers de remboursement : un simple ligne de grille
-   (l'ancienne .prets-loan-row) ne suffisait plus dès qu'un prêt peut avoir sa
-   PROPRE sous-liste de paliers imbriquée — chaque prêt est maintenant un petit
-   bloc bordé (.prets-loan-config) avec un en-tête à 7 colonnes (Nom Emprunté
-   Taux Début Fin Type ×) puis un corps qui affiche SOIT un champ Mensualité
-   unique (type Fixe) SOIT la sous-liste de paliers (type Paliers). */
+   2026-08-08 pour les paliers de remboursement, puis REDESSINÉ le 2026-08-31
+   (sur demande explicite) : Taux déplacé de l'en-tête vers la ligne 2 (avec
+   Jour de prélèvement et Mensualité — les 3 "détails" du prêt, par
+   opposition aux identifiants "principaux" qui restent en ligne 1), et une
+   ligne de petits en-têtes de colonne ajoutée au-dessus de la ligne 1. Chaque
+   prêt reste un petit bloc bordé (.prets-loan-config) avec un en-tête à 6
+   colonnes (Nom Montant Début Fin Type ×) puis un corps qui affiche SOIT un
+   champ Mensualité unique (type Fixe) SOIT la sous-liste de paliers (type
+   Paliers). */
 .prets-loan-config {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2594,15 +2732,29 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   flex-direction: column;
   gap: 8px;
 }
+/* En-têtes de colonne (2026-08-31, sur demande explicite) — mêmes largeurs
+   que .prets-loan-config-header juste en dessous pour que chaque libellé
+   tombe exactement au-dessus de son champ ; dernière colonne (×) vide via un
+   <span></span> sans contenu (voir config.js), même principe que
+   .prets-paliers-header pour les paliers. */
+.prets-loan-config-labels {
+  display: grid;
+  grid-template-columns: 160px 90px 110px 110px 80px 20px;
+  gap: 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
 .prets-loan-config-header {
   display: grid;
   gap: 6px;
-  /* Nom | Emprunté | Taux | Début | Fin | Type | × — largeurs figées
-     explicitement (2026-08-09, sur demande explicite) plutôt qu'un mélange
-     de `fr`/px : Nom élargi (160px), Emprunté légèrement réduit (90px), le
-     reste inchangé. Jour de prélèvement déplacé sur sa propre ligne
-     (.prets-loan-line2, voir plus bas) — n'est plus dans cette grille. */
-  grid-template-columns: 160px 90px 55px 110px 110px 80px 20px;
+  /* Nom | Montant | Début | Fin | Type | × — Taux retiré de cette grille le
+     2026-08-31 (déplacé en ligne 2, voir .prets-loan-line2 plus bas) —
+     largeurs par ailleurs inchangées depuis leur fixation explicite du
+     2026-08-09. */
+  grid-template-columns: 160px 90px 110px 110px 80px 20px;
   align-items: center;
 }
 .prets-loan-config-header input,
@@ -2620,39 +2772,42 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .prets-loan-config-header input:focus,
 .prets-loan-config-header select:focus { outline: none; border-color: var(--accent); }
 .prets-loan-config-header .row-delete-btn { justify-self: center; }
+/* Placeholders visibles en couleur atténuée quand le champ est vide
+   (2026-08-31, sur demande explicite) — pas garanti par défaut selon le
+   moteur de rendu, posé explicitement plutôt que de compter dessus. */
+.prets-loan-config-header input::placeholder { color: var(--text-muted); }
 
-/* Ligne 2 — "Prélevé le" + jour + "Mensualité" (Fixe uniquement, voir
+/* Ligne 2 — Taux, "Prélevé le" + jour, puis Mensualité (Fixe uniquement, voir
    config.js renderLine2) — en retrait et en texte réduit pour bien la
-   distinguer de la ligne d'en-tête (2026-08-09, sur demande explicite). */
+   distinguer de la ligne d'en-tête (2026-08-09, sur demande explicite ;
+   Taux ajouté ici le 2026-08-31, largeurs de Jour/Mensualité resserrées la
+   même date). */
 .prets-loan-line2 {
   display: flex;
   align-items: center;
   gap: 6px;
   padding-left: 12px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .prets-loan-line2-label { color: var(--text-muted); white-space: nowrap; }
-.prets-loan-line2 .prets-loan-debit-day {
-  width: 45px;
+.prets-loan-line2 input {
   background: var(--bg-base);
   border: 1.5px solid var(--text-secondary);
   border-radius: var(--radius-sm);
   padding: 4px 6px;
-  font-size: 10px;
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  text-align: center;
-}
-.prets-loan-line2 .prets-loan-payment {
-  width: 90px;
-  background: var(--bg-base);
-  border: 1.5px solid var(--text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 4px 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-primary);
   font-family: var(--font-ui);
 }
+.prets-loan-line2 input::placeholder { color: var(--text-muted); }
+/* Largeurs RE-halvées le 2026-08-31 (2e demande explicite, sur la base des
+   valeurs déjà réduites une 1re fois) — Jour de prél. à 15px est en dessous
+   du seuil "juste pour 2 chiffres" noté précédemment, mais suit la
+   consigne littérale ("halve the width") plutôt qu'un jugement esthétique
+   sur une UI que je ne vois pas en direct. */
+.prets-loan-line2 .prets-loan-rate { width: 30px; }
+.prets-loan-line2 .prets-loan-debit-day { width: 15px; text-align: center; }
+.prets-loan-line2 .prets-loan-payment { width: 28px; }
 .prets-loan-line2 input:focus { outline: none; border-color: var(--accent); }
 
 /* Paliers — sous-liste imbriquée d'UN prêt (Début/Fin/Mensualité/×), max 5
@@ -2806,13 +2961,52 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .hue-config-status { font-size: 11px; color: var(--accent-yellow); min-height: 14px; }
 .hue-config-hint { font-size: 10px; color: var(--text-muted); }
 
-/* Config Colis (page Paramètres) */
+/* Bascule "Mon modèle Hue" (2026-08-31, sur demande explicite — support des
+   ampoules sans pont) : contrôle segmenté à 2 boutons plutôt qu'un
+   <select>/toggle binaire — les 2 libellés complets ("Avec bridge (ancien
+   modèle)"/"Sans bridge (nouveau modèle)") doivent rester lisibles en
+   entier, un simple interrupteur n'aurait eu de place que pour une icône. */
+.hue-mode-toggle-row { display: flex; flex-direction: column; gap: 6px; }
+.hue-mode-toggle-row > label { font-size: 11px; color: var(--text-secondary); }
+.hue-mode-toggle { display: flex; gap: 6px; }
+.hue-mode-btn {
+  flex: 1;
+  padding: 7px 8px;
+  background: var(--bg-panel-alt);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.hue-mode-btn:hover { background: var(--bg-hover); }
+.hue-mode-btn.active { border-color: var(--accent); color: var(--text-primary); background: color-mix(in srgb, var(--accent) 14%, var(--bg-panel-alt)); }
+/* Sections masquées via `display:none` (pas juste une opacité) : les champs
+   du mode inactif ne doivent pas rester dans le flux/la tabulation. Chaque
+   section garde son propre `.hue-config-status` (2 statuts indépendants,
+   voir renderHueConfigSection dans config.js) plutôt qu'un seul partagé qui
+   se ferait écraser en changeant de mode. */
+.hue-mode-section { display: none; flex-direction: column; gap: 10px; margin-top: 10px; }
+.hue-mode-section.active { display: flex; }
+/* Taille alignée sur .hue-config-hint (mode "Avec bridge") et couleur verte
+   #34d399 (2026-08-31, sur demande explicite, 2e ajustement le même jour —
+   remplace 11px/--text-secondary du 1er jet). */
+.hue-cloud-instructions {
+  font-size: 10px;
+  color: #34d399;
+  line-height: 1.6;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+/* Config générique "liste de lignes label + valeur(s) + supprimer" (page
+   Paramètres) — nommée d'après le module Colis qui l'a introduite (supprimé
+   le 2026-08-31, sur demande explicite), gardée telle quelle car réutilisée
+   par Suivi de prix / RSS / chaînes YouTube (voir config.js). */
 .module-config-field.parcels-config-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
 .parcels-list { display: flex; flex-direction: column; gap: 6px; }
-/* label | n° de suivi | transporteur détecté | supprimer — plus de <select>
-   transporteur depuis le passage à la détection automatique (2026-08-05,
-   voir parcels-carriers.js) : .parcels-carrier-hint prend sa place, purement
-   informatif (rien n'est stocké en config). */
 .parcels-row {
   display: grid;
   grid-template-columns: 1.2fr 1.2fr 0.8fr 22px;
@@ -2833,15 +3027,6 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   font-family: var(--font-ui);
 }
 .parcels-row input:focus { outline: none; border-color: var(--accent); }
-.parcels-carrier-hint {
-  font-size: 10px;
-  color: var(--text-secondary);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.parcels-carrier-hint.unknown { color: var(--accent-yellow); }
 
 /* Config Rappels (page Paramètres) */
 .module-config-field.reminders-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
@@ -3028,52 +3213,12 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   border-radius: var(--radius-sm);
 }
 
-/* ─── Module : Colis ─────────────────────────────────────────── */
-.parcels-module { height: 100%; }
-.parcels-list-display { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
-.parcels-row-display {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  background: var(--bg-panel-alt);
-  border-radius: var(--radius-sm);
-}
-.parcels-row-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.parcels-row-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.parcels-row-carrier { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
-.parcels-row-event {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.parcels-row-eta { font-size: 12px; color: var(--text-muted); }
-.parcels-status-badge {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 99px;
-  white-space: nowrap;
-}
-.parcels-green  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
-.parcels-yellow { color: var(--accent-yellow); background: rgba(251, 191, 36, 0.12); }
-.parcels-red    { color: var(--accent-red); background: rgba(248, 113, 113, 0.12); }
-
-/* ─── Module : Suivi de prix Amazon (2026-08-30, sur demande explicite) ────
-   Même structure que Colis (.parcels-row-display) juste au-dessus, mais
-   chaque ligne est cliquable (ouvre la page produit Amazon — contrairement
-   à Colis, qui n'a pas d'URL utile côté renderer) : cursor + hover ajoutés
-   en conséquence. */
+/* ─── Module : Suivi de prix Marchand (2026-08-30, sur demande explicite) ──
+   Module Colis supprimé le 2026-08-31 (sur demande explicite) — ces classes
+   étaient à l'origine calquées sur ses `.parcels-row-display` etc., gardées
+   ici comme seule trace du design d'origine, mais chaque ligne est
+   cliquable (ouvre la page produit) : cursor + hover ajoutés en
+   conséquence. */
 .price-tracking-module { height: 100%; }
 .price-tracking-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
 .price-tracking-row {
@@ -3102,12 +3247,18 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .price-tracking-trend-up   { color: var(--accent-red); }
 .price-tracking-trend-down { color: var(--accent-green); }
 .price-tracking-trend-flat { color: var(--text-muted); }
-.price-tracking-price { font-size: 14px; font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
+/* `font-weight: normal` (2026-08-31, sur demande explicite — pas de gras) */
+.price-tracking-price { font-size: 14px; font-weight: normal; color: var(--text-primary); font-family: var(--font-mono); }
+/* Prix sous le seuil d'alerte (2026-08-31, sur demande explicite, point 1) :
+   même vert que le badge 🔔 déjà utilisé pour ce franchissement (voir
+   .price-tracking-alert-badge) — le vert seul suffit à repérer la ligne au
+   premier coup d'œil, le badge reste en complément visuel demandé. */
+.price-tracking-price-alert { color: var(--accent-green); }
 /* Dernier prix connu, pas le prix actuel (2026-08-31, sur demande explicite,
    point 5 — toutes les méthodes de récupération ont échoué) : italique +
    couleur atténuée pour signaler visuellement que la valeur peut être
    périmée, sans pour autant la cacher comme un "Indisponible" sec. */
-.price-tracking-price-stale { font-style: italic; color: var(--text-secondary); font-weight: 500; }
+.price-tracking-price-stale { font-style: italic; color: var(--text-secondary); font-weight: normal; }
 .price-tracking-alert-badge { font-size: 14px; }
 
 /* ─── Module : Cinéma — 3 sections (2026-08-10 → 2026-08-11 → 2026-08-15 →
@@ -3826,7 +3977,10 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.prets-loan-rate { font-size: 12px; font-family: var(--font-mono); color: var(--accent-yellow); flex-shrink: 0; }
+/* Recoloré en orange + libellé "Taux :" ajouté le 2026-08-31, sur demande
+   explicite (remplace l'ancien "2,00 %" jaune sans libellé). */
+.prets-loan-rate { font-size: 12px; font-family: var(--font-mono); color: #f97316; flex-shrink: 0; }
+.prets-loan-rate-label { font-weight: 600; }
 .prets-loan-end { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
 /* 2×2 (pas une rangée flex comme avant) — RECONSTRUIT le 2026-08-08 : 4
    statistiques désormais (CRD, mensualité actuelle, intérêts payés, intérêts
@@ -3835,6 +3989,12 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .prets-loan-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
 .prets-loan-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .prets-loan-stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+/* "CRD" → "Reste à payer" en orange (2026-08-31, sur demande explicite). */
+.prets-stat-label-orange { color: #f97316; }
+/* Montant de la mensualité actuelle en vert (2026-08-31, sur demande
+   explicite) — voir pretsFmtCurrentPaymentHtml dans prets.js, seul le
+   montant est dans ce span, pas "le X du mois". */
+.prets-payment-amount { color: #34d399; }
 .prets-loan-stat-value {
   font-family: var(--font-mono);
   font-size: 14px;
