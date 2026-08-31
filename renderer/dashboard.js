@@ -294,60 +294,13 @@ function initTitlebarSearch() {
   });
 }
 
-// ─── Mode auto luminosité (2026-08-08, sur demande explicite ; redesign
-// complet le 2026-08-31, sur demande explicite) ─────────────────────────────
-// AVANT le 2026-08-31 : "mode auto" ne posait qu'un calque de dimming
-// PAR-DESSUS le thème choisi manuellement, jamais de vrai changement clair/
-// sombre — symptôme rapporté : l'app pouvait rester en thème sombre en
-// pleine journée si l'utilisateur l'avait un jour choisi manuellement.
-// DEPUIS : le mode auto PILOTE le thème lui-même — clair 06h-21h, sombre
-// 21h-06h — avec un calque de dimming subtil UNIQUEMENT sur la tranche
-// transitoire 18h-21h (encore clair, mais visuellement assombri avant le
-// vrai passage au sombre à 21h). `autoThemeForHour` dupliquée côté process
-// main (voir main.js, même fonction, même valeurs) pour que `theme:getInitial`
-// (lu de façon SYNCHRONE avant le 1er rendu, voir preload.js) calcule déjà
-// le bon thème sans attendre ce module — sans ça, l'app démarrerait toujours
-// dans le dernier thème PERSISTÉ avant de corriger après coup, provoquant
-// justement le flash que ce redesign doit éliminer (point 3 de la demande).
-const BRIGHTNESS_CHECK_MS = 15 * 60 * 1000;
-
-function autoThemeForHour(h) {
-  return (h >= 6 && h < 21) ? 'light' : 'dark';
-}
-
-// Seule tranche qui garde un calque (voir en-tête ci-dessus) — la nuit
-// (21h-06h) est désormais un vrai thème sombre, plus besoin d'un calque
-// par-dessus un thème clair pour simuler l'obscurité.
-function brightnessBandForHour(h) {
-  return (h >= 18 && h < 21) ? 'soiree' : null;
-}
-
-async function applyAutoBrightness() {
-  const overlay = document.getElementById('brightnessOverlay');
-  const enabled = (await window.matin.store.get('app.autoBrightness')) === true;
-  if (overlay) overlay.classList.remove('brightness-soiree');
-  if (!enabled) return; // mode auto désactivé : thème fixe choisi par l'utilisateur (voir initThemeToggle/config.js), rien à faire ici
-
-  const hour = new Date().getHours();
-  const band = brightnessBandForHour(hour);
-  if (overlay && band) overlay.classList.add(`brightness-${band}`);
-
-  // Ne rebascule le thème QUE s'il diffère du thème courant — évite un
-  // aller-retour IPC inutile à chaque vérification de 15 min quand la
-  // tranche horaire n'a pas changé depuis la dernière fois.
-  const theme = autoThemeForHour(hour);
-  if (document.documentElement.dataset.colorScheme !== theme) {
-    document.documentElement.dataset.colorScheme = theme; // applique localement tout de suite, même principe que initThemeToggle (config.js)
-    await window.matin.theme.setAuto(theme);
-  }
-}
-
-function initAutoBrightness() {
-  applyAutoBrightness().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
-  setInterval(() => {
-    applyAutoBrightness().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
-  }, BRIGHTNESS_CHECK_MS);
-}
+// Mode auto luminosité — SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande
+// explicite (voir CONTEXT.md) : posait un calque de dimming + pilotait le
+// thème clair/sombre selon l'heure (initAutoBrightness/applyAutoBrightness/
+// autoThemeForHour/brightnessBandForHour, ~50 lignes retirées ici). Le
+// toggle Sombre/Clair correspondant a migré dans la popup "🎨 Affichage"
+// (voir config.html/config.js) — reste TOUJOURS un choix manuel désormais,
+// plus aucun mécanisme automatique ne le pilote.
 
 // ─── Thème clair/sombre (2026-08-08, sur demande explicite) ────────────────
 // L'état initial est déjà posé de façon synchrone AVANT ce script par le
@@ -2098,7 +2051,8 @@ function initAutoScroll() {
 // 'modules:updated', déjà écouté ailleurs dans ce fichier pour un
 // `location.reload()` — la bascule se traduit donc par un simple
 // rechargement, comme tout autre changement structurel de modules). Le
-// libellé du bouton ("👤 <nom du profil actif>") n'a besoin d'être peuplé
+// libellé du bouton ("🚪 <nom du profil actif>", icône changée de 👤 à 🚪 le
+// 2026-08-31, 2e révision, sur demande explicite) n'a besoin d'être peuplé
 // qu'une fois à l'ouverture : un `location.reload()` survient de toute façon
 // à chaque bascule, qui réexécute cette même fonction et relit le nom à jour.
 function initProfileSwitcher() {
@@ -2107,7 +2061,7 @@ function initProfileSwitcher() {
 
   window.matin.profiles.getAll().then((profiles) => {
     const active = profiles?.[profiles.active];
-    btn.textContent = `👤 ${active?.name || 'Profil'}`;
+    btn.textContent = `🚪 ${active?.name || 'Profil'}`;
 
     btn.addEventListener('click', () => {
       const nextKey = profiles.active === 'profile2' ? 'profile1' : 'profile2';
@@ -2208,7 +2162,6 @@ async function initDashboard() {
   initTitlebarSearch();
   initDriveSyncIndicator(splashDone);
   initDriveUserdataRestoreListener();
-  initAutoBrightness();
   initThemeSync();
   initAppBackground();
   initDisplayMode();

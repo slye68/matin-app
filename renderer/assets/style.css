@@ -543,6 +543,10 @@ body.ultrawide .module-card { max-width: 500px; }
   color: var(--text-primary);
   white-space: nowrap;
   text-align: center;
+  /* Adoucit le retour à la couleur normale après le flash "but" ci-dessous
+     (l'animation elle-même s'arrête net à 3s, cette transition permanente
+     lisse juste la reprise de la cascade normale — voir .live-goal-score). */
+  transition: color 0.4s ease;
 }
 .live-match-score-live { color: #ef4444; }
 
@@ -561,6 +565,79 @@ body.ultrawide .module-card { max-width: 500px; }
 @keyframes live-dot-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.35; transform: scale(0.7); }
+}
+
+/* ─── Animation "But !" (2026-09-01, sur demande explicite, voir live.js
+   liveDetectGoals/liveTriggerGoalAnimation) — 3 effets enchaînés déclenchés
+   quand le score d'un match suivi change entre 2 rafraîchissements :
+   1) le score marqué "live-goal-score" ci-dessous flashe en vert vif 3s
+      (posé directement dans le HTML généré, voir live.js liveRenderModule —
+      PAS de fill-mode:forwards volontairement : l'animation doit rendre la
+      main à la cascade normale une fois finie, sinon .live-match-score-live
+      (rouge, match toujours en cours) resterait bloqué à la couleur de fin
+      de l'animation au lieu de reprendre sa couleur "en direct" normale) ;
+   2) la carte ENTIÈRE (.module-card, pas juste la ligne du match) secoue
+      0.5s (voir .live-goal-shake, classe posée/retirée par JS) ;
+   3) un ⚽ traverse la carte de gauche à droite en 1.5s (voir
+      .live-goal-ball-track/.live-goal-ball, ajoutés/retirés par JS). */
+@keyframes liveGoalScoreFlash {
+  0%   { color: #34d399; }
+  90%  { color: #34d399; }
+  100% { color: inherit; }
+}
+.live-goal-score { animation: liveGoalScoreFlash 3s ease-out; }
+
+@keyframes liveGoalShake {
+  0%, 100% { transform: translateX(0); }
+  10%      { transform: translateX(-5px); }
+  20%      { transform: translateX(5px); }
+  30%      { transform: translateX(-5px); }
+  40%      { transform: translateX(5px); }
+  50%      { transform: translateX(-5px); }
+  60%      { transform: translateX(5px); }
+  70%      { transform: translateX(-5px); }
+  80%      { transform: translateX(5px); }
+  90%      { transform: translateX(-5px); }
+}
+.module-card.live-goal-shake { animation: liveGoalShake 0.5s ease; }
+
+/* Conteneur dédié au ballon (inset:0 + overflow:hidden) plutôt qu'un enfant
+   direct de .module-card — celle-ci n'a par ailleurs aucun overflow:hidden
+   (nécessaire à son propre contenu), un ballon animé directement dedans
+   déborderait donc visuellement sur les cartes voisines au lieu de
+   disparaître aux bords du module comme demandé. pointer-events:none pour ne
+   jamais intercepter un clic/glisser-déposer pendant les 1.5s de traversée. */
+.live-goal-ball-track {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+/* `left` n'a que 2 arrêts (0%/100%) → interpolation strictement linéaire
+   malgré `ease` sur les autres propriétés de ce même @keyframes (chaque
+   propriété interpole indépendamment entre SES propres arrêts) ; `transform`
+   a 9 arrêts réguliers en onde sinusoïdale (amplitude 6px) pour le léger
+   rebond demandé, sans dépendre d'un timing-function distinct. */
+@keyframes liveGoalBallCross {
+  0%    { left: -32px; transform: translateY(0); }
+  12.5% { transform: translateY(-6px); }
+  25%   { transform: translateY(0); }
+  37.5% { transform: translateY(6px); }
+  50%   { transform: translateY(0); }
+  62.5% { transform: translateY(-6px); }
+  75%   { transform: translateY(0); }
+  87.5% { transform: translateY(6px); }
+  100%  { left: calc(100% + 32px); transform: translateY(0); }
+}
+.live-goal-ball {
+  position: absolute;
+  top: 50%;
+  left: -32px;
+  margin-top: -12px; /* recentre verticalement : moitié de font-size */
+  font-size: 24px;
+  line-height: 1;
+  animation: liveGoalBallCross 1.5s linear;
 }
 
 .module-header {
@@ -1680,29 +1757,9 @@ body.ultrawide .module-card { max-width: 500px; }
 .splash-overlay.splash-fade-out { opacity: 0; pointer-events: none; }
 .splash-overlay.splash-done { display: none; }
 
-/* ─── Mode auto luminosité (2026-08-08, sur demande explicite) ───────────
-   Calque plein écran AU-DESSUS de tout le contenu (titlebar comprise, comme
-   l'overlay de démarrage ci-dessus) mais SOUS lui (z-index 9999 < 10000) :
-   l'animation de lever de soleil au lancement ne doit jamais être vue à
-   travers un voile sombre. `pointer-events: none` — ne doit jamais
-   intercepter un clic/glisser-déposer destiné aux cartes en dessous (seul
-   son rôle est visuel). Transparent par défaut (aucune classe .brightness-*
-   posée) : mode auto désactivé, ou tranche matin/journée (pas
-   d'assombrissement demandé pour ces 2 tranches). */
-.brightness-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  background: transparent;
-  transition: background-color 1.5s ease;
-}
-/* Seule tranche qui garde un calque depuis le redesign du 2026-08-31 (voir
-   dashboard.js applyAutoBrightness) — la nuit est désormais un vrai
-   changement de thème (clair→sombre), plus un calque par-dessus le thème
-   clair ; `.brightness-nuit` (ancien calque teinté bleu/violet) retiré,
-   devenu mort. */
-.brightness-overlay.brightness-soiree { background: rgba(0, 0, 0, 0.15); }
+/* Mode auto luminosité — SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande
+   explicite (voir CONTEXT.md) : .brightness-overlay/.brightness-soiree
+   n'ont plus d'usage, retirés. */
 
 /* ─── Volet latéral (2026-08-23, sur demande explicite) — bande de 20px
    (12px→20px, 2e révision même jour, sur demande explicite — trop étroite
@@ -3025,6 +3082,33 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 }
 .parcels-row input:focus { outline: none; border-color: var(--accent); }
 
+/* Config Suivi de prix (page Paramètres, 2026-08-31, sur demande explicite) —
+   grille DÉDIÉE (pas .parcels-row générique ci-dessus, qui reste partagée
+   par Suivi de prix... ah non, plus lui désormais : RSS/YouTube) : ce module
+   a besoin d'une 5e colonne ("Vendeur") ET de largeurs FIXES précises pour
+   Vendeur/Prix cible (demandées en px, pas en fr comme le reste de
+   .parcels-row) plutôt que la proportion générique 1.2fr/1.2fr/0.8fr.
+   [Nom du produit] [Vendeur] [URL] [Prix cible €] [×] — Nom et URL restent
+   flexibles (minmax + fr, comme le reste de l'app pour des colonnes de texte
+   de longueur variable), Vendeur/Prix cible/× fixes. */
+.price-tracking-config-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 100px minmax(110px, 1.2fr) 80px 20px;
+  gap: 6px;
+  align-items: center;
+}
+.price-tracking-config-row input {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.price-tracking-config-row input:focus { outline: none; border-color: var(--accent); }
+
 /* Config Rappels (page Paramètres) */
 .module-config-field.reminders-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
 .module-config-field.prets-loans-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
@@ -3217,46 +3301,60 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
    cliquable (ouvre la page produit) : cursor + hover ajoutés en
    conséquence. */
 .price-tracking-module { height: 100%; }
-.price-tracking-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
+.price-tracking-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; height: 100%; }
+/* Redesign compact (2026-08-31, sur demande explicite) — remplace la mise en
+   page à 2 lignes (nom puis objectif, flèche de tendance séparée) par UNE
+   seule ligne dense : nom + marchand + objectif à gauche, pastille de statut
+   + prix à droite. Padding/gap resserrés (9px 10px/10px → 6px 8px/8px) pour
+   tenir plus de produits dans la hauteur de carte disponible. */
 .price-tracking-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
+  gap: 8px;
+  padding: 6px 8px;
   background: var(--bg-panel-alt);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.15s;
 }
 .price-tracking-row:hover { background: var(--bg-hover); }
-.price-tracking-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* `align-items: baseline` (pas column) : nom/marchand/objectif sur UNE seule
+   ligne — `.price-tracking-label` seul rétrécit (min-width:0 + ellipsis),
+   marchand/objectif restent toujours entièrement visibles
+   (flex-shrink: 0 ci-dessous) même si le nom du produit doit se tronquer. */
+.price-tracking-main { flex: 1; display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .price-tracking-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.price-tracking-target { font-size: 12px; color: var(--text-muted); }
+/* Marchand extrait du domaine de l'URL (2026-08-31, sur demande explicite —
+   voir priceExtractMerchant, price-tracking.js), ex. "(Fnac)" depuis
+   "www.fnac.com". */
+.price-tracking-merchant { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+.price-tracking-target { font-size: 11px; color: #fbbf24; flex-shrink: 0; }
 .price-tracking-value { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-.price-tracking-trend { font-size: 14px; font-weight: 700; }
-.price-tracking-trend-up   { color: var(--accent-red); }
-.price-tracking-trend-down { color: var(--accent-green); }
-.price-tracking-trend-flat { color: var(--text-muted); }
-/* `font-weight: normal` (2026-08-31, sur demande explicite — pas de gras) */
-.price-tracking-price { font-size: 14px; font-weight: normal; color: var(--text-primary); font-family: var(--font-mono); }
-/* Prix sous le seuil d'alerte (2026-08-31, sur demande explicite, point 1) :
-   même vert que le badge 🔔 déjà utilisé pour ce franchissement (voir
-   .price-tracking-alert-badge) — le vert seul suffit à repérer la ligne au
-   premier coup d'œil, le badge reste en complément visuel demandé. */
+/* Pastille de statut (2026-08-31, sur demande explicite — remplace la flèche
+   de tendance ↑/↓/→ ET le badge 🔔, tous deux retirés : redondants avec ce
+   que cette pastille exprime déjà à elle seule) : verte si le prix actuel
+   est au niveau ou sous l'objectif, rouge s'il est au-dessus, grise si
+   aucun objectif n'est défini (ou si le prix actuel est inconnu — voir
+   priceStatusDot, jamais rouge par défaut sur une donnée manquante). */
+.price-tracking-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.price-tracking-price { font-size: 13px; font-weight: normal; color: var(--text-primary); font-family: var(--font-mono); }
+/* Prix sous le seuil d'alerte (2026-08-31, sur demande explicite) — même
+   vert que la pastille pour ce cas, le vert seul suffit à repérer la ligne
+   au premier coup d'œil. */
 .price-tracking-price-alert { color: var(--accent-green); }
 /* Dernier prix connu, pas le prix actuel (2026-08-31, sur demande explicite,
-   point 5 — toutes les méthodes de récupération ont échoué) : italique +
-   couleur atténuée pour signaler visuellement que la valeur peut être
-   périmée, sans pour autant la cacher comme un "Indisponible" sec. */
+   toutes les méthodes de récupération ont échoué) : italique + couleur
+   atténuée pour signaler visuellement que la valeur peut être périmée, sans
+   pour autant la cacher comme un "Indisponible" sec. */
 .price-tracking-price-stale { font-style: italic; color: var(--text-secondary); font-weight: normal; }
-.price-tracking-alert-badge { font-size: 14px; }
 
 /* ─── Module : Cinéma — 3 sections (2026-08-10 → 2026-08-11 → 2026-08-15 →
    2026-08-15, sur demande explicite à chaque révision) : actus statiques

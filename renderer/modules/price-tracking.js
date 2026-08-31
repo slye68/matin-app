@@ -44,21 +44,50 @@ window.MatinModules = window.MatinModules || {};
 
 const PRICE_TRACKING_REFRESH_MS = 2 * 60 * 60 * 1000;
 
-function priceTrend(current, previous) {
-  if (previous == null || current === previous) return { icon: '→', cls: 'flat' };
-  return current < previous ? { icon: '↓', cls: 'down' } : { icon: '↑', cls: 'up' };
-}
-
 function priceFmt(v) {
   return v != null ? `${v.toFixed(2)} €` : null;
 }
 
+// Nom du marchand extrait du domaine de l'URL (2026-08-31, sur demande
+// explicite, redesign compact — "(Fnac)" depuis "www.fnac.com", "(Amazon)"
+// depuis "www.amazon.fr") : best-effort générique (1er label du nom d'hôte,
+// capitalisé) plutôt qu'une liste de casse exacte par marchand connu, non
+// maintenable pour un nombre de sites arbitraire (ce module suit désormais
+// n'importe quel site marchand, pas seulement Amazon — voir en-tête du
+// fichier). `null` sur une URL malformée, jamais affiché dans ce cas.
+function priceExtractMerchant(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    const label = host.split('.')[0];
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Pastille de statut (2026-08-31, sur demande explicite, redesign compact —
+// remplace la flèche de tendance ↑/↓/→ ET le badge 🔔, tous deux retirés) :
+// compare le prix ACTUEL au prix CIBLE plutôt que le prix actuel au prix
+// précédent — répond directement à "ai-je atteint mon objectif ?", la
+// question que pose ce module, plutôt qu'à "le prix a-t-il bougé depuis la
+// dernière vérification ?". Grise si l'objectif OU le prix actuel est
+// inconnu — jamais rouge par défaut sur une donnée manquante, qui laisserait
+// croire à tort que le prix est au-dessus de l'objectif.
+function priceStatusDot(item) {
+  if (item.targetPrice == null) return { color: '#6b7280', title: "Pas d'objectif défini" };
+  if (item.price == null) return { color: '#6b7280', title: 'Prix actuel inconnu' };
+  return item.price <= item.targetPrice
+    ? { color: '#34d399', title: `Prix atteint (objectif : ${priceFmt(item.targetPrice)})` }
+    : { color: '#ef4444', title: `Au-dessus de l'objectif (${priceFmt(item.targetPrice)})` };
+}
+
 function priceRowHtml(item) {
   const below = item.targetPrice != null && item.price != null && item.price <= item.targetPrice;
-  const trend = priceTrend(item.price, item.previousPrice);
-  // Point 5 de la demande : prix actuel s'il a pu être obtenu, sinon dernier
-  // prix connu avec mention explicite qu'il n'est pas à jour — jamais
-  // "Indisponible" sec tant qu'un prix a déjà été vu au moins une fois.
+  const dot = priceStatusDot(item);
+  const merchant = priceExtractMerchant(item.url);
+  // Point 5 de la demande initiale : prix actuel s'il a pu être obtenu,
+  // sinon dernier prix connu avec mention explicite qu'il n'est pas à jour —
+  // jamais "Indisponible" sec tant qu'un prix a déjà été vu au moins une fois.
   const priceLabel = priceFmt(item.price)
     || (item.lastKnownPrice != null ? `${priceFmt(item.lastKnownPrice)} (non mis à jour)` : (item.error || '—'));
 
@@ -66,11 +95,11 @@ function priceRowHtml(item) {
     <div class="price-tracking-row" data-url="${item.url}">
       <div class="price-tracking-main">
         <span class="price-tracking-label">${item.label || 'Produit'}</span>
+        ${merchant ? `<span class="price-tracking-merchant">(${merchant})</span>` : ''}
         ${item.targetPrice != null ? `<span class="price-tracking-target">Objectif : ${priceFmt(item.targetPrice)}</span>` : ''}
       </div>
       <div class="price-tracking-value">
-        ${below ? '<span class="price-tracking-alert-badge" title="Sous le prix cible">🔔</span>' : ''}
-        <span class="price-tracking-trend price-tracking-trend-${trend.cls}">${trend.icon}</span>
+        <span class="price-tracking-dot" style="background:${dot.color}" title="${dot.title}"></span>
         <span class="price-tracking-price${below ? ' price-tracking-price-alert' : (item.price == null && item.lastKnownPrice != null ? ' price-tracking-price-stale' : '')}">${priceLabel}</span>
       </div>
     </div>`;

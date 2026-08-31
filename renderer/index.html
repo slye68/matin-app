@@ -64,16 +64,9 @@
     </svg>
   </div>
 
-  <!-- Mode auto luminosité (2026-08-08, sur demande explicite ; redesign
-       2026-08-31 — le mode auto pilote désormais aussi le vrai thème
-       clair/sombre, voir dashboard.js) — calque plein écran,
-       `pointer-events: none` (ne doit jamais intercepter les clics/
-       glisser-déposer des cartes en dessous), piloté entièrement par
-       dashboard.js (applyAutoBrightness) qui lui ajoute la classe
-       .brightness-soiree (18h-21h uniquement, dimming subtil pendant que le
-       thème est encore clair) selon l'heure. Vide/transparent en dehors de
-       cette tranche, ou si le mode auto est désactivé. -->
-  <div class="brightness-overlay" id="brightnessOverlay"></div>
+  <!-- Mode auto luminosité — SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande
+       explicite (voir CONTEXT.md) : ce calque .brightness-overlay n'a plus
+       d'usage, retiré. -->
 
   <!-- Barre de titre custom -->
   <header class="titlebar">
@@ -109,13 +102,14 @@
     <div class="titlebar-right">
       <button class="titlebar-btn" id="btnRefresh" title="Actualiser">Actualiser</button>
       <button class="titlebar-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞ Réorganiser</button>
-      <!-- Sélecteur de profil (2026-08-31, sur demande explicite) — bascule
+      <!-- Sélecteur de profil (2026-08-31, sur demande explicite ; icône
+           👤→🚪, 2e révision, même jour, sur demande explicite) — bascule
            INSTANTANÉMENT entre Profil 1/2 (voir dashboard.js
            initProfileSwitcher, main.js profiles:switch). Libellé peuplé au
-           chargement avec le nom du profil ACTIF (ex. "👤 Semaine") — jamais
+           chargement avec le nom du profil ACTIF (ex. "🚪 Semaine") — jamais
            "Profil 1"/"Profil 2" en dur, ces clés ne sont que des identifiants
            internes. -->
-      <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">👤 …</button>
+      <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">🚪 …</button>
       <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
     </div>
   </header>

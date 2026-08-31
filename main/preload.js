@@ -41,10 +41,8 @@ contextBridge.exposeInMainWorld('matin', {
   // app:setTheme) pour la synchronisation avec titleBarOverlay/backgroundColor.
   theme: {
     set:       (theme) => ipcRenderer.invoke('app:setTheme', theme),
-    // 2026-08-31, voir main.js app:applyAutoTheme — même diffusion que
-    // `set` mais SANS persister `app.theme` (mode auto luminosité, ne doit
-    // jamais écraser le dernier choix manuel de l'utilisateur).
-    setAuto:   (theme) => ipcRenderer.invoke('app:applyAutoTheme', theme),
+    // `setAuto`/app:applyAutoTheme (mode auto luminosité) SUPPRIMÉS
+    // ENTIÈREMENT le 2026-08-31, sur demande explicite (voir CONTEXT.md).
     onUpdated: (cb)     => ipcRenderer.on('theme:updated', (_e, theme) => cb(theme)),
   },
 

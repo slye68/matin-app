@@ -463,7 +463,7 @@ function liveTeamLogoHtml(logo, name) {
   return `<div class="live-team-logo live-team-logo-empty">${initial}</div>`;
 }
 
-function liveMatchRowHtml(m, isNext) {
+function liveMatchRowHtml(m, isNext, isGoal) {
   const isLive = m.state === 'in';
   const timeLabel = isNext
     ? liveFmtNextDateTime(m.date)
@@ -487,14 +487,19 @@ function liveMatchRowHtml(m, isNext) {
       <div class="live-match-teams">
         ${liveTeamLogoHtml(m.homeLogo, m.homeName)}
         <span class="live-match-team" title="${m.homeName}">${m.homeName}</span>
-        <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}">${isNext ? 'vs' : `${m.homeScore ?? '—'} - ${m.awayScore ?? '—'}`}</span>
+        <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}${isGoal ? ' live-goal-score' : ''}">${isNext ? 'vs' : `${m.homeScore ?? '—'} - ${m.awayScore ?? '—'}`}</span>
         <span class="live-match-team live-match-team-away" title="${m.awayName}">${m.awayName}</span>
         ${liveTeamLogoHtml(m.awayLogo, m.awayName)}
       </div>
     </div>`;
 }
 
-function liveRenderModule(container, result, config) {
+// `goalIds` : Set des `m.id` dont le score vient de changer depuis le
+// rafraîchissement précédent (voir liveDetectGoals plus bas) — applique le
+// flash vert directement dans le HTML généré (l'élément .live-match-score
+// est recréé à chaque rendu via innerHTML, donc la classe posée ici suffit à
+// démarrer l'animation CSS sans manipulation DOM supplémentaire après coup).
+function liveRenderModule(container, result, config, goalIds) {
   if (result.notFound) {
     container.innerHTML = `<div class="etf-empty">Club "${config.club}" introuvable — vérifiez l'orthographe dans Paramètres.</div>`;
     return;
@@ -507,8 +512,127 @@ function liveRenderModule(container, result, config) {
     container.innerHTML = `<div class="etf-empty">Aucun match prévu pour le moment.</div>`;
     return;
   }
-  container.innerHTML = `<div class="live-match-list">${result.matches.map(m => liveMatchRowHtml(m, result.isNext)).join('')}</div>`;
+  container.innerHTML = `<div class="live-match-list">${result.matches.map(m => liveMatchRowHtml(m, result.isNext, goalIds?.has(m.id))).join('')}</div>`;
 }
+
+// ─── Animation "But !" (2026-09-01, sur demande explicite) — comparaison du
+// score de chaque match suivi entre 2 rafraîchissements, en mémoire
+// seulement (Map créée dans le closure de render() ci-dessous, une par
+// instance de module — perdue au rechargement complet de la page, jamais
+// persistée sur disque : demandé explicitement "en mémoire"). Volontairement
+// AUCUNE notification Windows ici (demandé explicitement) — juste 3 effets
+// visuels enchaînés sur la carte : score en vert vif 3s (CSS, voir
+// liveMatchRowHtml/style.css .live-goal-score), secousse de la carte 0.5s,
+// PUIS un ⚽ qui la traverse en 1.5s (voir liveTriggerGoalAnimation).
+const LIVE_GOAL_SHAKE_MS = 500;
+const LIVE_GOAL_BALL_MS = 1500;
+
+function liveScoreKey(m) {
+  return `${m.homeScore}-${m.awayScore}`;
+}
+
+// Compare `matches` à `previousScores` (id → clé score) et renvoie l'id des
+// matchs dont le score vient de changer. Un match dont le score n'était PAS
+// déjà en mémoire (1er match du jour vu avec un score exploitable, ex. "à
+// venir" → "1-0") n'est JAMAIS un but : seul un changement entre 2 valeurs
+// connues compte, sinon le tout premier rendu d'un match en cours afficherait
+// systématiquement un faux "but" pour rattraper son score déjà en cours.
+function liveDetectGoals(matches, previousScores) {
+  const goalIds = new Set();
+  for (const m of matches) {
+    if (m.homeScore == null || m.awayScore == null) continue;
+    const prev = previousScores.get(m.id);
+    const cur = liveScoreKey(m);
+    if (prev !== undefined && prev !== cur) goalIds.add(m.id);
+  }
+  return goalIds;
+}
+
+function liveUpdateScoreMemory(matches, previousScores) {
+  for (const m of matches) {
+    if (m.homeScore == null || m.awayScore == null) continue;
+    previousScores.set(m.id, liveScoreKey(m));
+  }
+}
+
+// Secousse la carte ENTIÈRE (pas juste la ligne du match), puis fait
+// traverser un ballon — un seul passage par cycle de rafraîchissement même
+// si plusieurs matchs suivis ont marqué en même temps (chaque match garde
+// quand même son propre flash vert individuel, voir liveRenderModule) : un
+// second ballon simultané n'ajouterait rien de lisible à l'effet.
+function liveTriggerGoalAnimation(container) {
+  const card = container.closest('.module-card');
+  if (!card) return;
+  card.classList.add('live-goal-shake');
+  setTimeout(() => {
+    card.classList.remove('live-goal-shake');
+    liveSpawnGoalBall(card);
+  }, LIVE_GOAL_SHAKE_MS);
+}
+
+// Ballon dans un conteneur dédié (`inset:0`, `overflow:hidden`) plutôt que
+// directement enfant de `.module-card` — celle-ci n'a par ailleurs aucun
+// `overflow:hidden` (nécessaire pour son propre contenu/dropdowns), un
+// ballon animé directement dedans déborderait donc visuellement sur les
+// cartes voisines au lieu de disparaître aux bords du module comme demandé.
+// Le conteneur est retiré du DOM à la fin de l'animation (setTimeout ==
+// durée CSS, voir style.css @keyframes liveGoalBallCross).
+function liveSpawnGoalBall(card) {
+  const track = document.createElement('div');
+  track.className = 'live-goal-ball-track';
+  track.innerHTML = '<span class="live-goal-ball">⚽</span>';
+  card.appendChild(track);
+  setTimeout(() => track.remove(), LIVE_GOAL_BALL_MS + 100);
+}
+
+// ─── Mode test caché "But !" (2026-08-31, sur demande explicite) ──────────
+// Ctrl+Shift+G simule un but sur la carte LIVE! (#module-live), QUE le
+// module affiche un vrai match en direct ou non. Réutilise TEL QUEL le
+// chemin RÉEL de détection/animation ci-dessus (liveRenderModule + goalIds +
+// liveTriggerGoalAnimation) avec un faux match complet plutôt que d'inventer
+// un 2e mécanisme d'affichage séparé — garantit que le test reproduit
+// EXACTEMENT ce qu'un vrai but déclenche (flash vert du score, secousse de
+// la carte, ballon), jamais une approximation qui pourrait diverger de
+// l'effet réel avec le temps. Volontairement SANS interface (aucun bouton,
+// aucune mention dans Paramètres, aucun log au-delà de la console) : outil
+// de vérification visuelle, pas une fonctionnalité pour l'utilisateur final
+// — "gardé caché" (repli explicitement proposé dans la demande ; cette app
+// n'a pas de pipeline de build distinct dev/prod qui permettrait de le
+// retirer à la compilation, voir index.html/renderer chargés en <script>
+// directs, sans bundler).
+function liveTestGoalMatch() {
+  return {
+    id: 'test-goal-simulation',
+    league: 'Test',
+    date: new Date(),
+    state: 'in',
+    detail: 'Simulation',
+    homeName: 'Équipe A',
+    homeScore: 1,
+    homeLogo: null,
+    awayName: 'Équipe B',
+    awayScore: 0,
+    awayLogo: null,
+    matchUrl: null,
+    needsUrlCheck: false,
+  };
+}
+
+function liveTriggerGoalTest() {
+  const container = document.getElementById('content-live');
+  if (!container) return; // module Live désactivé/carte absente — rien à simuler
+  console.log('[Live] Mode test — simulation de but déclenchée (Ctrl+Shift+G)');
+  const match = liveTestGoalMatch();
+  liveRenderModule(container, { matches: [match], isNext: false }, {}, new Set([match.id]));
+  liveTriggerGoalAnimation(container);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'G' || e.key === 'g')) {
+    e.preventDefault();
+    liveTriggerGoalTest();
+  }
+});
 
 window.MatinModules.live = {
   async render(container, config, _google, setBadge) {
@@ -548,6 +672,14 @@ window.MatinModules.live = {
       container.dataset.liveClickBound = '1';
     }
 
+    // Mémoire des scores (2026-09-01, sur demande explicite) — Map id → clé
+    // score, propre à CETTE instance de module (fermeture de render(), donc
+    // perdue au rechargement complet de la page, jamais persistée sur disque
+    // : demandé explicitement "en mémoire"). `hasScoreBaseline` évite de
+    // traiter le tout PREMIER rendu comme un but (voir liveDetectGoals).
+    const previousScores = new Map();
+    let hasScoreBaseline = false;
+
     // setTimeout auto-réajustable (PAS setInterval) : le délai change selon
     // qu'un match est en direct ou non (60s / 5min, demandé explicitement).
     let timerId = null;
@@ -560,7 +692,17 @@ window.MatinModules.live = {
           ? await liveFetchClub(club, champLabel)
           : await liveFetchLeague(championshipKey);
 
-        liveRenderModule(container, result, { club, championshipKey });
+        // Détection AVANT mise à jour de la mémoire (compare au score du
+        // cycle précédent), mémoire mise à jour juste après — dans cet
+        // ordre systématiquement, jamais l'inverse, sinon plus aucun but ne
+        // serait jamais détecté (le score "précédent" serait déjà le score
+        // courant au moment de la comparaison).
+        const goalIds = hasScoreBaseline ? liveDetectGoals(result.matches || [], previousScores) : new Set();
+        liveUpdateScoreMemory(result.matches || [], previousScores);
+        hasScoreBaseline = true;
+
+        liveRenderModule(container, result, { club, championshipKey }, goalIds);
+        if (goalIds.size) liveTriggerGoalAnimation(container);
         const liveCount = (result.matches || []).filter(m => m.state === 'in').length;
         setBadge(liveCount ? `🔴 ${liveCount}` : (result.matches?.length ? (result.isNext ? '📅' : `${result.matches.length}`) : '—'));
 

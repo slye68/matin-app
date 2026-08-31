@@ -359,34 +359,11 @@ function initThemeToggle() {
   });
 }
 
-// Grise/dégrise le switch Sombre/Clair selon l'état du mode auto (2026-08-31,
-// sur demande explicite, point 1 — "l'utilisateur ne doit pas pouvoir
-// basculer manuellement pendant que le mode auto pilote le thème").
-// Vérifie l'état ACTUEL de la case (pas encore forcément sauvegardé — voir
-// saveConfig) : retour visuel immédiat au clic, sans attendre Enregistrer.
-function syncThemeToggleDisabled() {
-  const themeToggle = document.getElementById('themeToggle');
-  const autoToggle = document.getElementById('autoBrightnessToggle');
-  const group = themeToggle?.closest('.theme-toggle-group');
-  if (!themeToggle || !autoToggle || !group) return;
-  const autoOn = autoToggle.checked;
-  group.classList.toggle('disabled', autoOn);
-  themeToggle.disabled = autoOn;
-}
-
 // ─── Profil (prénom affiché dans la barre de titre) ────────────────────────────
 async function initProfileSection() {
   const input = document.getElementById('firstNameInput');
   const current = await window.matin.store.get('app.firstName');
   input.value = current || '';
-
-  const autoBrightness = document.getElementById('autoBrightnessToggle');
-  // `undefined` sur une installation existante (voir main.js, `defaults` ne
-  // comble pas un champ manquant dans un objet `app` déjà présent sur disque)
-  // — traité comme "désactivé", même valeur que le défaut réel.
-  autoBrightness.checked = (await window.matin.store.get('app.autoBrightness')) === true;
-  syncThemeToggleDisabled();
-  autoBrightness.addEventListener('change', syncThemeToggleDisabled);
 }
 
 // ─── Profils — onglets compacts (2026-08-31, sur demande explicite) ────────
@@ -442,6 +419,7 @@ async function initProfileTabs() {
   });
 
   initProfileEditPanel();
+  initProfileSaveConfirm();
 }
 
 async function refreshProfileTabs() {
@@ -466,22 +444,51 @@ async function refreshProfileTabs() {
   }).join('');
 }
 
-// Confirmation d'écrasement (point 6 de la demande, texte EXACT demandé) —
-// capture enabled/layout de TOUS les modules + le thème actuel dans ce
-// profil (voir main.js saveProfileSnapshot), SANS toucher aux dispositions
-// Réorganiser ni à l'activation automatique déjà sauvegardées (chacune a sa
-// propre action dédiée : Réorganiser → Sauvegarder disposition N ; activation
-// automatique → panneau ✏️ ci-dessous).
-async function requestSaveProfile(key) {
+// Confirmation d'écrasement — capture enabled/layout de TOUS les modules +
+// le thème actuel dans ce profil (voir main.js saveProfileSnapshot), SANS
+// toucher aux dispositions Réorganiser ni à l'activation automatique déjà
+// sauvegardées (chacune a sa propre action dédiée : Réorganiser →
+// Sauvegarder disposition N ; activation automatique → panneau ✏️
+// ci-dessous).
+//
+// Popup dédiée (2026-08-31, 2e révision, sur demande explicite, remplace le
+// `confirm()` natif simple d'origine) — texte du rappel "cliquer
+// Enregistrer d'abord" EXACT demandé, posé une fois pour toutes dans
+// config.html (jamais recalculé ici, contrairement à la question
+// d'écrasement elle-même qui, elle, dépend du profil cliqué).
+let pendingProfileSaveKey = null;
+
+function requestSaveProfile(key) {
   const profile = profilesCache?.[key];
   const name = profileDisplayName(profile, key);
-  if (!confirm(`Écraser le profil « ${name} » ?`)) return;
-  try {
-    await window.matin.profiles.save(key, name);
-    await refreshProfileTabs();
-  } catch (err) {
-    console.error('[Config] Échec sauvegarde du profil', err);
-  }
+  pendingProfileSaveKey = key;
+  const text = document.getElementById('profileSaveConfirmText');
+  if (text) text.textContent = `Voulez-vous écraser le profil « ${name} » avec la configuration actuelle ?`;
+  document.getElementById('profileSaveConfirmOverlay')?.classList.add('open');
+}
+
+function closeProfileSaveConfirm() {
+  pendingProfileSaveKey = null;
+  document.getElementById('profileSaveConfirmOverlay')?.classList.remove('open');
+}
+
+function initProfileSaveConfirm() {
+  const overlay = document.getElementById('profileSaveConfirmOverlay');
+  document.getElementById('profileSaveConfirmCancel')?.addEventListener('click', closeProfileSaveConfirm);
+  overlay?.addEventListener('click', (e) => { if (e.target === overlay) closeProfileSaveConfirm(); });
+  document.getElementById('profileSaveConfirmOk')?.addEventListener('click', async () => {
+    const key = pendingProfileSaveKey;
+    closeProfileSaveConfirm();
+    if (!key) return;
+    const profile = profilesCache?.[key];
+    const name = profileDisplayName(profile, key);
+    try {
+      await window.matin.profiles.save(key, name);
+      await refreshProfileTabs();
+    } catch (err) {
+      console.error('[Config] Échec sauvegarde du profil', err);
+    }
+  });
 }
 
 // Panneau d'édition (renommer + activation automatique par jour) — ouvert
@@ -1553,16 +1560,21 @@ function renderPriceTrackingConfigSection(mod) {
   function renderItems() {
     listEl.innerHTML = '';
     items.forEach((item) => {
+      // Grille DÉDIÉE .price-tracking-config-row (2026-08-31, sur demande
+      // explicite — voir style.css) : plus .parcels-row générique, 5
+      // colonnes avec largeurs précises [Nom][Vendeur][URL][Prix cible][×].
       const row = document.createElement('div');
-      row.className = 'parcels-row';
+      row.className = 'price-tracking-config-row';
       row.innerHTML = `
         <input type="text" class="parcels-label-input" placeholder="Ex : Casque Bluetooth" value="${item.label || ''}">
+        <input type="text" class="price-tracking-vendor-input" placeholder="Ex : Fnac" value="${item.vendor || ''}">
         <input type="text" class="parcels-tracking-input" placeholder="URL du produit Marchand" value="${item.url || ''}">
-        <input type="number" min="0" step="0.01" class="price-tracking-target-input" placeholder="Prix cible €" value="${item.targetPrice ?? ''}">
+        <input type="number" min="0" step="0.01" class="price-tracking-target-input" placeholder="0.00" value="${item.targetPrice ?? ''}">
         <button type="button" class="row-delete-btn price-tracking-delete-btn" title="Supprimer ce produit">×</button>
       `;
 
       row.querySelector('.parcels-label-input').addEventListener('input', (e) => { item.label = e.target.value; });
+      row.querySelector('.price-tracking-vendor-input').addEventListener('input', (e) => { item.vendor = e.target.value; });
       row.querySelector('.parcels-tracking-input').addEventListener('input', (e) => { item.url = e.target.value.trim(); });
       row.querySelector('.price-tracking-target-input').addEventListener('input', (e) => {
         item.targetPrice = e.target.value === '' ? null : parseFloat(e.target.value);
@@ -1587,7 +1599,7 @@ function renderPriceTrackingConfigSection(mod) {
 
   addBtn.addEventListener('click', () => {
     if (items.length >= MAX_PRICE_TRACKING) return;
-    items.push({ label: '', url: '', targetPrice: null });
+    items.push({ label: '', vendor: '', url: '', targetPrice: null });
     renderItems();
     syncAddBtn();
   });
@@ -2987,24 +2999,6 @@ function updateSpotifyUI(spotifyData, statusOverride) {
 async function saveConfig() {
   const firstName = document.getElementById('firstNameInput').value.trim();
   await window.matin.store.set('app.firstName', firstName);
-
-  const autoBrightness = document.getElementById('autoBrightnessToggle').checked;
-  await window.matin.store.set('app.autoBrightness', autoBrightness);
-  // Point 3 de la demande (2026-08-31, "appliquer le bon thème
-  // immédiatement") : le dashboard le ferait de toute façon tout seul au
-  // rechargement déclenché par modules.update ci-dessous (voir
-  // dashboard.js initAutoBrightness), mais CETTE fenêtre (Paramètres) ne se
-  // recharge pas — sans cet appel elle resterait sur l'ancien thème jusqu'à
-  // sa prochaine ouverture.
-  if (autoBrightness) {
-    const hour = new Date().getHours();
-    await window.matin.theme.setAuto(hour >= 6 && hour < 21 ? 'light' : 'dark');
-  } else {
-    // Mode auto désactivé : retrouve le dernier choix MANUEL — `app.theme`
-    // n'est jamais écrasé par le mode auto (voir main.js app:applyAutoTheme).
-    const manualTheme = (await window.matin.store.get('app.theme')) || 'dark';
-    await window.matin.theme.set(manualTheme);
-  }
 
   await window.matin.modules.update(modulesState);
 

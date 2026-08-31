@@ -308,9 +308,11 @@ const store = new Store({
       startOnBoot: false,
       windowBounds: { width: 1400, height: 900 },
       firstName: '',
-      // Mode auto luminosité (2026-08-08, sur demande explicite) — voir
-      // dashboard.js pour la logique d'assombrissement par tranche horaire.
-      autoBrightness: false,
+      // Mode auto luminosité — SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur
+      // demande explicite (voir CONTEXT.md) : `autoBrightness` n'a plus
+      // d'usage, retiré des defaults (une installation existante qui
+      // porterait encore ce champ sur disque le garde, mais rien ne le lit
+      // plus nulle part — donnée orpheline inoffensive).
       // Fond personnalisé du dashboard (2026-08-11, sur demande explicite) —
       // voir app:setBackground plus bas. `undefined` sur une installation
       // existante (defaults ne comble pas un champ manquant dans un objet
@@ -611,7 +613,7 @@ function performProfileSwitch(key) {
 // semaine, pas de plage horaire : c'est le seul cas concret donné dans la
 // demande, "Weekend" activé samedi/dimanche) ────────────────────────────────
 const AUTO_SWITCH_DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // aligné sur Date.getDay() (0 = dimanche)
-const PROFILE_AUTOSWITCH_CHECK_MS = 15 * 60 * 1000; // même cadence que BRIGHTNESS_CHECK_MS (dashboard.js) pour un réglage du même ordre de grandeur (par tranche horaire/jour, pas seconde près)
+const PROFILE_AUTOSWITCH_CHECK_MS = 15 * 60 * 1000; // réglage par tranche horaire/jour, pas seconde près — pas besoin d'une cadence plus fine
 
 // Si un profil NON actif a l'activation auto activée pour AUJOURD'HUI, on y
 // bascule. Si les 2 profils la revendiquent pour le même jour (config
@@ -1863,25 +1865,12 @@ ipcMain.handle('shell:showItemInFolder', (_e, filePath) => { shell.showItemInFol
 // restauration automatique/Drive/manuelle survenue après le premier rendu.
 ipcMain.handle('userdata:isEmpty', () => isUserdataEmpty());
 
-// Mode auto luminosité (2026-08-31, sur demande explicite — redesign complet :
-// avant cette date, "mode auto" ne posait qu'un calque de dimming PAR-DESSUS
-// le thème choisi manuellement, jamais de vrai changement clair/sombre) :
-// clair 06h-21h (dont un calque de dimming subtil 18h-21h, voir
-// dashboard.js/style.css `.brightness-soiree`), sombre 21h-06h. Copie
-// minimale de la même fonction côté renderer (dashboard.js
-// `autoThemeForHour`) — même convention que REMINDER_ICONS plus haut (2
-// contextes JS séparés, main vs renderer, aucun mécanisme de partage de
-// module entre les deux dans cette app) : à garder synchronisée si la
-// tranche horaire change.
-function autoThemeForHour(h) {
-  return (h >= 6 && h < 21) ? 'light' : 'dark';
-}
-
-// Diffuse un thème à toutes les fenêtres SANS le persister dans
-// `app.theme` (voir app:applyAutoTheme plus bas) — extrait de l'ancien corps
-// de app:setTheme pour être réutilisable par les 2 chemins (choix manuel
-// PERSISTÉ vs calcul automatique NON persisté, qui ne doit jamais écraser le
-// dernier choix manuel de l'utilisateur, seulement l'affichage courant).
+// Mode auto luminosité — SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande
+// explicite (voir CONTEXT.md) : `autoThemeForHour` n'a plus d'usage, retirée.
+// `broadcastTheme` reste (utilisée par app:setTheme ET profiles:switch, voir
+// performProfileSwitch plus haut) — extraite à l'origine du corps de
+// app:setTheme pour être réutilisable par plusieurs chemins qui appliquent
+// un thème sans forcément le traiter comme LE dernier choix persisté.
 function broadcastTheme(safeTheme) {
   const { color, symbolColor } = titleBarColorsForTheme(safeTheme);
   for (const win of [mainWindow, configWindow]) {
@@ -1900,29 +1889,17 @@ function broadcastTheme(safeTheme) {
 // synchrone en tête de <head> — sans ça, le thème ne serait connu qu'après
 // un aller-retour IPC asynchrone, provoquant un flash visible du mauvais
 // thème à chaque lancement/rechargement.
-// Mode auto (2026-08-31, point 3 de la demande "jamais démarrer en sombre en
-// pleine journée") : si actif, calcule le thème depuis l'heure ACTUELLE
-// plutôt que de lire `app.theme` (qui reste le dernier choix MANUEL, ignoré
-// tant que le mode auto est actif) — dès la 1re peinture, jamais un flash du
-// mauvais thème le temps que dashboard.js fasse son propre calcul async.
+// Mode auto (calculait le thème depuis l'heure courante) SUPPRIMÉ le
+// 2026-08-31, sur demande explicite — `theme:getInitial` relit simplement
+// `app.theme`, comme avant l'introduction du mode auto.
 ipcMain.on('theme:getInitial', (event) => {
-  const auto = store.get('app.autoBrightness') === true;
-  event.returnValue = auto ? autoThemeForHour(new Date().getHours()) : (store.get('app.theme') || 'dark');
+  event.returnValue = store.get('app.theme') || 'dark';
 });
 
 ipcMain.handle('app:setTheme', (_e, theme) => {
   const safeTheme = theme === 'light' ? 'light' : 'dark'; // toute valeur inattendue retombe sur le défaut sombre
   safeStoreSet('app.theme', safeTheme);
   broadcastTheme(safeTheme);
-  return true;
-});
-
-// Choix AUTOMATIQUE (mode auto luminosité, voir dashboard.js
-// initAutoBrightness) — diffuse sans toucher `app.theme` : si l'utilisateur
-// désactive le mode auto plus tard, il doit retrouver son dernier choix
-// manuel tel quel, pas la dernière valeur que le mode auto avait calculée.
-ipcMain.handle('app:applyAutoTheme', (_e, theme) => {
-  broadcastTheme(theme === 'light' ? 'light' : 'dark');
   return true;
 });
 

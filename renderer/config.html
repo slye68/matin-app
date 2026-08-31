@@ -67,10 +67,14 @@
        switch dans l'ordre demandé ("🌙 Sombre / ☀️ Clair").
        `justify-content: space-between` (2026-08-10, sur demande explicite,
        remplace `flex-start`) : le bouton Sauvegardes rejoint cette ligne, à
-       l'extrême droite — `.theme-toggle-left` regroupe les 2 bascules à
-       gauche (porte désormais le `gap` qui vivait avant sur `.theme-toggle-row`
-       elle-même) pour que `space-between` n'écarte que ce groupe du bouton,
-       pas les 2 bascules entre elles. */
+       l'extrême droite.
+       REDESIGN 2026-08-31 (sur demande explicite) : la bascule Sombre/Clair
+       elle-même a déménagé DANS la popup "🎨 Affichage" (voir
+       #personnaliserModalOverlay, .theme-toggle-group y est réutilisée telle
+       quelle) — cette ligne ne contient plus que 2 boutons (Affichage à
+       gauche, Sauvegardes à droite), `.theme-toggle-left` (qui regroupait
+       les 2 anciennes bascules Sombre/Clair + Mode auto côte à côte) n'a
+       donc plus d'usage, retiré. */
     /* En-tête dégradé (2026-08-10, sur demande explicite) — s'étend sur
        .titlebar ET .theme-toggle-row (2 éléments empilés distincts, pas un
        seul conteneur : restructurer le DOM pour n'en faire qu'un aurait été
@@ -112,7 +116,6 @@
       background: linear-gradient(135deg, #1a2440 0%, #2d1b4e 50%, #1a3040 100%);
       border-bottom: 1px solid rgba(79, 142, 247, 0.3);
     }
-    .theme-toggle-left { display: flex; align-items: center; gap: 24px; }
     .theme-toggle-group { display: flex; align-items: center; gap: 10px; }
     .theme-toggle-row span {
       font-size: 12px;
@@ -330,16 +333,11 @@
       transform: translateX(16px);
       background: white;
     }
-    /* Sombre/Clair désactivés quand le mode auto est actif (2026-08-31, sur
-       demande explicite — le mode auto pilote désormais le thème lui-même,
-       voir dashboard.js applyAutoBrightness) : `.disabled` posée par
-       config.js (syncThemeToggleDisabled) sur le `.theme-toggle-group`
-       Sombre/Clair, jamais sur celui du mode auto lui-même (toujours
-       actionnable). `pointer-events: none` sur `.toggle` (pas sur le groupe
-       entier) pour garder le curseur `not-allowed` visible sur toute la
-       zone, y compris les libellés texte. */
-    .theme-toggle-group.disabled { opacity: 0.4; cursor: not-allowed; }
-    .theme-toggle-group.disabled .toggle { pointer-events: none; }
+    /* Mode auto (gating Sombre/Clair pendant qu'il pilotait le thème)
+       SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande explicite — voir
+       CONTEXT.md. `.theme-toggle-group.disabled` n'a plus d'usage
+       (syncThemeToggleDisabled, seul code qui la posait, retiré de
+       config.js), retiré. */
 
     /* Indices boursiers — un .toggle par indice (réutilise le composant
        ci-dessus tel quel), pas une simple case à cocher (sur demande
@@ -534,8 +532,28 @@
        = actif (.profile-tab-dot, gris sinon), ✏️/💾 séparés du corps
        cliquable de l'onglet (stopPropagation côté JS, voir config.js) pour
        ne jamais déclencher une bascule de profil par erreur en cliquant
-       dessus. */
-    .profile-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+       dessus.
+       Bandeau orange (2e révision, même jour, sur demande explicite) —
+       couleur EXACTE demandée (`rgba(249,115,22,0.15)` + bordure `#f97316`,
+       préférée à l'alternative solide `#7c3500` donnée en option : reste
+       lisible sur fond clair ET sombre grâce à la transparence, alors
+       qu'une couleur pleine calibrée pour le sombre aurait pu jurer en
+       thème clair). */
+    .profiles-banner {
+      background: rgba(249, 115, 22, 0.15);
+      border: 1px solid #f97316;
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .profiles-banner-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #f97316;
+      margin-bottom: 8px;
+    }
+    .profile-tabs { display: flex; gap: 8px; margin-bottom: 0; }
     .profile-tab {
       display: flex;
       align-items: center;
@@ -607,7 +625,23 @@
     .profile-days-presets { display: flex; gap: 8px; }
     .profile-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
-    /* Row 3 — "Bonjour" + prénom + Personnaliser sur une seule ligne. */
+    /* Confirmation de sauvegarde de profil (2026-08-31, 2e révision, sur
+       demande explicite) — réutilise .autoarrange-confirm-overlay/-modal/
+       -btn (style.css) pour le chrome de la popup, seuls l'icône et le
+       texte d'avertissement sont propres à cette popup. */
+    .profile-save-warning-icon { font-size: 32px; text-align: center; }
+    .profile-save-warning-text {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f97316;
+      text-align: center;
+      line-height: 1.4;
+      margin: 0;
+    }
+
+    /* Row 3 — "Bonjour" + prénom, une seule ligne (le bouton 🎨 Affichage qui
+       vivait ici a déménagé en Row 1, voir plus haut — .btn-pill n'a donc
+       plus d'usage, retiré). */
     .profil-row { display: flex; align-items: center; gap: 10px; }
     .profil-row-label { font-size: 13px; color: var(--text-secondary); flex-shrink: 0; }
     .profil-row-input {
@@ -624,18 +658,6 @@
       font-family: var(--font-ui);
     }
     .profil-row-input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
-    .btn-pill {
-      margin-left: auto;
-      padding: 7px 14px;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      color: var(--text-primary);
-      font-size: 12px;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .btn-pill:hover { background: var(--bg-hover); }
 
     /* Row 4 — comptes Gmail/Spotify en pills compactes (remplace les gros
        boutons Connecter/Déconnecter) : icône + nom + statut (email/"Non
@@ -684,13 +706,9 @@
     }
     .account-pill-link:hover { text-decoration: underline; }
 
-    /* Mode auto luminosité — déplacé dans .theme-toggle-row le 2026-08-10
-       (sur demande explicite, voir plus haut) : .profile-toggle-field n'a
-       plus d'usage, retiré. */
-
-    /* Google auth — .google-btn reste utilisé par #btnBackups (Row 1,
-       inchangée par le redesign) et la popup Personnaliser ; Gmail/Spotify/
-       Personnaliser sont passés à .btn-pill/.account-pill-link ci-dessus. */
+    /* Google auth — .google-btn reste utilisé par #btnBackups ET #btnPersonnaliser
+       (Row 1, "🎨 Affichage" — voir plus haut) ; Gmail/Spotify sont passés à
+       .account-pill/.account-pill-link ci-dessus. */
     .google-btn {
       display: flex;
       align-items: center;
@@ -1285,30 +1303,28 @@
   </header>
 
   <div class="config-wrap">
-    <!-- Ligne 1 — thème + mode auto (gauche) + Sauvegardes (droite), TOUT en
-         haut, hors onglets, toujours visible (2026-08-10, sur demande
-         explicite — Sauvegardes vivait avant dans une section dédiée sous
-         Profil, remontée ici sur la même ligne pour condenser la fenêtre).
-         Voir config.js (initThemeToggle/initProfileSection/
-         initBackupsSection) pour la bascule instantanée + la persistance. -->
+    <!-- Ligne 1 — Affichage (gauche) + Sauvegardes (droite), TOUT en haut,
+         hors onglets, toujours visible (2026-08-10, sur demande explicite —
+         Sauvegardes vivait avant dans une section dédiée sous Profil,
+         remontée ici sur la même ligne pour condenser la fenêtre).
+         REDESIGN 2026-08-31 (sur demande explicite) : les toggles Sombre/
+         Clair/Mode auto qui vivaient ici sont retirés — Sombre/Clair a migré
+         DANS la popup "🎨 Affichage" (ex-"Personnaliser", voir
+         #personnaliserModalOverlay plus bas), Mode auto est supprimé
+         entièrement (plus de toggle nulle part, voir CONTEXT.md pour le
+         détail de ce qui a été retiré côté dashboard.js/main.js/style.css).
+         Voir config.js (initPersonnaliserSection/initBackupsSection) pour la
+         bascule instantanée + la persistance. -->
     <div class="theme-toggle-row">
-      <div class="theme-toggle-left">
-        <div class="theme-toggle-group">
-          <span>🌙 Sombre</span>
-          <label class="toggle">
-            <input type="checkbox" id="themeToggle">
-            <span class="toggle-slider"></span>
-          </label>
-          <span>☀️ Clair</span>
-        </div>
-        <div class="theme-toggle-group" title="Ajuster la luminosité selon l'heure — assombrit progressivement le tableau de bord en soirée et la nuit.">
-          <span>🌅 Mode auto</span>
-          <label class="toggle">
-            <input type="checkbox" id="autoBrightnessToggle">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
+      <!-- 🎨 Affichage (ex-"Personnaliser", renommé le 2026-08-31 sur demande
+           explicite) — ouvre la popup thème + fond + mode d'affichage +
+           défilement automatique (voir #personnaliserModalOverlay plus bas).
+           id/fonctions JS internes gardent le nom "Personnaliser" (détail
+           d'implémentation invisible), seul le LIBELLÉ affiché change. -->
+      <button type="button" class="google-btn" id="btnPersonnaliser">
+        <span>🎨</span>
+        <span>Affichage</span>
+      </button>
       <!-- Sauvegardes — la liste ne reste plus affichée en permanence sur la
            page, ce bouton ouvre une popup (voir #backupsModalOverlay plus
            bas) peuplée à la volée par config.js (renderBackupsList). -->
@@ -1329,7 +1345,12 @@
          comptes Google/Spotify en pills compactes (remplace les 2 gros
          boutons Connecter/Déconnecter d'avant). -->
     <div class="config-profil">
-      <div class="profile-tabs" id="profileTabs"></div>
+      <!-- Bandeau orange (2026-08-31, sur demande explicite) — distingue
+           visuellement la zone Profils du reste de Paramètres. -->
+      <div class="profiles-banner">
+        <div class="profiles-banner-label">PROFILS</div>
+        <div class="profile-tabs" id="profileTabs"></div>
+      </div>
 
       <!-- Panneau d'édition d'un profil (renommer + activation automatique)
            — masqué par défaut (.open ajoutée par config.js), ouvert par le
@@ -1366,12 +1387,12 @@
         </div>
       </div>
 
+      <!-- Le bouton 🎨 Affichage vivait ici (id btnPersonnaliser) — déplacé
+           dans .theme-toggle-row en haut de la fenêtre le 2026-08-31, sur
+           demande explicite ("top left of Paramètres"). -->
       <div class="config-section profil-row">
         <span class="profil-row-label">Bonjour</span>
         <input type="text" id="firstNameInput" class="profil-row-input" placeholder="Ex : Sylvain" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
-        <!-- 🎨 Personnaliser (2026-08-11, sur demande explicite) — ouvre la
-             popup de choix de fond (#personnaliserModalOverlay plus bas). -->
-        <button type="button" class="btn-pill" id="btnPersonnaliser">🎨 Personnaliser</button>
       </div>
 
       <div class="config-section accounts-row">
@@ -1451,7 +1472,26 @@
        overlay/.open que la popup Sauvegardes ci-dessus. -->
   <div class="personnaliser-modal-overlay" id="personnaliserModalOverlay">
     <div class="personnaliser-modal">
-      <div class="personnaliser-modal-title">🎨 Personnaliser le fond</div>
+      <div class="personnaliser-modal-title">🎨 Affichage</div>
+
+      <!-- Thème clair/sombre (2026-08-31, sur demande explicite) — déménagé
+           ici depuis .theme-toggle-row (voir plus haut) : "Mode auto" (qui
+           vivait juste à côté) est supprimé entièrement, ce toggle est donc
+           TOUJOURS actionnable désormais (plus de `.disabled` possible).
+           #themeToggle garde le même id — voir config.js initThemeToggle,
+           aucun changement JS nécessaire, seul son emplacement dans le DOM
+           change. -->
+      <div class="personnaliser-section-title">Thème</div>
+      <div class="theme-toggle-group">
+        <span>🌙 Sombre</span>
+        <label class="toggle">
+          <input type="checkbox" id="themeToggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span>☀️ Clair</span>
+      </div>
+
+      <div class="personnaliser-section-title">Fond du dashboard</div>
       <div class="personnaliser-options" id="personnaliserOptions"></div>
 
       <!-- Mode d'affichage (2026-08-23, sur demande explicite) — s'applique
@@ -1492,6 +1532,23 @@
       </div>
 
       <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>
+    </div>
+  </div>
+
+  <!-- Confirmation de sauvegarde de profil (2026-08-31, 2e révision, sur
+       demande explicite) — remplace le `confirm()` natif simple d'origine :
+       ⚠️ + rappel EXACT demandé (cliquer "Enregistrer" d'abord) en orange
+       gras, PUIS la question d'écrasement elle-même en dessous, en texte
+       normal. Voir config.js requestSaveProfile/initProfileSaveConfirm. -->
+  <div class="autoarrange-confirm-overlay" id="profileSaveConfirmOverlay">
+    <div class="autoarrange-confirm-modal">
+      <div class="profile-save-warning-icon">⚠️</div>
+      <p class="profile-save-warning-text">⚠️ Important : Avant de sauvegarder, assurez-vous d'avoir cliqué sur « Enregistrer » dans les Paramètres pour valider vos changements.</p>
+      <p class="autoarrange-confirm-text" id="profileSaveConfirmText"></p>
+      <div class="autoarrange-confirm-actions">
+        <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="profileSaveConfirmOk">✅ Sauvegarder</button>
+        <button type="button" class="autoarrange-confirm-btn" id="profileSaveConfirmCancel">Annuler</button>
+      </div>
     </div>
   </div>
 
