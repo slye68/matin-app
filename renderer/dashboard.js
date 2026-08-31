@@ -199,6 +199,11 @@ function resolveRendererKey(key) {
 function isAutoHeightKey(key) {
   if (key === 'etf' || key === 'crypto') return true;
   if (key === 'fdjLoto' || key === 'fdjEuromillions' || key === 'fdjEurodreams') return true;
+  // Hue (2026-08-31, sur demande explicite, "même comportement qu'ETF et
+  // FDJ") — la carte doit grandir/rétrécir avec le repli/dépli de "Toutes
+  // mes pièces" (voir hue.js), au lieu de rester à taille fixe avec un
+  // défilement interne.
+  if (key === 'hue') return true;
   return isPretsKey(key);
 }
 function resolveModuleTitle(key, meta, config) {
@@ -2086,6 +2091,39 @@ function initAutoScroll() {
   }).catch(err => console.error('[Matin] Échec lecture préférence défilement automatique', err));
 }
 
+// ─── Sélecteur de profil — titrebar (2026-08-31, sur demande explicite,
+// "à côté de Paramètres") ────────────────────────────────────────────────
+// Bouton unique qui bascule INSTANTANÉMENT entre les 2 profils au clic
+// (main.js profiles:switch applique modules/thème puis diffuse
+// 'modules:updated', déjà écouté ailleurs dans ce fichier pour un
+// `location.reload()` — la bascule se traduit donc par un simple
+// rechargement, comme tout autre changement structurel de modules). Le
+// libellé du bouton ("👤 <nom du profil actif>") n'a besoin d'être peuplé
+// qu'une fois à l'ouverture : un `location.reload()` survient de toute façon
+// à chaque bascule, qui réexécute cette même fonction et relit le nom à jour.
+function initProfileSwitcher() {
+  const btn = document.getElementById('btnProfileSwitch');
+  if (!btn) return;
+
+  window.matin.profiles.getAll().then((profiles) => {
+    const active = profiles?.[profiles.active];
+    btn.textContent = `👤 ${active?.name || 'Profil'}`;
+
+    btn.addEventListener('click', () => {
+      const nextKey = profiles.active === 'profile2' ? 'profile1' : 'profile2';
+      btn.disabled = true;
+      window.matin.profiles.switch(nextKey)
+        .catch(err => {
+          console.error('[Matin] Échec changement de profil', err);
+          btn.disabled = false;
+        });
+      // Pas de réactivation du bouton en cas de succès : le
+      // `location.reload()` déclenché par 'modules:updated' (voir onUpdated
+      // plus bas) recharge toute la fenêtre de toute façon.
+    });
+  }).catch(err => console.error('[Matin] Échec lecture des profils', err));
+}
+
 // ─── Sync Google Drive — indicateur titlebar (2026-08-21, voir main.js
 // performDriveLaunchSync/scheduleDriveUploadAfterChange) ───────────────────
 // Purement cosmétique : la synchronisation elle-même tourne entièrement côté
@@ -2178,6 +2216,7 @@ async function initDashboard() {
   initMissingDataWarning();
   initPreciseScrolling();
   initAutoScroll();
+  initProfileSwitcher();
 
   // Restauration automatique au lancement (voir main.js
   // autoRestoreUserdataIfEmpty, 2026-08-10) — une notification native a déjà
@@ -2392,29 +2431,34 @@ async function initDashboard() {
   });
 
   // ─── Emplacements de disposition sauvegardés ("💾 Sauvegarder disposition
-  // 1/2" / "📂 Charger disposition 1/2", 2026-08-31 sur demande explicite) —
-  // 2 emplacements fixes, stockés dans matin-userdata (voir main.js
-  // layoutSlots:get/save, synchronisé automatiquement via Drive comme le
-  // reste de userdata). `layoutSlotsCache` reflète le dernier layoutSlots:get
-  // connu, rafraîchi à chaque ouverture de la popup "⊞ Réorganiser" (voir
-  // btnAutoArrange ci-dessus) pour peupler dates/état des boutons Charger.
+  // 1/2" / "📂 Charger disposition 1/2", 2026-08-31 sur demande explicite ;
+  // noms personnalisés ajoutés le même jour, 2e révision, toujours sur
+  // demande explicite) — 2 emplacements fixes, stockés dans matin-userdata
+  // (voir main.js layoutSlots:get/save, synchronisé automatiquement via
+  // Drive comme le reste de userdata). `layoutSlotsCache` reflète le dernier
+  // layoutSlots:get connu, rafraîchi à chaque ouverture de la popup
+  // "⊞ Réorganiser" (voir btnAutoArrange ci-dessus) pour peupler noms/dates/
+  // état des boutons Charger.
   let layoutSlotsCache = {};
 
   function formatLayoutSlotDate(iso) {
     return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
   }
 
+  // Le bouton "Charger" porte lui-même le nom + la date une fois
+  // l'emplacement sauvegardé (ex. "📂 Charger : Sport — sauvegardée le 30
+  // août") — plus de libellé générique "Disposition 1" séparé au-dessus dès
+  // qu'un nom existe, voir index.html (2e révision, plus de <span> dédié).
   function refreshLayoutSlotsUI() {
     for (const slot of [1, 2]) {
       const entry = layoutSlotsCache[slot];
-      const label = document.getElementById(`layoutSlot${slot}Label`);
       const loadBtn = document.getElementById(`layoutSlotLoad${slot}`);
-      if (label) {
-        label.textContent = entry
-          ? `Disposition ${slot} — sauvegardée le ${formatLayoutSlotDate(entry.savedAt)}`
-          : `Disposition ${slot} — non sauvegardée`;
+      if (loadBtn) {
+        loadBtn.textContent = entry
+          ? `📂 Charger : ${entry.name || `Disposition ${slot}`} — sauvegardée le ${formatLayoutSlotDate(entry.savedAt)}`
+          : `📂 Charger disposition ${slot}`;
+        loadBtn.disabled = !entry;
       }
-      if (loadBtn) loadBtn.disabled = !entry;
     }
   }
 
@@ -2448,11 +2492,11 @@ async function initDashboard() {
     return layout;
   }
 
-  async function saveLayoutSlot(slot) {
+  async function saveLayoutSlot(slot, name) {
     const cards = Array.from(canvas.querySelectorAll('.module-card'));
     if (!cards.length) return;
     try {
-      layoutSlotsCache[slot] = await window.matin.layoutSlots.save(slot, snapshotCurrentLayout(cards));
+      layoutSlotsCache[slot] = await window.matin.layoutSlots.save(slot, snapshotCurrentLayout(cards), name);
       refreshLayoutSlotsUI();
     } catch (err) {
       console.error('[Matin] Échec sauvegarde de la disposition', err);
@@ -2475,23 +2519,42 @@ async function initDashboard() {
     const notice = document.getElementById('autoArrangeNotice');
     if (notice) {
       const text = document.getElementById('autoArrangeNoticeText');
-      if (text) text.textContent = `✓ Disposition ${slot} restaurée`;
+      if (text) text.textContent = `✓ Disposition « ${entry.name || `Disposition ${slot}`} » restaurée`;
       notice.classList.add('show');
       clearTimeout(notice._hideTimer);
       notice._hideTimer = setTimeout(() => notice.classList.remove('show'), 2000);
     }
   }
 
-  const layoutSlotOverwriteOverlay = document.getElementById('layoutSlotOverwriteOverlay');
-  let pendingLayoutSlotSave = null; // emplacement en attente de confirmation d'écrasement
+  // Dialogue de nommage (2026-08-31, 2e révision, sur demande explicite) —
+  // remplace l'ancienne confirmation d'écrasement "brute" : s'ouvre à
+  // CHAQUE clic sur "💾 Sauvegarder disposition N" (pas seulement en cas
+  // d'écrasement), pré-remplie avec le nom déjà sauvegardé sur cet
+  // emplacement s'il y en a un, vide sinon. Ne sauvegarde QUE sur
+  // "💾 Enregistrer" (ni Annuler, ni clic hors modale, ni Échap) — voir
+  // layoutSlotNameConfirm plus bas. Un nom vide retombe sur "Disposition N"
+  // côté layoutSlotNameConfirm, jamais ici (main.js stocke `name` tel quel).
+  const layoutSlotNameOverlay = document.getElementById('layoutSlotNameOverlay');
+  const layoutSlotNameInput = document.getElementById('layoutSlotNameInput');
+  let pendingLayoutSlotSave = null; // emplacement en attente de nommage
 
   function requestSaveLayoutSlot(slot) {
-    const entry = layoutSlotsCache[slot];
-    if (!entry) { saveLayoutSlot(slot); return; } // emplacement vide — aucune confirmation nécessaire
     pendingLayoutSlotSave = slot;
-    const text = document.getElementById('layoutSlotOverwriteText');
-    if (text) text.textContent = `Écraser la disposition ${slot} ? Cette action remplacera la disposition sauvegardée le ${formatLayoutSlotDate(entry.savedAt)}.`;
-    layoutSlotOverwriteOverlay?.classList.add('open');
+    if (layoutSlotNameInput) layoutSlotNameInput.value = layoutSlotsCache[slot]?.name || '';
+    layoutSlotNameOverlay?.classList.add('open');
+    layoutSlotNameInput?.focus();
+  }
+
+  function closeLayoutSlotNameDialog() {
+    pendingLayoutSlotSave = null;
+    layoutSlotNameOverlay?.classList.remove('open');
+  }
+
+  function confirmLayoutSlotName() {
+    if (pendingLayoutSlotSave == null) return;
+    const name = (layoutSlotNameInput?.value || '').trim() || `Disposition ${pendingLayoutSlotSave}`;
+    saveLayoutSlot(pendingLayoutSlotSave, name);
+    closeLayoutSlotNameDialog();
   }
 
   document.getElementById('layoutSlotSave1')?.addEventListener('click', () => requestSaveLayoutSlot(1));
@@ -2508,20 +2571,16 @@ async function initDashboard() {
     loadLayoutSlot(2);
   });
 
-  document.getElementById('layoutSlotOverwriteCancel')?.addEventListener('click', () => {
-    pendingLayoutSlotSave = null;
-    layoutSlotOverwriteOverlay?.classList.remove('open');
+  document.getElementById('layoutSlotNameCancel')?.addEventListener('click', closeLayoutSlotNameDialog);
+  layoutSlotNameOverlay?.addEventListener('click', (e) => {
+    if (e.target === layoutSlotNameOverlay) closeLayoutSlotNameDialog();
   });
-  layoutSlotOverwriteOverlay?.addEventListener('click', (e) => {
-    if (e.target === layoutSlotOverwriteOverlay) {
-      pendingLayoutSlotSave = null;
-      layoutSlotOverwriteOverlay.classList.remove('open');
-    }
-  });
-  document.getElementById('layoutSlotOverwriteConfirm')?.addEventListener('click', () => {
-    layoutSlotOverwriteOverlay?.classList.remove('open');
-    if (pendingLayoutSlotSave != null) saveLayoutSlot(pendingLayoutSlotSave);
-    pendingLayoutSlotSave = null;
+  document.getElementById('layoutSlotNameConfirm')?.addEventListener('click', confirmLayoutSlotName);
+  // Entrée valide (équivalent clic "Enregistrer"), Échap annule — confort
+  // clavier standard d'un champ de saisie unique dans une modale.
+  layoutSlotNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmLayoutSlotName(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeLayoutSlotNameDialog(); }
   });
 
   // Bouton config

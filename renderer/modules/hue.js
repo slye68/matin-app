@@ -136,67 +136,38 @@ function hueSetupPromptHtml() {
     </div>`;
 }
 
-// ─── Sections repliables par pièce (2026-08-31, sur demande explicite,
-// "comme les modules FDJ") ───────────────────────────────────────────────
-// "Salon · 3 lampes · Allumées" — `lightCount` vient de hue:getGroups (mode
-// pont uniquement, voir main.js : `g.lights.length` de l'API REST v1 du
-// pont) ; `null` en mode cloud (CLIP v2 grouped_light n'expose pas
-// directement le nombre de lampes de la pièce sans un appel supplémentaire
-// au endpoint "room" — non ajouté ici pour ne pas alourdir un chemin cloud
-// déjà non vérifié en conditions réelles, voir en-tête du fichier) : le
-// segment "N lampes" est alors simplement omis plutôt que d'afficher un
-// nombre inventé.
-function hueGroupStatusLabel(group) {
-  const status = group.allOn ? 'Allumées' : (group.on ? 'Partiellement allumées' : 'Éteintes');
-  const countLabel = group.lightCount != null ? `${group.lightCount} lampe${group.lightCount > 1 ? 's' : ''} · ` : '';
-  return `${countLabel}${status}`;
-}
+// ─── Section repliable UNIQUE "Toutes mes pièces" (2026-08-31, sur demande
+// explicite — remplace le repli PAR PIÈCE de la révision précédente du même
+// jour : "pas de repli individuel par pièce, un seul repli global") ────────
+// Un seul état replié/déplié pour TOUTE la liste des pièces, pas un par
+// pièce — même mécanique que le module Prêts (grid-template-rows 0fr→1fr +
+// rotation du chevron, voir style.css), mais appliquée UNE fois ici plutôt
+// que répétée par pièce.
 
-// `collapsed` = état RÉEL de CETTE pièce (déjà résolu par l'appelant à
-// partir de `config.collapsed[group.id]`, voir render ci-dessous) — repliée
-// par défaut (aucune préférence enregistrée), comme les sections repliables
-// de Paramètres et le module Prêts (voir leur commentaire respectif).
-function hueRoomSectionHtml(group, mode, collapsed) {
-  return `
-    <div class="hue-room${collapsed ? ' hue-room-collapsed' : ''}" data-room-id="${group.id}">
-      <div class="hue-room-header">
-        <span class="hue-room-chevron">▶</span>
-        <span class="hue-room-name" title="${group.name}">${group.name}</span>
-        <span class="hue-room-summary">${hueGroupStatusLabel(group)}</span>
-      </div>
-      <div class="hue-room-body">
-        <div class="hue-room-body-inner">
-          ${hueGroupRowHtml(group, mode)}
-        </div>
-      </div>
-    </div>`;
-}
-
-// Repli/dépli d'une pièce — PUREMENT CSS/JS local (même principe que
-// prets.js pretsScheduleCollapsedSave : un re-render/reload complet à chaque
-// clic sur une flèche serait perceptible et inutile). Persisté PAR PIÈCE
-// dans `modules.hue.config.collapsed` — contrairement à Prêts (1 seul
-// booléen par groupe/carte), c'est ici un OBJET `{ [roomId]: boolean }` : le
-// canal `modules:updateCollapsed` (voir main.js) fusionne tel quel n'importe
-// quelle valeur reçue dans `config.collapsed`, donc aucun changement côté
-// process main n'est nécessaire pour ce changement de FORME (booléen → objet)
-// — seul ce module en tient compte au rendu.
+// Repli/dépli — PUREMENT CSS/JS local (même principe que prets.js
+// pretsScheduleCollapsedSave : un re-render/reload complet à chaque clic
+// sur la flèche serait perceptible et inutile). Persisté dans
+// `modules.hue.config.collapsed` (booléen simple, comme Prêts — plus un
+// objet par pièce depuis qu'il n'y a plus qu'UN SEUL état à retenir) via le
+// canal silencieux `modules:updateCollapsed` (voir main.js), débounce
+// 500ms pour ne pas écrire sur le disque à chaque clic si l'utilisateur
+// replie/déplie plusieurs fois de suite.
 const HUE_COLLAPSE_SAVE_DEBOUNCE_MS = 500;
-let huePendingCollapseSave = null; // { timer, value } — `value` = la carte ENTIÈRE {roomId: bool}, pas juste la pièce qui vient de changer
+let huePendingCollapseSave = null; // { timer, value }
 let hueFlushOnCloseRegistered = false;
 
-function hueSaveCollapsedNow(instanceKey, collapsedMap) {
-  window.matin.modules.updateCollapsed(instanceKey, collapsedMap)
+function hueSaveCollapsedNow(instanceKey, collapsed) {
+  window.matin.modules.updateCollapsed(instanceKey, collapsed)
     .catch(err => console.error('[Hue] Échec sauvegarde état replié/déplié', err));
 }
 
-function hueScheduleCollapsedSave(instanceKey, collapsedMap) {
+function hueScheduleCollapsedSave(instanceKey, collapsed) {
   if (huePendingCollapseSave) clearTimeout(huePendingCollapseSave.timer);
   const timer = setTimeout(() => {
     huePendingCollapseSave = null;
-    hueSaveCollapsedNow(instanceKey, collapsedMap);
+    hueSaveCollapsedNow(instanceKey, collapsed);
   }, HUE_COLLAPSE_SAVE_DEBOUNCE_MS);
-  huePendingCollapseSave = { timer, value: collapsedMap };
+  huePendingCollapseSave = { timer, value: collapsed };
 }
 
 // Enregistré UNE SEULE FOIS (pas à chaque render()) : vide un debounce encore
@@ -231,7 +202,9 @@ window.MatinModules.hue = {
     // pour rester cohérent si ce module devenait multi-instance un jour.
     const instanceKey = (container.id || '').replace('content-', '') || 'hue';
     hueEnsureFlushOnClose(instanceKey);
-    const collapsedMap = (config?.collapsed && typeof config.collapsed === 'object') ? config.collapsed : {};
+    // Repliée par défaut (aucune préférence enregistrée) — seul `false`
+    // explicite déplie, même convention que Prêts.
+    const collapsed = config?.collapsed !== false;
 
     const bridgeIp = config?.bridgeIp?.trim();
     const username = config?.username?.trim();
@@ -257,7 +230,17 @@ window.MatinModules.hue = {
             <button type="button" class="hue-bulk-btn hue-bulk-on">💡 Tout allumer</button>
             <button type="button" class="hue-bulk-btn hue-bulk-off">🌑 Tout éteindre</button>
           </div>
-          <div class="hue-groups">${groups.map((g) => hueRoomSectionHtml(g, mode, collapsedMap[g.id] !== false)).join('')}</div>
+          <div class="hue-rooms${collapsed ? ' hue-rooms-collapsed' : ''}">
+            <div class="hue-rooms-toggle">
+              <span class="hue-rooms-toggle-label">Toutes mes pièces</span>
+              <span class="hue-rooms-chevron">▶</span>
+            </div>
+            <div class="hue-rooms-body">
+              <div class="hue-rooms-body-inner">
+                <div class="hue-groups">${groups.map((g) => hueGroupRowHtml(g, mode)).join('')}</div>
+              </div>
+            </div>
+          </div>
         </div>`;
 
       container.querySelectorAll('.hue-group-row').forEach((row) => hueBindGroupRow(row, setState));
@@ -279,14 +262,11 @@ window.MatinModules.hue = {
       // Repli/dépli — bascule locale PURE (classList, voir style.css pour
       // l'animation), aucun re-render, aucune écriture disque synchrone
       // (voir hueScheduleCollapsedSave).
-      container.querySelectorAll('.hue-room').forEach((roomEl) => {
-        const roomId = roomEl.dataset.roomId;
-        roomEl.querySelector('.hue-room-header').addEventListener('click', () => {
-          const nowCollapsed = roomEl.classList.toggle('hue-room-collapsed');
-          collapsedMap[roomId] = nowCollapsed;
-          config.collapsed = collapsedMap; // reflet mémoire pour un futur re-render (ex. Tout allumer)
-          hueScheduleCollapsedSave(instanceKey, collapsedMap);
-        });
+      const roomsEl = container.querySelector('.hue-rooms');
+      container.querySelector('.hue-rooms-toggle').addEventListener('click', () => {
+        const nowCollapsed = roomsEl.classList.toggle('hue-rooms-collapsed');
+        config.collapsed = nowCollapsed; // reflet mémoire pour un futur re-render (ex. Tout allumer)
+        hueScheduleCollapsedSave(instanceKey, nowCollapsed);
       });
 
       const onCount = groups.filter(g => g.on).length;

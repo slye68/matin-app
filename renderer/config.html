@@ -529,22 +529,90 @@
     .monequipe-upcoming-score-input:focus { outline: none; border-color: var(--accent); }
     .monequipe-upcoming-score-hint { font-size: 10px; color: var(--text-muted); font-style: italic; }
 
-    /* Profil */
-    .profile-field {
+    /* Profil — redesign complet (2026-08-31, sur demande explicite, "for
+       clarity and compactness"). Onglets de profil compacts : point coloré
+       = actif (.profile-tab-dot, gris sinon), ✏️/💾 séparés du corps
+       cliquable de l'onglet (stopPropagation côté JS, voir config.js) pour
+       ne jamais déclencher une bascule de profil par erreur en cliquant
+       dessus. */
+    .profile-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+    .profile-tab {
       display: flex;
       align-items: center;
-      gap: 10px;
-    }
-    .profile-field label {
-      font-size: 12px;
+      gap: 6px;
+      padding: 6px 10px;
+      background: var(--bg-panel-alt);
+      border: 1.5px solid var(--border);
+      border-radius: 99px;
       color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .profile-tab:hover { background: var(--bg-hover); }
+    .profile-tab.active { border-color: var(--accent); color: var(--text-primary); }
+    .profile-tab-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
       flex-shrink: 0;
     }
-    .profile-field input {
-      /* Largeur figée à 150px (2026-08-10, sur demande explicite — remplace
-         `flex:1`, qui étirait le champ sur toute la largeur de la fenêtre
-         pour 20 caractères max) plutôt qu'un pourcentage : un prénom ne
-         justifie pas un champ pleine largeur. */
+    .profile-tab.active .profile-tab-dot { background: var(--accent-green); }
+    .profile-tab-name { font-weight: 600; }
+    .profile-tab-edit, .profile-tab-save {
+      opacity: 0.6;
+      padding: 2px;
+      border-radius: var(--radius-sm);
+    }
+    .profile-tab-edit:hover, .profile-tab-save:hover { opacity: 1; background: var(--bg-panel); }
+
+    /* Panneau d'édition (renommer + activation automatique) — masqué par
+       défaut, ouvert par le ✏️ d'un onglet (voir config.js). */
+    .profile-edit-panel {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .profile-edit-panel.open { display: flex; }
+    .profile-edit-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+    .profile-edit-row label { font-size: 12px; color: var(--text-secondary); }
+    .profile-edit-row input[type="text"] {
+      flex: 1;
+      background: var(--bg-base);
+      border: 1.5px solid var(--text-secondary);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .profile-edit-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    .profile-days-row { display: flex; gap: 4px; }
+    .profile-day-btn {
+      flex: 1;
+      padding: 5px 0;
+      background: var(--bg-panel);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .profile-day-btn.active { border-color: var(--accent); color: var(--text-primary); background: var(--bg-hover); }
+    .profile-days-presets { display: flex; gap: 8px; }
+    .profile-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* Row 3 — "Bonjour" + prénom + Personnaliser sur une seule ligne. */
+    .profil-row { display: flex; align-items: center; gap: 10px; }
+    .profil-row-label { font-size: 13px; color: var(--text-secondary); flex-shrink: 0; }
+    .profil-row-input {
+      /* 150px (demandé explicitement) : un prénom ne justifie pas un champ
+         pleine largeur. */
       flex: none;
       width: 150px;
       background: var(--bg-base);
@@ -555,23 +623,74 @@
       color: var(--text-primary);
       font-family: var(--font-ui);
     }
-    .profile-field input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
-    .profile-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+    .profil-row-input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
+    .btn-pill {
+      margin-left: auto;
+      padding: 7px 14px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-pill:hover { background: var(--bg-hover); }
 
-    /* Comptes Google/Spotify côte à côte, même largeur (2026-08-10, sur
-       demande explicite — remplace 2 sections empilées pleine largeur) :
-       `.accounts-row` porte déjà `.config-section` pour l'espacement
-       standard, `.accounts-col` (flex:1 chacune) répartit l'espace à parts
-       égales, `.accounts-btn` étire le bouton à la largeur de sa colonne. */
+    /* Row 4 — comptes Gmail/Spotify en pills compactes (remplace les gros
+       boutons Connecter/Déconnecter) : icône + nom + statut (email/"Non
+       connecté", ✓ vert si connecté) + petit lien texte (pas un bouton) pour
+       connecter/déconnecter. `.accounts-row`/`.accounts-col` réutilisées
+       telles quelles pour le côte-à-côte (voir plus haut, inchangées). */
     .accounts-row { display: flex; gap: 12px; }
-    .accounts-col { flex: 1; min-width: 0; }
-    .accounts-btn { width: 100%; justify-content: center; }
+    .account-pill {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+    }
+    .account-pill-icon {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: var(--bg-panel);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .account-pill-name { font-size: 12px; font-weight: 600; color: var(--text-primary); flex-shrink: 0; }
+    .account-pill-status {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .account-pill-link {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--accent);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .account-pill-link:hover { text-decoration: underline; }
 
     /* Mode auto luminosité — déplacé dans .theme-toggle-row le 2026-08-10
        (sur demande explicite, voir plus haut) : .profile-toggle-field n'a
        plus d'usage, retiré. */
 
-    /* Google auth */
+    /* Google auth — .google-btn reste utilisé par #btnBackups (Row 1,
+       inchangée par le redesign) et la popup Personnaliser ; Gmail/Spotify/
+       Personnaliser sont passés à .btn-pill/.account-pill-link ci-dessus. */
     .google-btn {
       display: flex;
       align-items: center;
@@ -586,11 +705,6 @@
       transition: background 0.15s;
     }
     .google-btn:hover { background: var(--bg-hover); }
-    .google-status {
-      font-size: 11px;
-      color: var(--text-secondary);
-      margin-top: 8px;
-    }
 
     /* Sauvegardes (2026-08-10) */
     .backups-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1205,45 +1319,73 @@
     </div>
 
     <!-- Profil — toujours visible, hors onglets (2026-08-06, sur demande
-         explicite). Ligne 2 : prénom (champ resserré, 2026-08-10, sur demande
-         explicite — maxlength 20/largeur 150px, plus l'input pleine largeur
-         d'avant). Ligne 3 : comptes Google/Spotify condensés côte à côte
-         (2026-08-10, sur demande explicite — remplace 2 sections empilées,
-         chacune avec son propre titre "Compte Google"/"Compte Spotify" ;
-         titres retirés, redondants avec le texte du bouton lui-même). -->
+         explicite ; redesign complet le 2026-08-31, sur demande explicite,
+         "for clarity and compactness"). Row 2 : onglets de profil compacts
+         (voir config.js initProfileTabs, main.js profiles:*) — cliquer bascule
+         de profil, ✏️ ouvre le panneau d'édition (renommer + activation
+         automatique par jour), 💾 sauvegarde l'état actuel dans ce profil.
+         Row 3 : "Bonjour" + prénom + Personnaliser sur UNE seule ligne
+         (remplace l'ancienne section "Profil" empilée sur 3 lignes). Row 4 :
+         comptes Google/Spotify en pills compactes (remplace les 2 gros
+         boutons Connecter/Déconnecter d'avant). -->
     <div class="config-profil">
-      <div class="config-section">
-        <div class="config-section-title-row">
-          <div class="config-section-title">Profil</div>
-          <!-- 🎨 Personnaliser (2026-08-11, sur demande explicite) — ouvre la
-               popup de choix de fond (#personnaliserModalOverlay plus bas),
-               même style/mécanisme que le bouton Sauvegardes. -->
-          <button type="button" class="google-btn" id="btnPersonnaliser">
-            <span>🎨</span>
-            <span>Personnaliser</span>
-          </button>
+      <div class="profile-tabs" id="profileTabs"></div>
+
+      <!-- Panneau d'édition d'un profil (renommer + activation automatique)
+           — masqué par défaut (.open ajoutée par config.js), ouvert par le
+           ✏️ d'un onglet ci-dessus, scopé au profil dont l'id est retenu
+           dans `profileEditPanel.dataset.profileKey`. -->
+      <div class="profile-edit-panel" id="profileEditPanel">
+        <div class="profile-edit-row">
+          <label for="profileEditNameInput">Nom du profil</label>
+          <input type="text" id="profileEditNameInput" maxlength="24" placeholder="Ex : Semaine">
         </div>
-        <div class="profile-field">
-          <label for="firstNameInput">Votre prénom</label>
-          <input type="text" id="firstNameInput" placeholder="Ex : Sylvain" maxlength="20">
+        <div class="profile-edit-row">
+          <span>Activer automatiquement</span>
+          <label class="toggle">
+            <input type="checkbox" id="profileAutoSwitchToggle">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
-        <div class="profile-hint">Affiché dans la barre de titre ("Bonjour [Prénom]"). Laissez vide pour ne rien afficher.</div>
+        <div class="profile-days-row" id="profileDaysRow">
+          <button type="button" class="profile-day-btn" data-day="mon">Lun</button>
+          <button type="button" class="profile-day-btn" data-day="tue">Mar</button>
+          <button type="button" class="profile-day-btn" data-day="wed">Mer</button>
+          <button type="button" class="profile-day-btn" data-day="thu">Jeu</button>
+          <button type="button" class="profile-day-btn" data-day="fri">Ven</button>
+          <button type="button" class="profile-day-btn" data-day="sat">Sam</button>
+          <button type="button" class="profile-day-btn" data-day="sun">Dim</button>
+        </div>
+        <div class="profile-days-presets">
+          <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekdays">Lun-Ven</button>
+          <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekend">Sam-Dim</button>
+        </div>
+        <div class="profile-edit-actions">
+          <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="profileEditSave">Enregistrer</button>
+          <button type="button" class="autoarrange-confirm-btn" id="profileEditCancel">Fermer</button>
+        </div>
+      </div>
+
+      <div class="config-section profil-row">
+        <span class="profil-row-label">Bonjour</span>
+        <input type="text" id="firstNameInput" class="profil-row-input" placeholder="Ex : Sylvain" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
+        <!-- 🎨 Personnaliser (2026-08-11, sur demande explicite) — ouvre la
+             popup de choix de fond (#personnaliserModalOverlay plus bas). -->
+        <button type="button" class="btn-pill" id="btnPersonnaliser">🎨 Personnaliser</button>
       </div>
 
       <div class="config-section accounts-row">
-        <div class="accounts-col">
-          <button class="google-btn accounts-btn" id="btnGoogle">
-            <span>G</span>
-            <span id="googleLabel">Connecter Google</span>
-          </button>
-          <div class="google-status" id="googleStatus"></div>
+        <div class="account-pill" id="accountPillGoogle">
+          <span class="account-pill-icon">G</span>
+          <span class="account-pill-name">Gmail</span>
+          <span class="account-pill-status" id="googleStatus">Non connecté</span>
+          <button type="button" class="account-pill-link" id="btnGoogle"><span id="googleLabel">Connecter</span></button>
         </div>
-        <div class="accounts-col">
-          <button class="google-btn accounts-btn" id="btnSpotify">
-            <span>🎵</span>
-            <span id="spotifyLabel">Connecter Spotify</span>
-          </button>
-          <div class="google-status" id="spotifyStatus"></div>
+        <div class="account-pill" id="accountPillSpotify">
+          <span class="account-pill-icon">🎵</span>
+          <span class="account-pill-name">Spotify</span>
+          <span class="account-pill-status" id="spotifyStatus">Non connecté</span>
+          <button type="button" class="account-pill-link" id="btnSpotify"><span id="spotifyLabel">Connecter</span></button>
         </div>
       </div>
     </div>

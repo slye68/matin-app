@@ -301,6 +301,7 @@ async function initConfig() {
 
   initThemeToggle();
   await initProfileSection();
+  await initProfileTabs();
   await initGoogleSection();
   await initSpotifySection();
   await initBackupsSection();
@@ -386,6 +387,159 @@ async function initProfileSection() {
   autoBrightness.checked = (await window.matin.store.get('app.autoBrightness')) === true;
   syncThemeToggleDisabled();
   autoBrightness.addEventListener('change', syncThemeToggleDisabled);
+}
+
+// ─── Profils — onglets compacts (2026-08-31, sur demande explicite) ────────
+// Row 2 du redesign "Paramètres" : cliquer sur le CORPS d'un onglet bascule
+// de profil (main.js profiles:switch — recharge le DASHBOARD, pas cette
+// fenêtre Paramètres, qui se contente de re-lire/re-render ses onglets une
+// fois la réponse reçue) ; ✏️ (renommer + activation automatique) et 💾
+// (sauvegarder l'état actuel dans ce profil) utilisent `stopPropagation`
+// pour ne jamais déclencher une bascule par erreur en cliquant dessus.
+const PROFILE_KEYS = ['profile1', 'profile2'];
+const AUTO_SWITCH_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+let profilesCache = null;
+let editingProfileKey = null;
+
+function profileDisplayName(profile, fallbackKey) {
+  return profile?.name?.trim() || (fallbackKey === 'profile1' ? 'Profil 1' : 'Profil 2');
+}
+
+async function initProfileTabs() {
+  const tabsEl = document.getElementById('profileTabs');
+  if (!tabsEl) return;
+
+  await refreshProfileTabs();
+
+  tabsEl.addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('.profile-tab-edit');
+    const saveBtn = e.target.closest('.profile-tab-save');
+    const tab = e.target.closest('.profile-tab');
+    if (!tab) return;
+    const key = tab.dataset.profile;
+
+    if (editBtn) { e.stopPropagation(); openProfileEditPanel(key); return; }
+    if (saveBtn) { e.stopPropagation(); requestSaveProfile(key); return; }
+    if (key === profilesCache?.active) return; // déjà actif, rien à faire
+
+    tab.style.opacity = '0.6';
+    try {
+      await window.matin.profiles.switch(key);
+      await refreshProfileTabs();
+      // Le dashboard se recharge tout seul (voir main.js profiles:switch →
+      // 'modules:updated'), mais CETTE fenêtre (Paramètres) ne se recharge
+      // pas — sans ça, les interrupteurs de modules affichés dans les
+      // onglets Finance/Actualités/etc. resteraient sur l'ancien profil
+      // jusqu'à la prochaine ouverture (même raison que saveConfig plus bas
+      // pour le thème/mode auto).
+      modulesState = await window.matin.modules.getAll();
+      renderTabPanels();
+      setActiveTab(activeTabId);
+    } catch (err) {
+      console.error('[Config] Échec changement de profil', err);
+      tab.style.opacity = '';
+    }
+  });
+
+  initProfileEditPanel();
+}
+
+async function refreshProfileTabs() {
+  const tabsEl = document.getElementById('profileTabs');
+  if (!tabsEl) return;
+  try {
+    profilesCache = await window.matin.profiles.getAll();
+  } catch (err) {
+    console.error('[Config] Échec lecture des profils', err);
+    return;
+  }
+  tabsEl.innerHTML = PROFILE_KEYS.map((key) => {
+    const profile = profilesCache[key];
+    const active = profilesCache.active === key;
+    return `
+      <button type="button" class="profile-tab ${active ? 'active' : ''}" data-profile="${key}">
+        <span class="profile-tab-dot"></span>
+        <span class="profile-tab-name">👤 ${profileDisplayName(profile, key)}</span>
+        <span class="profile-tab-edit" title="Renommer / activation automatique">✏️</span>
+        <span class="profile-tab-save" title="Sauvegarder l'état actuel dans ce profil">💾</span>
+      </button>`;
+  }).join('');
+}
+
+// Confirmation d'écrasement (point 6 de la demande, texte EXACT demandé) —
+// capture enabled/layout de TOUS les modules + le thème actuel dans ce
+// profil (voir main.js saveProfileSnapshot), SANS toucher aux dispositions
+// Réorganiser ni à l'activation automatique déjà sauvegardées (chacune a sa
+// propre action dédiée : Réorganiser → Sauvegarder disposition N ; activation
+// automatique → panneau ✏️ ci-dessous).
+async function requestSaveProfile(key) {
+  const profile = profilesCache?.[key];
+  const name = profileDisplayName(profile, key);
+  if (!confirm(`Écraser le profil « ${name} » ?`)) return;
+  try {
+    await window.matin.profiles.save(key, name);
+    await refreshProfileTabs();
+  } catch (err) {
+    console.error('[Config] Échec sauvegarde du profil', err);
+  }
+}
+
+// Panneau d'édition (renommer + activation automatique par jour) — ouvert
+// par le ✏️ d'un onglet, scopé au profil retenu dans `editingProfileKey`.
+// Jours représentés par des boutons à bascule (.profile-day-btn.active),
+// pas des cases à cocher — mêmes 2 préréglages que l'exemple donné dans la
+// demande (Lun-Ven / Sam-Dim), plus la possibilité de cocher des jours
+// individuels pour un cas non couvert par ces 2 préréglages.
+function openProfileEditPanel(key) {
+  editingProfileKey = key;
+  const panel = document.getElementById('profileEditPanel');
+  const nameInput = document.getElementById('profileEditNameInput');
+  const autoToggle = document.getElementById('profileAutoSwitchToggle');
+  const profile = profilesCache?.[key];
+
+  nameInput.value = profileDisplayName(profile, key);
+  autoToggle.checked = profile?.autoSwitch?.enabled === true;
+  setActiveDays(Array.isArray(profile?.autoSwitch?.days) ? profile.autoSwitch.days : []);
+
+  panel.classList.add('open');
+  nameInput.focus();
+}
+
+function closeProfileEditPanel() {
+  editingProfileKey = null;
+  document.getElementById('profileEditPanel')?.classList.remove('open');
+}
+
+function setActiveDays(days) {
+  document.querySelectorAll('#profileDaysRow .profile-day-btn').forEach((btn) => {
+    btn.classList.toggle('active', days.includes(btn.dataset.day));
+  });
+}
+
+function initProfileEditPanel() {
+  document.querySelectorAll('#profileDaysRow .profile-day-btn').forEach((btn) => {
+    btn.addEventListener('click', () => btn.classList.toggle('active'));
+  });
+  document.getElementById('profileDaysWeekdays')?.addEventListener('click', () => setActiveDays(['mon', 'tue', 'wed', 'thu', 'fri']));
+  document.getElementById('profileDaysWeekend')?.addEventListener('click', () => setActiveDays(['sat', 'sun']));
+  document.getElementById('profileEditCancel')?.addEventListener('click', closeProfileEditPanel);
+  document.getElementById('profileEditSave')?.addEventListener('click', async () => {
+    if (!editingProfileKey) return;
+    const key = editingProfileKey;
+    const name = document.getElementById('profileEditNameInput').value.trim();
+    const enabled = document.getElementById('profileAutoSwitchToggle').checked;
+    const days = Array.from(document.querySelectorAll('#profileDaysRow .profile-day-btn.active')).map(b => b.dataset.day)
+      .filter(d => AUTO_SWITCH_DAY_KEYS.includes(d));
+
+    try {
+      await window.matin.profiles.rename(key, name);
+      await window.matin.profiles.setAutoSwitch(key, enabled, days);
+      await refreshProfileTabs();
+      closeProfileEditPanel();
+    } catch (err) {
+      console.error('[Config] Échec sauvegarde du profil (nom/activation automatique)', err);
+    }
+  });
 }
 
 // Autocomplétion du champ "Crypto" à partir du top 100 CoinGecko par capitalisation.
@@ -2399,18 +2553,26 @@ async function initGoogleSection() {
   });
 }
 
+// Compact (2026-08-31, sur demande explicite, redesign "pills") — `label`
+// ne porte plus que le verbe d'action ("Connecter"/"Déconnecter", le lien
+// texte de la pill), `status` porte l'email + ✓ vert une fois connecté (le
+// détail "modules Agenda/Gmail/Tâches activés" est retiré de l'affichage
+// compact, toujours visible via le `title` de la pill pour qui en a besoin).
 function updateGoogleUI(googleData, statusOverride) {
   const label  = document.getElementById('googleLabel');
   const status = document.getElementById('googleStatus');
+  const pill   = document.getElementById('accountPillGoogle');
 
   if (googleData?.accessToken) {
-    label.textContent  = `Déconnecter (${googleData.email || 'compte connecté'})`;
-    status.textContent = '✓ Connecté — modules Agenda, Gmail et Tâches Google activés';
+    label.textContent  = 'Déconnecter';
+    status.textContent = `${googleData.email || 'Compte connecté'} ✓`;
     status.style.color = 'var(--accent-green)';
+    if (pill) pill.title = 'Modules Agenda, Gmail et Tâches Google activés';
   } else {
-    label.textContent  = 'Connecter Google';
-    status.textContent = statusOverride || 'Nécessaire pour les modules Agenda, Gmail et Tâches Google';
+    label.textContent  = 'Connecter';
+    status.textContent = statusOverride || 'Non connecté';
     status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
+    if (pill) pill.title = 'Nécessaire pour les modules Agenda, Gmail et Tâches Google';
   }
 }
 
@@ -2801,18 +2963,23 @@ async function renderAutoScrollOptions() {
   }
 }
 
+// Compact (2026-08-31, sur demande explicite, redesign "pills") — même
+// principe que updateGoogleUI ci-dessus.
 function updateSpotifyUI(spotifyData, statusOverride) {
   const label  = document.getElementById('spotifyLabel');
   const status = document.getElementById('spotifyStatus');
+  const pill   = document.getElementById('accountPillSpotify');
 
   if (spotifyData?.accessToken) {
-    label.textContent  = `Déconnecter (${spotifyData.email || spotifyData.displayName || 'compte connecté'})`;
-    status.textContent = '✓ Connecté — module Spotify activé';
+    label.textContent  = 'Déconnecter';
+    status.textContent = `${spotifyData.email || spotifyData.displayName || 'Compte connecté'} ✓`;
     status.style.color = 'var(--accent-green)';
+    if (pill) pill.title = 'Module Spotify activé';
   } else {
-    label.textContent  = 'Connecter Spotify';
-    status.textContent = statusOverride || 'Nécessaire pour le module Spotify';
+    label.textContent  = 'Connecter';
+    status.textContent = statusOverride || 'Non connecté';
     status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
+    if (pill) pill.title = 'Nécessaire pour le module Spotify';
   }
 }
 

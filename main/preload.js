@@ -103,10 +103,23 @@ contextBridge.exposeInMainWorld('matin', {
   // ── Emplacements de disposition sauvegardés (2026-08-31, voir main.js
   // layoutSlots:get/save) — 2 emplacements fixes ("1"/"2"), stockés dans
   // matin-userdata (synchronisé automatiquement via Drive). `save` renvoie
-  // l'entrée fraîchement écrite `{ layout, savedAt }`. ──────────────────────
+  // l'entrée fraîchement écrite `{ name, layout, savedAt }`. ────────────────
   layoutSlots: {
-    get:  ()               => ipcRenderer.invoke('layoutSlots:get'),
-    save: (slot, layout)   => ipcRenderer.invoke('layoutSlots:save', { slot, layout }),
+    get:  ()                    => ipcRenderer.invoke('layoutSlots:get'),
+    save: (slot, layout, name)  => ipcRenderer.invoke('layoutSlots:save', { slot, layout, name }),
+  },
+
+  // ── Profils (2026-08-31, voir main.js profiles:*) — 2 profils nommés,
+  // chacun capturant enabled/layout de tous les modules + le thème + son
+  // propre nom (PAS le `config` de chaque module, voir main.js). `getAll`
+  // renvoie `{ active, profile1, profile2 }` en entier (utilisé à la fois par
+  // Paramètres et par le sélecteur du titrebar, voir dashboard.js). ─────────
+  profiles: {
+    getAll:        ()                    => ipcRenderer.invoke('profiles:getAll'),
+    save:          (key, name)           => ipcRenderer.invoke('profiles:save', { key, name }),
+    rename:        (key, name)           => ipcRenderer.invoke('profiles:rename', { key, name }),
+    switch:        (key)                 => ipcRenderer.invoke('profiles:switch', key),
+    setAutoSwitch: (key, enabled, days)  => ipcRenderer.invoke('profiles:setAutoSwitch', { key, enabled, days }),
   },
 
   // ── Fenêtres ──────────────────────────────────────────────────────────────

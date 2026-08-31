@@ -470,6 +470,167 @@ function setMergedModules(modules) {
   uploadToDriveAfterChange(); // voir Sync Google Drive plus bas — point 3 de la demande, upload silencieux différé
 }
 
+// ─── Profils (2026-08-31, sur demande explicite) ───────────────────────────
+// 2 profils nommés ("Semaine"/"Weekend" dans l'exemple de la demande),
+// chacun capturant enabled/layout de TOUS les modules + le thème clair/
+// sombre + son propre nom — PAS le `config` de chaque module (lignes ETF,
+// équipe suivie, etc.) : hors périmètre de la demande ("Which modules are
+// enabled/disabled, Module positions and sizes, Theme"), et dupliquer TOUTE
+// la config par profil aurait été un changement d'architecture bien plus
+// lourd que ce qui a été demandé. Stocké dans matin-userdata (demandé
+// explicitement, "synced via Google Drive") sous `profiles`, JAMAIS
+// matin-config — même raison que layoutSlots plus bas (profiter de la sync
+// Drive déjà en place sur ce store).
+const PROFILE_KEYS = ['profile1', 'profile2'];
+
+function defaultProfile(name) {
+  return { name, theme: null, modules: {}, layouts: {}, autoSwitch: { enabled: false, days: [] } };
+}
+
+// Initialise `profiles` au 1er accès (installation neuve OU existante d'avant
+// cette fonctionnalité) et MIGRE l'ancien `layoutSlots` plat (voir
+// layoutSlots:get/save plus bas, existait déjà avant les profils) vers
+// `profiles.profile1.layouts` — sans cette migration, les dispositions déjà
+// sauvegardées par l'utilisateur avant cette mise à jour deviendraient
+// invisibles du jour au lendemain (toujours sur disque, mais plus jamais lues
+// une fois layoutSlots:get repointé sur le profil actif). Écrit la structure
+// initialisée/migrée pour la rendre stable dès le 1er appel.
+function getProfilesState() {
+  let profiles = userdataStore.get('profiles');
+  if (!profiles || typeof profiles !== 'object') {
+    const legacyLayoutSlots = userdataStore.get('layoutSlots');
+    profiles = {
+      active: 'profile1',
+      profile1: { ...defaultProfile('Profil 1'), layouts: (legacyLayoutSlots && typeof legacyLayoutSlots === 'object') ? legacyLayoutSlots : {} },
+      profile2: defaultProfile('Profil 2'),
+    };
+    userdataStore.set('profiles', profiles);
+  }
+  // Comble un profil manquant/mal formé sans écraser celui déjà valide à
+  // côté (ex. objet `profiles` présent mais `profile2` absent après un futur
+  // ajout de champ) — même logique défensive que `defaults` ailleurs dans ce
+  // fichier, qui ne comble jamais un objet déjà partiellement présent tout
+  // seul.
+  let patched = false;
+  for (const key of PROFILE_KEYS) {
+    if (!profiles[key] || typeof profiles[key] !== 'object') {
+      profiles[key] = defaultProfile(key === 'profile1' ? 'Profil 1' : 'Profil 2');
+      patched = true;
+    }
+  }
+  if (!PROFILE_KEYS.includes(profiles.active)) { profiles.active = 'profile1'; patched = true; }
+  if (patched) userdataStore.set('profiles', profiles);
+  return profiles;
+}
+
+function getActiveProfileKey() {
+  return getProfilesState().active;
+}
+
+// `{enabled, layout}` de CHAQUE module connu des 2 stores — même source
+// (getMergedModules) que collectAllLayouts plus haut, étendue avec `enabled`.
+function snapshotModuleStates() {
+  const merged = getMergedModules();
+  const out = {};
+  for (const [key, mod] of Object.entries(merged)) {
+    out[key] = { enabled: mod?.enabled === true, layout: mod?.layout || null };
+  }
+  return out;
+}
+
+// Applique `{enabled, layout}` par clé sur les 2 stores, selon
+// USERDATA_MODULE_KEYS — même répartition que applyLayoutSection/
+// setMergedModules plus haut. Une clé du profil absente des modules ACTUELS
+// (module retiré du catalogue depuis la sauvegarde du profil) est ignorée
+// plutôt que ressuscitée.
+function applyModuleStatesSection(statesByKey) {
+  if (!statesByKey || typeof statesByKey !== 'object') return;
+  const configModules = store.get('modules') || {};
+  const userdataModules = userdataStore.get('modules') || {};
+  let configChanged = false;
+  let userdataChanged = false;
+  for (const [key, state] of Object.entries(statesByKey)) {
+    if (!state) continue;
+    const target = USERDATA_MODULE_KEYS.has(key) ? userdataModules : configModules;
+    if (!target[key]) continue;
+    target[key].enabled = state.enabled === true;
+    if (state.layout) target[key].layout = state.layout;
+    if (USERDATA_MODULE_KEYS.has(key)) userdataChanged = true; else configChanged = true;
+  }
+  if (configChanged) safeStoreSet('modules', configModules);
+  if (userdataChanged) userdataStore.set('modules', userdataModules);
+}
+
+// Capture l'état ACTUEL (modules + thème) dans `profiles[key]`, en gardant
+// `layouts`/`autoSwitch` déjà sauvegardés INTACTS (voir demande, point 1 —
+// "Sauvegarder ce profil" ne concerne que modules/thème/nom, jamais les
+// dispositions Réorganiser ni le réglage d'activation automatique, qui ont
+// chacun leur propre action dédiée ailleurs).
+function saveProfileSnapshot(key, name) {
+  const profiles = getProfilesState();
+  const existing = profiles[key] || defaultProfile(key);
+  profiles[key] = {
+    ...existing,
+    name: (name || '').trim() || existing.name,
+    theme: store.get('app.theme') || 'dark',
+    modules: snapshotModuleStates(),
+  };
+  backupStoreBeforeWrite();
+  userdataStore.set('profiles', profiles);
+  scheduleUserdataBackup();
+  uploadToDriveAfterChange();
+  return profiles[key];
+}
+
+// Applique `profiles[key]` au dashboard (modules + thème) et le marque
+// actif — utilisée à la fois par l'IPC profiles:switch (clic manuel) ET par
+// checkProfileAutoSwitch (activation automatique par jour), voir plus bas.
+function performProfileSwitch(key) {
+  const profiles = getProfilesState();
+  const target = profiles[key];
+  if (!target) return null;
+
+  backupStoreBeforeWrite(); // même précaution que les autres écritures larges de ce fichier (layoutSlots:save, setMergedModules...) — modifie enabled/layout de nombreux modules d'un coup
+  applyModuleStatesSection(target.modules);
+  if (target.theme) {
+    safeStoreSet('app.theme', target.theme);
+    broadcastTheme(target.theme);
+  }
+  profiles.active = key;
+  userdataStore.set('profiles', profiles);
+  scheduleUserdataBackup();
+  uploadToDriveAfterChange();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('modules:updated', getMergedModules());
+  }
+  return target;
+}
+
+// ─── Activation automatique par jour (point 4 de la demande — jour de la
+// semaine, pas de plage horaire : c'est le seul cas concret donné dans la
+// demande, "Weekend" activé samedi/dimanche) ────────────────────────────────
+const AUTO_SWITCH_DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // aligné sur Date.getDay() (0 = dimanche)
+const PROFILE_AUTOSWITCH_CHECK_MS = 15 * 60 * 1000; // même cadence que BRIGHTNESS_CHECK_MS (dashboard.js) pour un réglage du même ordre de grandeur (par tranche horaire/jour, pas seconde près)
+
+// Si un profil NON actif a l'activation auto activée pour AUJOURD'HUI, on y
+// bascule. Si les 2 profils la revendiquent pour le même jour (config
+// utilisateur ambiguë, jamais empêchée à la saisie), profile1 l'emporte
+// (ordre de PROFILE_KEYS) — cas de bord assumé, à corriger si signalé.
+function checkProfileAutoSwitch() {
+  const profiles = getProfilesState();
+  const today = AUTO_SWITCH_DAY_KEYS[new Date().getDay()];
+  for (const key of PROFILE_KEYS) {
+    if (key === profiles.active) continue;
+    const auto = profiles[key]?.autoSwitch;
+    if (auto?.enabled && Array.isArray(auto.days) && auto.days.includes(today)) {
+      console.log(`[Profils] Activation automatique de "${profiles[key].name}" (${key}) — aujourd'hui = ${today}`);
+      performProfileSwitch(key);
+      return;
+    }
+  }
+}
+
 // ─── Sauvegarde de secours avant chaque écriture ───────────────────────────────
 // Ajoutée le 2026-08-08 suite à un signalement "lignes de portefeuille ETF
 // disparues" — enquête faite ce jour-là : les données étaient en fait
@@ -2000,22 +2161,75 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
 // Charger disposition 1/2, 2026-08-31 sur demande explicite) — 2 emplacements
 // fixes, stockés dans matin-userdata (jamais matin-config, pour profiter de la
 // sync Google Drive automatique déjà en place sur ce store, voir Sync Google
-// Drive plus bas) sous la clé `layoutSlots` = { "1": { layout, savedAt },
-// "2": { layout, savedAt } }. `layout` est un instantané { <clé module>:
-// {x,y,width,height,z} } fourni TEL QUEL par le renderer (dashboard.js,
-// snapshotCurrentLayout, lu directement depuis les cartes affichées) — le
-// process main ne recalcule rien, il se contente de dater et stocker.
+// Drive plus bas) sous la clé `layoutSlots` = { "1": { name, layout, savedAt },
+// "2": { name, layout, savedAt } }. `layout` est un instantané { <clé
+// module>: {x,y,width,height,z} } fourni TEL QUEL par le renderer
+// (dashboard.js, snapshotCurrentLayout, lu directement depuis les cartes
+// affichées) — le process main ne recalcule rien, il se contente de dater et
+// stocker. `name` est le libellé choisi par l'utilisateur (ex: "Sport"),
+// déjà retombé sur "Disposition 1"/"2" côté renderer si laissé vide (voir
+// dashboard.js requestSaveLayoutSlot) — jamais recalculé ici non plus.
 // `savedAt` est un ISO string, formaté côté renderer (toLocaleDateString)
 // pour l'affichage "sauvegardée le 30 août".
-ipcMain.handle('layoutSlots:get', () => userdataStore.get('layoutSlots') || {});
-ipcMain.handle('layoutSlots:save', (_e, { slot, layout }) => {
-  const slots = userdataStore.get('layoutSlots') || {};
-  slots[slot] = { layout, savedAt: new Date().toISOString() };
+//
+// DEVENU spécifique au PROFIL ACTIF (2026-08-31, même jour, sur demande
+// explicite — "each profile has its own Disposition 1/2, stored under
+// profiles.profile1.layouts / profiles.profile2.layouts") : ne change QUE le
+// CHEMIN de stockage (getProfilesState()[active].layouts au lieu de la clé
+// plate `layoutSlots`) — le renderer (dashboard.js) et sa forme `{ slot,
+// layout, name }` restent identiques, aucun changement ailleurs. La migration
+// de l'ancienne clé plate vers `profiles.profile1.layouts` est gérée UNE
+// SEULE FOIS par getProfilesState() (voir plus haut), pas ici.
+ipcMain.handle('layoutSlots:get', () => {
+  const profiles = getProfilesState();
+  return profiles[profiles.active]?.layouts || {};
+});
+ipcMain.handle('layoutSlots:save', (_e, { slot, layout, name }) => {
+  const profiles = getProfilesState();
+  const active = profiles.active;
+  const slots = profiles[active].layouts || {};
+  slots[slot] = { name, layout, savedAt: new Date().toISOString() };
+  profiles[active].layouts = slots;
   backupStoreBeforeWrite();
-  userdataStore.set('layoutSlots', slots);
+  userdataStore.set('profiles', profiles);
   scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
   uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   return slots[slot];
+});
+
+// ─── Profils — IPC (2026-08-31, sur demande explicite) ─────────────────────
+ipcMain.handle('profiles:getAll', () => getProfilesState());
+ipcMain.handle('profiles:save', (_e, { key, name }) => {
+  if (!PROFILE_KEYS.includes(key)) return null;
+  return saveProfileSnapshot(key, name);
+});
+// Renomme SEULEMENT (voir ✏️ dans Paramètres/le titrebar) — contrairement à
+// profiles:save, ne touche NI modules/layout NI thème : un simple changement
+// de libellé ne doit jamais capturer un instantané de l'état actuel.
+ipcMain.handle('profiles:rename', (_e, { key, name }) => {
+  if (!PROFILE_KEYS.includes(key)) return null;
+  const profiles = getProfilesState();
+  profiles[key].name = (name || '').trim() || profiles[key].name;
+  userdataStore.set('profiles', profiles);
+  scheduleUserdataBackup();
+  uploadToDriveAfterChange();
+  return profiles[key];
+});
+ipcMain.handle('profiles:switch', (_e, key) => {
+  if (!PROFILE_KEYS.includes(key)) return null;
+  return performProfileSwitch(key);
+});
+ipcMain.handle('profiles:setAutoSwitch', (_e, { key, enabled, days }) => {
+  if (!PROFILE_KEYS.includes(key)) return null;
+  const profiles = getProfilesState();
+  profiles[key].autoSwitch = {
+    enabled: enabled === true,
+    days: Array.isArray(days) ? days.filter(d => AUTO_SWITCH_DAY_KEYS.includes(d)) : [],
+  };
+  userdataStore.set('profiles', profiles);
+  scheduleUserdataBackup();
+  uploadToDriveAfterChange();
+  return profiles[key];
 });
 
 // Repli/dépli d'un groupe Prêts (2026-08-10, sur demande explicite — le
@@ -2362,13 +2576,6 @@ ipcMain.handle('hue:getGroups', async (_e, { bridgeIp, username }) => {
     on: !!g.state?.any_on,
     allOn: !!g.state?.all_on,
     bri: g.action?.bri ?? 254,
-    // Nombre de lampes de la pièce (2026-08-31, sur demande explicite, pour
-    // le résumé "Salon · 3 lampes · Allumées" des sections repliables — voir
-    // hue.js) — `g.lights` (tableau d'IDs) fait partie de la réponse
-    // standard de l'API REST v1 du pont, stable depuis toujours ; `null` si
-    // absent plutôt que 0, pour distinguer "aucune lampe" de "inconnu" côté
-    // affichage.
-    lightCount: Array.isArray(g.lights) ? g.lights.length : null,
   }));
 });
 
@@ -4423,6 +4630,8 @@ app.whenReady().then(() => {
   setInterval(checkReminders, REMINDERS_CHECK_MS);
   checkAlerts();
   setInterval(checkAlerts, ALERTS_CHECK_MS);
+  checkProfileAutoSwitch();
+  setInterval(checkProfileAutoSwitch, PROFILE_AUTOSWITCH_CHECK_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

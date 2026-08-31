@@ -1980,7 +1980,11 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   flex-direction: column;
   gap: 18px;
   width: 90%;
-  max-width: 380px;
+  /* 420px (était 380px) — élargi le 2026-08-31 pour le bouton "Charger"
+     des emplacements de disposition ci-dessous, dont le texte porte
+     désormais le nom personnalisé + la date ("📂 Charger : Sport —
+     sauvegardée le 30 août"), plus long que le libellé générique d'origine. */
+  max-width: 420px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -2015,18 +2019,21 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 /* Emplacements de disposition sauvegardés (2026-08-31, sur demande explicite)
    — dans la même popup que la confirmation "⊞ Réorganiser" ci-dessus (voir
    index.html), séparés visuellement par une bordure supérieure, même esprit
-   que .backups-manual-section dans config.html. */
+   que .backups-manual-section dans config.html. Sauvegarder/Charger empilés
+   (colonne, pas côte à côte) — "Charger" porte désormais le nom
+   personnalisé + la date sur une seule ligne de bouton (ex. "📂 Charger :
+   Sport — sauvegardée le 30 août"), trop long pour tenir à côté de
+   "Sauvegarder" sur une seule rangée. */
 .layout-slots-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
 .layout-slot-row { display: flex; flex-direction: column; gap: 6px; }
-.layout-slot-label { font-size: 11px; color: var(--text-muted); }
-.layout-slot-actions { display: flex; gap: 8px; }
-.layout-slot-btn { font-size: 11px; padding: 7px; }
+.layout-slot-actions { display: flex; flex-direction: column; gap: 6px; }
+.layout-slot-btn { font-size: 11px; padding: 7px 10px; text-align: left; }
 .layout-slot-btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -2034,10 +2041,23 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 }
 .layout-slot-btn:disabled:hover { background: var(--bg-panel-alt); }
 
-/* Confirmation d'écrasement d'un emplacement (2026-08-31) — empilée par-dessus
-   la popup "⊞ Réorganiser"/emplacements (z-index supérieur), même overlay
-   plein écran que .autoarrange-confirm-overlay. */
-.layout-slot-overwrite-overlay { z-index: 10110; }
+/* Nom de la disposition à sauvegarder (2026-08-31) — empilée par-dessus la
+   popup "⊞ Réorganiser"/emplacements (z-index supérieur), même overlay plein
+   écran que .autoarrange-confirm-overlay. */
+.layout-slot-name-overlay { z-index: 10110; }
+.layout-slot-name-input {
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.layout-slot-name-input:focus { border-color: var(--accent); }
+.layout-slot-name-input::placeholder { color: var(--text-muted); }
 
 /* Glissement visible vers la nouvelle position pendant "⊞ Réorganiser" (voir
    dashboard.js) — classe posée juste avant de changer left/top, retirée
@@ -2424,67 +2444,44 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 
 .hue-groups { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
 
-/* Sections repliables par pièce (2026-08-31, sur demande explicite, "comme
-   les modules FDJ") — même mécanique que .prets-group-header/-chevron/-body
-   plus bas dans ce fichier (grid-template-rows 0fr→1fr + transition 300ms,
-   PAS display:none qui ne peut pas s'animer), mais RÉPÉTÉE une fois par
-   pièce au lieu d'une seule fois par carte : chaque `.hue-room` porte son
-   PROPRE état replié/déplié (`.hue-room-collapsed`), indépendant des autres
-   pièces de la même carte. Repliée par défaut (voir hue.js render — collapsé
-   sauf `false` explicite dans `config.collapsed[roomId]`, persisté par pièce
-   via le canal silencieux `modules:updateCollapsed`, voir prets.js pour le
-   même principe). */
-.hue-room { display: flex; flex-direction: column; }
-.hue-room-header {
+/* Section repliable UNIQUE "Toutes mes pièces" (2026-08-31, 2e révision le
+   même jour, sur demande explicite — remplace le repli PAR PIÈCE de la
+   révision précédente : "pas de repli individuel par pièce, un seul repli
+   global") — même mécanique que .prets-group-header/-chevron/-body plus bas
+   dans ce fichier (grid-template-rows 0fr→1fr + transition 300ms, PAS
+   display:none qui ne peut pas s'animer), mais UNE SEULE fois pour toute la
+   liste des pièces plutôt que répétée par pièce. Repliée par défaut (voir
+   hue.js render — collapsé sauf `false` explicite dans `config.collapsed`,
+   booléen simple comme Prêts, persisté via le canal silencieux
+   `modules:updateCollapsed`). */
+.hue-rooms { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.hue-rooms-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
-  padding: 9px 10px;
-  background: var(--bg-panel-alt);
-  border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  padding: 6px 2px;
+  flex-shrink: 0;
+  align-self: flex-start;
 }
-.hue-room-header:hover { background: var(--bg-hover); }
-/* Section dépliée : coins bas de l'en-tête carrés pour se fondre visuellement
-   avec .hue-group-row juste en dessous (même fond, aucune coupure nette). */
-.hue-room:not(.hue-room-collapsed) .hue-room-header { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-.hue-room-chevron {
+.hue-rooms-toggle-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.hue-rooms-chevron {
   display: inline-block;
   font-size: 11px;
   color: var(--text-muted);
   transition: transform 300ms ease;
   flex-shrink: 0;
 }
-.hue-room:not(.hue-room-collapsed) .hue-room-chevron { transform: rotate(90deg); }
-.hue-room-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  flex-shrink: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 45%;
-}
-.hue-room-summary {
-  font-size: 11px;
-  color: var(--text-muted);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-}
-.hue-room-body {
+.hue-rooms:not(.hue-rooms-collapsed) .hue-rooms-chevron { transform: rotate(90deg); }
+.hue-rooms-body {
   display: grid;
   grid-template-rows: 1fr;
   min-height: 0;
+  flex: 1 1 auto;
   transition: grid-template-rows 300ms ease;
 }
-.hue-room-collapsed .hue-room-body { grid-template-rows: 0fr; }
-.hue-room-body-inner { overflow: hidden; min-height: 0; padding-top: 4px; }
+.hue-rooms-collapsed .hue-rooms-body { grid-template-rows: 0fr; flex: 0 0 auto; }
+.hue-rooms-body-inner { overflow: hidden; min-height: 0; padding-top: 4px; }
 
 .hue-group-row {
   display: flex;

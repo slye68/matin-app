@@ -109,6 +109,13 @@
     <div class="titlebar-right">
       <button class="titlebar-btn" id="btnRefresh" title="Actualiser">Actualiser</button>
       <button class="titlebar-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞ Réorganiser</button>
+      <!-- Sélecteur de profil (2026-08-31, sur demande explicite) — bascule
+           INSTANTANÉMENT entre Profil 1/2 (voir dashboard.js
+           initProfileSwitcher, main.js profiles:switch). Libellé peuplé au
+           chargement avec le nom du profil ACTIF (ex. "👤 Semaine") — jamais
+           "Profil 1"/"Profil 2" en dur, ces clés ne sont que des identifiants
+           internes. -->
+      <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">👤 …</button>
       <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
     </div>
   </header>
@@ -140,21 +147,24 @@
       </div>
 
       <!-- Emplacements de disposition sauvegardés (2026-08-31, sur demande
-           explicite) — 2 emplacements fixes, stockés dans matin-userdata
-           (voir main.js layoutSlots:get/save, synchronisé automatiquement via
-           Drive comme le reste de userdata). "Charger" reste désactivé tant
-           que l'emplacement correspondant n'a jamais été sauvegardé (voir
-           dashboard.js refreshLayoutSlotsUI). -->
+           explicite ; noms personnalisés ajoutés le même jour, 2e révision,
+           toujours sur demande explicite) — 2 emplacements fixes, stockés
+           dans matin-userdata (voir main.js layoutSlots:get/save,
+           synchronisé automatiquement via Drive comme le reste de
+           userdata). "Charger" reste désactivé tant que l'emplacement
+           correspondant n'a jamais été sauvegardé, et porte le nom
+           personnalisé + la date une fois sauvegardé, ex. "📂 Charger :
+           Sport — sauvegardée le 30 août" (voir dashboard.js
+           refreshLayoutSlotsUI) — plus de libellé générique "Disposition 1"
+           une fois qu'un nom a été choisi. -->
       <div class="layout-slots-section">
         <div class="layout-slot-row" data-slot="1">
-          <span class="layout-slot-label" id="layoutSlot1Label">Disposition 1 — non sauvegardée</span>
           <div class="layout-slot-actions">
             <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotSave1">💾 Sauvegarder disposition 1</button>
             <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotLoad1" disabled>📂 Charger disposition 1</button>
           </div>
         </div>
         <div class="layout-slot-row" data-slot="2">
-          <span class="layout-slot-label" id="layoutSlot2Label">Disposition 2 — non sauvegardée</span>
           <div class="layout-slot-actions">
             <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotSave2">💾 Sauvegarder disposition 2</button>
             <button type="button" class="autoarrange-confirm-btn layout-slot-btn" id="layoutSlotLoad2" disabled>📂 Charger disposition 2</button>
@@ -164,16 +174,21 @@
     </div>
   </div>
 
-  <!-- Confirmation d'écrasement d'un emplacement de disposition déjà
-       sauvegardé (2026-08-31, sur demande explicite) — même mécanisme .open
-       que la popup ci-dessus, empilée par-dessus elle (voir style.css,
+  <!-- Nom de la disposition à sauvegarder (2026-08-31, sur demande
+       explicite) — s'ouvre au clic sur "💾 Sauvegarder disposition 1/2",
+       PRÉ-REMPLIE avec le nom déjà sauvegardé sur cet emplacement s'il y en
+       a un (voir dashboard.js requestSaveLayoutSlot), vide sinon. Ne
+       sauvegarde QUE sur "💾 Enregistrer" — "Annuler"/clic hors modale/Échap
+       ferment sans rien écrire. Même mécanisme .open que la popup
+       "⊞ Réorganiser" ci-dessus, empilée par-dessus elle (voir style.css,
        z-index supérieur). -->
-  <div class="autoarrange-confirm-overlay layout-slot-overwrite-overlay" id="layoutSlotOverwriteOverlay">
+  <div class="autoarrange-confirm-overlay layout-slot-name-overlay" id="layoutSlotNameOverlay">
     <div class="autoarrange-confirm-modal">
-      <p class="autoarrange-confirm-text" id="layoutSlotOverwriteText">Écraser cette disposition ?</p>
+      <p class="autoarrange-confirm-text">Nom de la disposition</p>
+      <input type="text" class="layout-slot-name-input" id="layoutSlotNameInput" placeholder="ex : Sport, Finance, Matin complet" maxlength="40">
       <div class="autoarrange-confirm-actions">
-        <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="layoutSlotOverwriteConfirm">Confirmer</button>
-        <button type="button" class="autoarrange-confirm-btn" id="layoutSlotOverwriteCancel">Annuler</button>
+        <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="layoutSlotNameConfirm">💾 Enregistrer</button>
+        <button type="button" class="autoarrange-confirm-btn" id="layoutSlotNameCancel">Annuler</button>
       </div>
     </div>
   </div>
