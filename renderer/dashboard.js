@@ -49,6 +49,11 @@ const MODULE_REGISTRY = {
   airQuality: { label: 'Qualité air',   icon: '🌡️', requiresGoogle: false, defaultSize: { w: 300, h: 200 }, refreshMs: 30 * 60 * 1000, theme: 'maison' },
   fuelPrices: { label: 'Carburants',    icon: '⛽', requiresGoogle: false, defaultSize: { w: 360, h: 320 }, refreshMs: 2 * 60 * 60 * 1000, theme: 'services' },
   parcels:    { label: 'Colis',         icon: '📦', requiresGoogle: false, defaultSize: { w: 340, h: 300 }, refreshMs: 60 * 60 * 1000, theme: 'services' },
+  // Suivi de prix Amazon (2026-08-30, sur demande explicite) — pas de
+  // refreshMs ici : auto-refresh géré en interne (setInterval propre au
+  // module, voir price-tracking.js), même principe que Colis/Podcasts/ETF/
+  // Crypto/Spotify (voir commentaire d'en-tête plus haut sur ce point).
+  priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, defaultSize: { w: 340, h: 320 }, theme: 'services' },
   // Hauteur portée à 520px (depuis 320px) le 2026-08-15, sur demande
   // explicite — carte passée de 2 à 3 sections (actus statiques / à
   // l'affiche défilant compact / sorties à venir en diaporama), 320px ne
@@ -232,6 +237,7 @@ const MODULE_CLICK_URLS = {
   maps: 'https://maps.google.com',
   live: 'https://www.lequipe.fr/Football/',
   youtube: 'https://www.youtube.com/feed/subscriptions',
+  priceTracking: 'https://www.amazon.fr',
 };
 
 // `card` requis pour Sports : lu dynamiquement au moment du clic (pas figé à
@@ -282,37 +288,58 @@ function initTitlebarSearch() {
   });
 }
 
-// ─── Mode auto luminosité (2026-08-08, sur demande explicite) ─────────────
-// Assombrit progressivement #brightnessOverlay (voir index.html/style.css)
-// selon l'heure locale, uniquement si app.autoBrightness est activé
-// (Paramètres → Profil). Matin (06h-09h) et journée (09h-18h) : aucune
-// classe posée, le calque reste transparent — "thème normal" tel que
-// demandé, pas de distinction matin/journée à faire côté CSS puisque les 2
-// tranches ont exactement le même traitement (aucun assombrissement).
+// ─── Mode auto luminosité (2026-08-08, sur demande explicite ; redesign
+// complet le 2026-08-31, sur demande explicite) ─────────────────────────────
+// AVANT le 2026-08-31 : "mode auto" ne posait qu'un calque de dimming
+// PAR-DESSUS le thème choisi manuellement, jamais de vrai changement clair/
+// sombre — symptôme rapporté : l'app pouvait rester en thème sombre en
+// pleine journée si l'utilisateur l'avait un jour choisi manuellement.
+// DEPUIS : le mode auto PILOTE le thème lui-même — clair 06h-21h, sombre
+// 21h-06h — avec un calque de dimming subtil UNIQUEMENT sur la tranche
+// transitoire 18h-21h (encore clair, mais visuellement assombri avant le
+// vrai passage au sombre à 21h). `autoThemeForHour` dupliquée côté process
+// main (voir main.js, même fonction, même valeurs) pour que `theme:getInitial`
+// (lu de façon SYNCHRONE avant le 1er rendu, voir preload.js) calcule déjà
+// le bon thème sans attendre ce module — sans ça, l'app démarrerait toujours
+// dans le dernier thème PERSISTÉ avant de corriger après coup, provoquant
+// justement le flash que ce redesign doit éliminer (point 3 de la demande).
 const BRIGHTNESS_CHECK_MS = 15 * 60 * 1000;
 
-function brightnessBandForHour(h) {
-  if (h >= 21 || h < 6) return 'nuit';
-  if (h >= 18) return 'soiree';
-  return null; // matin (6-9h) et journée (9-18h) : pas d'assombrissement
+function autoThemeForHour(h) {
+  return (h >= 6 && h < 21) ? 'light' : 'dark';
 }
 
-async function applyBrightnessOverlay() {
+// Seule tranche qui garde un calque (voir en-tête ci-dessus) — la nuit
+// (21h-06h) est désormais un vrai thème sombre, plus besoin d'un calque
+// par-dessus un thème clair pour simuler l'obscurité.
+function brightnessBandForHour(h) {
+  return (h >= 18 && h < 21) ? 'soiree' : null;
+}
+
+async function applyAutoBrightness() {
   const overlay = document.getElementById('brightnessOverlay');
-  if (!overlay) return;
-
   const enabled = (await window.matin.store.get('app.autoBrightness')) === true;
-  overlay.classList.remove('brightness-soiree', 'brightness-nuit');
-  if (!enabled) return; // mode auto désactivé : thème fixe choisi par l'utilisateur, calque toujours transparent
+  if (overlay) overlay.classList.remove('brightness-soiree');
+  if (!enabled) return; // mode auto désactivé : thème fixe choisi par l'utilisateur (voir initThemeToggle/config.js), rien à faire ici
 
-  const band = brightnessBandForHour(new Date().getHours());
-  if (band) overlay.classList.add(`brightness-${band}`);
+  const hour = new Date().getHours();
+  const band = brightnessBandForHour(hour);
+  if (overlay && band) overlay.classList.add(`brightness-${band}`);
+
+  // Ne rebascule le thème QUE s'il diffère du thème courant — évite un
+  // aller-retour IPC inutile à chaque vérification de 15 min quand la
+  // tranche horaire n'a pas changé depuis la dernière fois.
+  const theme = autoThemeForHour(hour);
+  if (document.documentElement.dataset.colorScheme !== theme) {
+    document.documentElement.dataset.colorScheme = theme; // applique localement tout de suite, même principe que initThemeToggle (config.js)
+    await window.matin.theme.setAuto(theme);
+  }
 }
 
 function initAutoBrightness() {
-  applyBrightnessOverlay().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
+  applyAutoBrightness().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
   setInterval(() => {
-    applyBrightnessOverlay().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
+    applyAutoBrightness().catch(err => console.error('[Matin] Erreur mode auto luminosité', err));
   }, BRIGHTNESS_CHECK_MS);
 }
 
@@ -1153,15 +1180,36 @@ function initDisplayMode() {
 // (variable selon le nombre d'alertes actives et le retour à la ligne du texte).
 const ALERTS_SEVERITY_ICON = { red: '🔴', orange: '🟠' };
 
+// Empile les bandeaux plein écran actifs (Alertes, puis Données manquantes,
+// voir plus bas — 2026-08-30) et repousse #dashboard d'exactement leur
+// hauteur combinée. Les 2 bandeaux sont indépendants (une alerte active et
+// des données manquantes ne s'excluent pas mutuellement) donc chacun peut
+// apparaître/disparaître sans toucher l'autre — cette fonction est le seul
+// endroit qui recalcule leur empilement, appelée par les 2 renderers.
+function repositionBannersAndDashboard() {
+  const dashboard = document.getElementById('dashboard');
+  const alertsBanner = document.getElementById('alertsBanner');
+  const missingBanner = document.getElementById('missingDataBanner');
+  if (!dashboard) return;
+
+  const alertsHeight = alertsBanner?.classList.contains('visible') ? alertsBanner.getBoundingClientRect().height : 0;
+  if (missingBanner) {
+    missingBanner.style.top = alertsHeight ? `calc(var(--titlebar-h) + ${alertsHeight}px)` : '';
+  }
+  const missingHeight = missingBanner?.classList.contains('visible') ? missingBanner.getBoundingClientRect().height : 0;
+
+  const total = alertsHeight + missingHeight;
+  dashboard.style.top = total ? `calc(var(--titlebar-h) + ${total}px)` : '';
+}
+
 function renderAlertsBanner(alerts) {
   const banner = document.getElementById('alertsBanner');
-  const dashboard = document.getElementById('dashboard');
-  if (!banner || !dashboard) return;
+  if (!banner) return;
 
   if (!Array.isArray(alerts) || !alerts.length) {
     banner.classList.remove('visible', 'severity-red', 'severity-orange');
     banner.innerHTML = '';
-    dashboard.style.top = '';
+    repositionBannersAndDashboard();
     return;
   }
 
@@ -1185,13 +1233,41 @@ function renderAlertsBanner(alerts) {
   // Mesuré APRÈS peuplement (la hauteur dépend du nombre d'alertes/du retour
   // à la ligne du texte, jamais fixe) — repousse #dashboard d'exactement ce
   // qu'il faut, ni plus (espace perdu) ni moins (carte cachée sous le bandeau).
-  const bannerHeight = banner.getBoundingClientRect().height;
-  dashboard.style.top = `calc(var(--titlebar-h) + ${bannerHeight}px)`;
+  repositionBannersAndDashboard();
 }
 
 function initAlertsBanner() {
   window.matin.alerts.getCurrent().then(renderAlertsBanner).catch(err => console.error('[Alertes] Échec chargement initial', err));
   window.matin.alerts.onUpdate(renderAlertsBanner);
+}
+
+// ─── Bandeau "Données manquantes" (2026-08-30, sur demande explicite, point 5
+// — suite à l'incident de perte de données ETF/Crypto/Prêts) ───────────────
+// Vérifié en LIVE (IPC userdata:isEmpty interrogé à chaud), jamais un flag
+// figé lu une seule fois au lancement — l'état peut changer EN COURS de
+// session (restauration auto au lancement déjà résolue avant ce premier
+// appel, mais aussi restauration Drive et import manuel, tous deux
+// susceptibles de survenir APRÈS le premier rendu). Re-vérifié à chaque
+// événement Drive pertinent plutôt que sur un minuteur : ce sont les seuls
+// moments où l'état peut réellement changer sans rechargement complet de la
+// page (un import manuel ou une restauration de sauvegarde recharge de
+// toute façon toute la fenêtre, donc ce code se ré-exécute déjà tout seul).
+function renderMissingDataWarning(isEmpty) {
+  const banner = document.getElementById('missingDataBanner');
+  if (!banner) return;
+  banner.classList.toggle('visible', !!isEmpty);
+  repositionBannersAndDashboard();
+}
+
+function initMissingDataWarning() {
+  const recheck = () => window.matin.userdata.isEmpty().then(renderMissingDataWarning).catch(() => {});
+  recheck();
+  window.matin.driveSync.onStatus(recheck);
+  window.matin.driveSync.onUserdataRestored(recheck);
+
+  document.getElementById('missingDataBannerBtn')?.addEventListener('click', () => {
+    window.matin.window.openConfig({ openBackups: true });
+  });
 }
 
 function createModuleCard(key, meta, title) {
@@ -1940,6 +2016,7 @@ async function initDashboard() {
   initAppBackground();
   initDisplayMode();
   initAlertsBanner();
+  initMissingDataWarning();
   initPreciseScrolling();
 
   // Restauration automatique au lancement (voir main.js

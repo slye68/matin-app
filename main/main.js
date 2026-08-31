@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
@@ -50,6 +50,56 @@ app.on('second-instance', () => {
   mainWindow.webContents.send('modules:updated', getMergedModules());
 });
 
+// ─── Migration du dossier de données : matin-windows → matin-app (2026-08-30,
+// sur demande explicite — `name` de package.json renommé, voir plus bas) ────
+// `app.getPath('userData')` dérive du champ `name` de package.json (voir le
+// log de diagnostic historique plus bas, "ETF/Crypto perdus via Matin.bat") —
+// renommer ce champ déplace donc TOUT le dossier de données (matin-config,
+// matin-userdata, backups/, tokens OAuth...) vers un NOUVEAU chemin
+// (%AppData%\matin-app au lieu de %AppData%\matin-windows), invisible sous
+// l'ancien nom. Sans cette migration, une installation existante perdrait
+// l'ACCÈS à toutes ses données dès ce lancement — les fichiers resteraient
+// sur disque sous l'ancien dossier, mais l'app ne les y chercherait plus —
+// exactement le type d'incident déjà vécu avec ce même dossier (voir
+// CONTEXT.md, protection anti-perte du 2026-08-30).
+//
+// EXÉCUTÉE ICI, avant toute construction de Store plus bas : `new Store(...)`
+// crée son fichier dès sa construction, donc la migration doit être terminée
+// AVANT ce point pour que le tout premier `store.get(...)` voie déjà les
+// vraies données copiées, pas un store neuf vide.
+//
+// COPIE (jamais un déplacement/suppression) : l'ancien dossier reste intact
+// comme filet de sécurité — coûte quelques Mo de disque contre un risque de
+// perte de données bien plus grave. Ne s'exécute QUE si le NOUVEAU dossier
+// n'a PAS DÉJÀ de vraies données ET que l'ANCIEN existe : idempotent (sans
+// effet sur une installation déjà migrée) et sans effet sur une toute
+// nouvelle installation qui n'a jamais connu l'ancien nom (rien à copier).
+//
+// PIÈGE VÉRIFIÉ EN DIRECT (2026-08-31) : `fs.existsSync(newDir)` seul est
+// un mauvais test de "déjà migré" — Chromium crée LUI-MÊME le dossier
+// `userData` (Cache/, Preferences, Local State...) dans le cadre de son
+// propre bootstrap natif, AVANT même la première ligne de ce script, donc
+// TOUJOURS vrai dès le 1er lancement sous le nouveau nom, migré ou pas.
+// Testé en conditions réelles : avec ce seul test, la copie ne se déclenchait
+// JAMAIS — l'app démarrait avec un store neuf 100% par défaut (token Google
+// perdu, disposition des cartes réinitialisée...) sous le nouveau dossier,
+// alors que l'ancien contenait les vraies données. Corrigé en testant la
+// présence de `matin-config.json` PRÉCISÉMENT (jamais créé par Chromium
+// lui-même, seulement par ce code) plutôt que le dossier dans son ensemble.
+function migrateUserDataFolderIfNeeded() {
+  const oldDir = path.join(app.getPath('appData'), 'matin-windows');
+  const newDir = app.getPath('userData'); // résout déjà vers ".../matin-app" (voir package.json)
+  const alreadyMigrated = fs.existsSync(path.join(newDir, 'matin-config.json'));
+  if (alreadyMigrated || !fs.existsSync(oldDir)) return;
+  try {
+    fs.cpSync(oldDir, newDir, { recursive: true });
+    console.log('[Matin] Migration du dossier de données utilisateur — copié', oldDir, '→', newDir);
+  } catch (err) {
+    console.error('[Matin] Échec de la migration du dossier de données (matin-windows → matin-app)', err);
+  }
+}
+migrateUserDataFolderIfNeeded();
+
 // ─── Store de configuration ───────────────────────────────────────────────────
 // DEFAULT_MODULES est gardé en constante séparée (pas juste inline dans
 // `defaults` ci-dessous) pour pouvoir le réutiliser dans backfillMissingModules
@@ -87,6 +137,14 @@ const DEFAULT_MODULES = {
   airQuality: { enabled: true,  position: 8.1, config: {} },              // réutilise la ville de weather, rien à configurer
   fuelPrices: { enabled: false, position: 8.2, config: { city: '' } },    // ville/CP à saisir
   parcels:    { enabled: false, position: 8.3, config: { items: [] } },   // numéros de suivi à saisir (transporteur auto-détecté, aucune clé requise)
+  // Suivi de prix Amazon (2026-08-30, sur demande explicite) — jusqu'à 10
+  // produits (URL Amazon.fr + libellé + prix cible), voir renderer/modules/
+  // price-tracking.js pour le scraping (jina.ai) et plus bas dans ce fichier
+  // pour la persistance/notification (priceTracking:reportPrices). Dans
+  // USERDATA_MODULE_KEYS (voir plus haut) : `items` porte le dernier prix
+  // connu par produit, mérite la même protection anti-perte/backup/sync que
+  // ETF/Crypto plutôt que de vivre dans matin-config.
+  priceTracking: { enabled: false, position: 8.35, config: { items: [] } },
   cinema:     { enabled: true,  position: 8.4, config: {} },              // scraping direct AlloCiné, aucune clé requise (2026-08-05)
   steamPromos:{ enabled: true,  position: 8.5, config: {} },              // aucune config nécessaire
   epicPromos: { enabled: true,  position: 8.55, config: {} },             // aucune config nécessaire
@@ -282,9 +340,38 @@ const store = new Store({
 // structurellement impossible qu'un futur bug de merge de defaults touche ces
 // clés, mais n'aurait pas, à elle seule, empêché l'incident constaté (une
 // course entre 2 PROCESSUS, pas un souci de fusion de valeurs par défaut).
-const USERDATA_MODULE_KEYS = new Set(['etf', 'crypto', 'prets', 'fdjLoto', 'fdjEuromillions', 'fdjEurodreams', 'podcast', 'reminders']);
+const USERDATA_MODULE_KEYS = new Set(['etf', 'crypto', 'prets', 'fdjLoto', 'fdjEuromillions', 'fdjEurodreams', 'podcast', 'reminders', 'priceTracking']);
 
 const userdataStore = new Store({ name: 'matin-userdata', cwd: app.getPath('userData'), defaults: {} });
+
+// ─── Détection centralisée du contenu réel de matin-userdata (2026-08-30,
+// suite à l'incident de perte de données ETF/Crypto/Prêts) ─────────────────
+// UNE SEULE définition de "vide"/"contenu réel", réutilisée PARTOUT
+// (protection avant upload Drive, sauvegardes automatiques déclenchées par
+// changement, protection au démarrage, restauration manuelle, import/export)
+// plutôt que plusieurs implémentations qui pourraient diverger avec le temps.
+// "Contenu réel" = au moins 1 élément dans lines/grids/loans/feeds/items
+// d'AU MOINS UN module userdata — pas juste "la clé existe" (une installation
+// neuve a déjà des tableaux vides par défaut, ce qui est normal et ne doit
+// jamais être traité comme une perte de donnée).
+function summarizeUserdataModules(modules) {
+  const out = {};
+  for (const key of USERDATA_MODULE_KEYS) {
+    const cfg = modules?.[key]?.config;
+    const arr = cfg && (cfg.lines || cfg.grids || cfg.loans || cfg.feeds || cfg.items);
+    out[key] = Array.isArray(arr) ? arr.length : 0;
+  }
+  return out;
+}
+function userdataEntryCount(modules) {
+  return Object.values(summarizeUserdataModules(modules)).reduce((a, b) => a + b, 0);
+}
+function isUserdataEmptyModules(modules) {
+  return userdataEntryCount(modules) === 0;
+}
+function isUserdataEmpty() {
+  return isUserdataEmptyModules(userdataStore.get('modules'));
+}
 
 // Log de diagnostic demandé explicitement (2026-08-11, suite au rapport
 // "ETF/Crypto perdus via Matin.bat mais visibles via npm run dev") — confirme
@@ -320,7 +407,8 @@ function setMergedModules(modules) {
   }
   safeStoreSet('modules', configPart);
   userdataStore.set('modules', userdataPart);
-  scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas — point 3 de la demande, upload silencieux différé
+  scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
+  uploadToDriveAfterChange(); // voir Sync Google Drive plus bas — point 3 de la demande, upload silencieux différé
 }
 
 // ─── Sauvegarde de secours avant chaque écriture ───────────────────────────────
@@ -430,6 +518,99 @@ function listLaunchBackups() {
   }
 }
 
+// ─── Sauvegardes déclenchées par CHANGEMENT (2026-08-30, sur demande
+// explicite, suite à l'incident de perte de données ETF/Crypto/Prêts) ──────
+// Différent de writeLaunchBackup ci-dessus (1 instantané par LANCEMENT,
+// {config,userdata} combinés, plafond 7) : ici, 1 instantané par CHANGEMENT
+// RÉEL de matin-userdata (ETF/Crypto/Prêts/FDJ/Podcasts/Rappels), userdata
+// SEUL — jamais matin-config, donc jamais de token OAuth dans un fichier
+// dont la variante Documents est justement pensée pour être copiée sur clé
+// USB ou envoyée par email. Plafond 30 (demandé explicitement), débounce
+// (mêmes constantes que l'upload Drive plus bas) pour coalescer une rafale
+// de changements rapprochés (ex. plusieurs lignes ETF ajoutées à la suite)
+// en un seul fichier plutôt que d'en écrire un par changement isolé.
+// N'écrit JAMAIS si matin-userdata est vide au moment du déclenchement — un
+// instantané vide n'a aucune valeur de sauvegarde et, plafond oblige,
+// finirait par chasser les 30 derniers instantanés UTILES si on le laissait
+// s'accumuler (même philosophie que la protection Drive plus bas : ne
+// jamais préserver/propager un vide accidentel comme s'il s'agissait d'un
+// état légitime à conserver).
+const USERDATA_BACKUP_PREFIX = 'userdata-backup-';
+const MAX_USERDATA_BACKUPS = 30;
+// Point 1 de la demande : export "lisible" dans Documents, en plus de la
+// copie technique dans AppData — "lisible" ici veut dire facile à
+// RETROUVER/COPIER (Documents plutôt que le dossier caché AppData), pas un
+// format différent : le JSON pretty-printé est déjà celui utilisé pour
+// toutes les sauvegardes de cette app.
+const DOCUMENTS_BACKUPS_DIR = path.join(app.getPath('documents'), 'Matin', 'backups');
+
+function pruneUserdataBackupsIn(dir) {
+  try {
+    const files = fs.readdirSync(dir)
+      .filter(f => f.startsWith(USERDATA_BACKUP_PREFIX) && f.endsWith('.json'))
+      .map(f => ({ name: f, mtimeMs: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    for (const extra of files.slice(MAX_USERDATA_BACKUPS)) {
+      fs.unlinkSync(path.join(dir, extra.name));
+    }
+  } catch (err) {
+    console.error('[Sauvegardes] Échec du nettoyage des sauvegardes userdata dans', dir, err);
+  }
+}
+
+function writeUserdataBackupTo(dir) {
+  const modules = userdataStore.get('modules');
+  if (isUserdataEmptyModules(modules)) {
+    console.log('[Sauvegardes] Aucune sauvegarde écrite dans', dir, '— matin-userdata est vide (rien de réel à protéger).');
+    return;
+  }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${USERDATA_BACKUP_PREFIX}${launchBackupTimestamp(new Date())}.json`);
+    const payload = { savedAt: new Date().toISOString(), modules };
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf-8');
+    pruneUserdataBackupsIn(dir);
+    console.log('[Sauvegardes] Instantané userdata écrit :', file, `(${userdataEntryCount(modules)} entrée(s) au total)`);
+  } catch (err) {
+    console.error('[Sauvegardes] Échec de l\'écriture de la sauvegarde userdata dans', dir, err);
+  }
+}
+
+function writeUserdataBackups() {
+  writeUserdataBackupTo(LAUNCH_BACKUPS_DIR);
+  writeUserdataBackupTo(DOCUMENTS_BACKUPS_DIR);
+}
+
+const USERDATA_BACKUP_SETTLE_MS = 5 * 1000;
+const USERDATA_BACKUP_MAX_WAIT_MS = 30 * 1000;
+let userdataBackupTimer = null;
+let userdataBackupFirstPendingAt = null;
+
+// Débounce à plafond dur (coalesce une rafale de changements en 1 seul
+// instantané de sauvegarde locale, tout en garantissant un instantané au
+// plus tard 30s après le TOUT PREMIER changement en attente) — appelée à
+// CHAQUE écriture réelle de matin-userdata (mêmes points d'appel que
+// uploadToDriveAfterChange plus bas : setMergedModules, modules:updateLayout,
+// checkReminders, backups:restore, restauration/import Drive et import
+// manuel). Volontairement DIFFÉRENT de uploadToDriveAfterChange (2026-08-31,
+// sur demande explicite) : l'upload Drive part maintenant IMMÉDIATEMENT à
+// chaque changement, sans débounce — mais écrire un fichier de sauvegarde
+// local à CHAQUE frappe/glisser-déposer resterait excessif (30 sauvegardes
+// consommées en quelques secondes), ce débounce-ci reste donc justifié.
+function scheduleUserdataBackup() {
+  const now = Date.now();
+  if (!userdataBackupFirstPendingAt) userdataBackupFirstPendingAt = now;
+  if (userdataBackupTimer) clearTimeout(userdataBackupTimer);
+
+  const waited = now - userdataBackupFirstPendingAt;
+  const delay = Math.min(USERDATA_BACKUP_SETTLE_MS, Math.max(0, USERDATA_BACKUP_MAX_WAIT_MS - waited));
+  userdataBackupTimer = setTimeout(() => {
+    userdataBackupTimer = null;
+    userdataBackupFirstPendingAt = null;
+    writeUserdataBackups();
+  }, delay);
+}
+
 // Comble dans le fichier PERSISTÉ toute clé de DEFAULT_MODULES absente de
 // `modules` — nécessaire précisément parce qu'electron-store ne le fait pas
 // tout seul (voir commentaire ci-dessus). Écrit immédiatement sur disque
@@ -535,24 +716,12 @@ function backfillMissingModules() {
 backfillMissingModules();
 
 // ─── Validation au lancement : auto-restauration si matin-userdata semble
-// VIDE (2026-08-10, sur demande explicite) ──────────────────────────────────
-// "Vide" = aucune des clés USERDATA_MODULE_KEYS n'a de contenu RÉEL (au moins
-// 1 élément dans lines/grids/loans/feeds/items) — pas juste "la clé existe"
-// (backfillMissingModules ci-dessus vient justement d'y créer des tableaux
-// vides par défaut pour toute installation neuve, ce qui est normal et ne
-// doit PAS déclencher une restauration). Ne se déclenche que s'il existe une
-// sauvegarde de MOINS DE 24H qui, elle, contient des données — sur un tout
-// premier lancement légitime (aucune sauvegarde existante), rien ne se passe.
-function isUserdataEmpty() {
-  const modules = userdataStore.get('modules') || {};
-  for (const key of USERDATA_MODULE_KEYS) {
-    const cfg = modules[key]?.config;
-    if (!cfg) continue;
-    const arr = cfg.lines || cfg.grids || cfg.loans || cfg.feeds || cfg.items;
-    if (Array.isArray(arr) && arr.length > 0) return false;
-  }
-  return true;
-}
+// VIDE (2026-08-10, sur demande explicite ; étendue le 2026-08-30 suite à
+// l'incident de perte de données — voir isUserdataEmpty/summarizeUserdataModules
+// plus haut, juste après la définition de userdataStore) ────────────────────
+// Ne se déclenche que s'il existe une sauvegarde RÉCENTE qui, elle, contient
+// des données — sur un tout premier lancement légitime (aucune sauvegarde
+// existante), rien ne se passe.
 
 // Une sauvegarde peut être dans l'un des 3 formats rencontrés par cette app
 // (voir backups:restore) : nouveau `{config,userdata}` déjà migré, nouveau
@@ -574,14 +743,25 @@ function extractUserdataModulesFromBackup(backupJson) {
 }
 
 function backupHasUserdata(backupJson) {
-  const modules = extractUserdataModulesFromBackup(backupJson);
-  for (const key of USERDATA_MODULE_KEYS) {
-    const cfg = modules[key]?.config;
-    if (!cfg) continue;
-    const arr = cfg.lines || cfg.grids || cfg.loans || cfg.feeds || cfg.items;
-    if (Array.isArray(arr) && arr.length > 0) return true;
+  return !isUserdataEmptyModules(extractUserdataModulesFromBackup(backupJson));
+}
+
+// Liste FUSIONNÉE des 2 mécanismes de sauvegarde locale (2026-08-30) — les
+// instantanés par lancement (`backup-*.json`, voir writeLaunchBackup) ET les
+// instantanés par changement (`userdata-backup-*.json`, voir
+// scheduleUserdataBackup plus haut, bien plus granulaires) dans LE MÊME
+// dossier, triés ensemble par date réelle : peu importe LEQUEL des 2
+// mécanismes a produit la sauvegarde la plus récente avec du contenu, c'est
+// celle-là qui doit être proposée en premier à la restauration automatique.
+function listAllLocalUserdataBackups() {
+  try {
+    return fs.readdirSync(LAUNCH_BACKUPS_DIR)
+      .filter(f => /^backup-.*\.json$/.test(f) || (f.startsWith(USERDATA_BACKUP_PREFIX) && f.endsWith('.json')))
+      .map(f => ({ file: f, mtimeMs: fs.statSync(path.join(LAUNCH_BACKUPS_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  } catch {
+    return [];
   }
-  return false;
 }
 
 const AUTO_RESTORE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -593,7 +773,7 @@ let autoRestoreNotice = null;
 function autoRestoreUserdataIfEmpty() {
   try {
     if (!isUserdataEmpty()) return;
-    const backups = listLaunchBackups(); // déjà trié, plus récent d'abord
+    const backups = listAllLocalUserdataBackups(); // déjà trié, plus récent d'abord
     if (!backups.length) return; // rien à restaurer — 1er lancement légitime
 
     const now = Date.now();
@@ -610,6 +790,7 @@ function autoRestoreUserdataIfEmpty() {
       backupStoreBeforeWrite();
       userdataStore.set('modules', extractUserdataModulesFromBackup(data));
       autoRestoreNotice = { file: b.file, mtimeMs: b.mtimeMs };
+      scheduleUserdataBackup(); // le contenu retrouvé mérite son propre instantané frais, indépendant de celui qui vient de le fournir
       console.warn(`[Matin] matin-userdata semblait vide au lancement — restauration automatique depuis ${b.file}`);
       if (Notification.isSupported()) {
         try {
@@ -797,7 +978,7 @@ function createMainWindow() {
   }
 }
 
-function createConfigWindow() {
+function createConfigWindow(opts = {}) {
   if (configWindow && !configWindow.isDestroyed()) {
     if (configWindow.isMinimized()) configWindow.restore();
     configWindow.show();
@@ -853,7 +1034,14 @@ function createConfigWindow() {
     show: false,
   });
 
-  configWindow.loadFile(path.join(__dirname, '../renderer/config.html'));
+  // `openBackups` (2026-08-30, voir bouton "Ouvrir Sauvegardes" du bandeau
+  // "⚠️ Données manquantes", dashboard.js initMissingDataWarning) — ouvre la
+  // fenêtre Paramètres directement sur la popup Sauvegardes plutôt que de
+  // laisser l'utilisateur la retrouver lui-même. Ne s'applique qu'à un
+  // NOUVEL ouverture (voir le early-return juste au-dessus si la fenêtre est
+  // déjà ouverte — cas marginal accepté, pas de message inter-fenêtres pour
+  // un simple raccourci de confort).
+  configWindow.loadFile(path.join(__dirname, '../renderer/config.html'), opts.openBackups ? { search: 'openBackups=1' } : undefined);
   configWindow.once('ready-to-show', () => configWindow.show());
   configWindow.on('closed', () => { configWindow = null; });
 }
@@ -1299,22 +1487,144 @@ const BACKUP_FILE_RE = /^backup-[\d-_]+\.json$/;
 // l'époque où ces sauvegardes-là ont été écrites, matin-userdata n'existait
 // pas encore) : matin-userdata garde alors son contenu ACTUEL, jamais vidé
 // par une restauration d'une sauvegarde antérieure à son existence.
+// (summarizeUserdataModules — voir plus haut, juste après userdataStore —
+// résume le contenu utile d'un objet `modules` pour le diagnostic, points
+// 1/5 de la demande de debug "Restaurer ne fait rien" : juste le nombre
+// d'entrées par module userdata, pas le contenu entier, qui peut contenir
+// des données perso — ISIN, montants de prêts... — jamais loggé en clair.)
+
 ipcMain.handle('backups:restore', (_e, file) => {
+  console.log('[Backups] Restauration demandée, fichier =', file);
   if (!BACKUP_FILE_RE.test(file)) throw new Error('Nom de sauvegarde invalide');
   const filePath = path.join(LAUNCH_BACKUPS_DIR, file);
+  console.log('[Backups] Chemin résolu =', filePath, '— existe :', fs.existsSync(filePath));
   if (!fs.existsSync(filePath)) throw new Error('Sauvegarde introuvable');
-  const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const data = JSON.parse(raw);
+  console.log('[Backups] Sauvegarde lue —', raw.length, 'octets, clés de premier niveau :', Object.keys(data));
+
+  const isNewFormat = !!(data.config || data.userdata);
+  console.log('[Backups] Format détecté :', isNewFormat ? '{config,userdata}' : 'ancien format à plat (tout dans matin-config)');
+
+  // Point 5 : contenu RÉEL du fichier de sauvegarde avant toute écriture —
+  // confirme si les données ETF/Crypto/Prêts/etc. sont VRAIMENT dedans ou si
+  // la sauvegarde elle-même est déjà vide (dans ce dernier cas, aucun code de
+  // restauration ne peut faire réapparaître une donnée qui n'y est pas).
+  const backupUserdataModules = isNewFormat ? (data.userdata?.modules || null) : (data.modules || null);
+  console.log('[Backups] Contenu userdata DANS LA SAUVEGARDE (nb d\'entrées par module) :', JSON.stringify(summarizeUserdataModules(backupUserdataModules)));
+
   backupStoreBeforeWrite(); // trace de l'état juste avant l'écrasement par la restauration
-  if (data.config || data.userdata) {
-    if (data.config) store.store = data.config;
-    if (data.userdata) userdataStore.store = data.userdata;
+  console.log('[Backups] État AVANT restauration (nb d\'entrées par module, store actuel) :', JSON.stringify(summarizeUserdataModules(userdataStore.get('modules'))));
+
+  if (isNewFormat) {
+    if (data.config) { store.store = data.config; console.log('[Backups] matin-config écrasé depuis data.config'); }
+    if (data.userdata) { userdataStore.store = data.userdata; console.log('[Backups] matin-userdata écrasé depuis data.userdata'); }
+    else console.log('[Backups] Aucune clé "userdata" dans cette sauvegarde — matin-userdata conservé TEL QUEL (voir commentaire ci-dessus sur les sauvegardes pré-scission)');
   } else {
     store.store = data;
+    console.log('[Backups] Ancien format — matin-config entièrement écrasé, matin-userdata conservé TEL QUEL');
   }
-  scheduleDriveUploadAfterChange(); // restauration manuelle = changement de donnée local, voir Sync Google Drive plus bas
+
+  // Point 3 : relecture immédiate du store RÉEL (pas la variable `data` en
+  // mémoire) pour confirmer que l'écriture a bien atteint matin-userdata.
+  console.log('[Backups] État APRÈS restauration, relu depuis userdataStore.get (nb d\'entrées par module) :', JSON.stringify(summarizeUserdataModules(userdataStore.get('modules'))));
+  console.log('[Backups] Chemin réel du fichier matin-userdata sur disque :', userdataStore.path);
+
+  scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
+  uploadToDriveAfterChange(); // restauration manuelle = changement de donnée local, voir Sync Google Drive plus bas
+  console.log('[Backups] Rechargement de mainWindow —', mainWindow ? 'présent' : 'absent');
   if (mainWindow) mainWindow.reload();
   return true;
 });
+
+// ─── Export / Import manuel (2026-08-30, sur demande explicite, suite à
+// l'incident de perte de données) — bouton "📥 Exporter mes données" /
+// "📤 Importer des données" de Paramètres → Sauvegardes. Portable PAR
+// DESIGN : userdata SEULEMENT (ETF/Crypto/Prêts/FDJ/Podcasts/Rappels),
+// JAMAIS matin-config — ce fichier est pensé pour être copié sur une clé USB
+// ou envoyé par email, il ne doit donc JAMAIS contenir de token OAuth
+// (Google/Spotify) ni aucun autre secret local à cette installation.
+const DOCUMENTS_MATIN_DIR = path.join(app.getPath('documents'), 'Matin');
+
+ipcMain.handle('backups:exportManual', () => {
+  const modules = userdataStore.get('modules');
+  const dateLabel = launchBackupTimestamp(new Date());
+  const filePath = path.join(DOCUMENTS_MATIN_DIR, `matin-backup-${dateLabel}.json`);
+  fs.mkdirSync(DOCUMENTS_MATIN_DIR, { recursive: true });
+  const payload = { exportedAt: new Date().toISOString(), source: 'Matin! — export manuel', modules };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+  console.log('[Backups] Export manuel écrit :', filePath, `(${userdataEntryCount(modules)} entrée(s) au total)`);
+  return { filePath, counts: summarizeUserdataModules(modules) };
+});
+
+// Accepte les mêmes formats que backups:restore (voir
+// extractUserdataModulesFromBackup plus haut) — l'utilisateur peut aussi
+// bien sélectionner un export manuel qu'une sauvegarde technique récupérée
+// depuis AppData/Documents, peu importe laquelle des variantes de forme.
+ipcMain.handle('backups:importManual', async () => {
+  const win = BrowserWindow.getFocusedWindow() || configWindow || mainWindow;
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Importer une sauvegarde Matin',
+    defaultPath: DOCUMENTS_MATIN_DIR,
+    filters: [{ name: 'Sauvegarde Matin (JSON)', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths.length) return { canceled: true };
+
+  const filePath = filePaths[0];
+  console.log('[Backups] Import manuel demandé, fichier =', filePath);
+  const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const modules = extractUserdataModulesFromBackup(data);
+  if (isUserdataEmptyModules(modules)) {
+    throw new Error('Ce fichier ne contient aucune donnée Matin reconnue (ou est vide).');
+  }
+
+  backupStoreBeforeWrite();
+  userdataStore.set('modules', modules);
+  console.log('[Backups] Import manuel appliqué —', JSON.stringify(summarizeUserdataModules(modules)));
+  scheduleUserdataBackup();
+  uploadToDriveAfterChange(); // import manuel = changement de donnée local légitime, voir Sync Google Drive plus bas
+  if (mainWindow) mainWindow.reload();
+  return { canceled: false, counts: summarizeUserdataModules(modules) };
+});
+
+ipcMain.handle('shell:showItemInFolder', (_e, filePath) => { shell.showItemInFolder(filePath); return true; });
+
+// Point 5 de la demande "backup système" (2026-08-30) — vérifié en LIVE par
+// le renderer (pas un flag figé au lancement) : recalculé à chaque appel
+// contre l'état RÉEL du store, donc toujours à jour même après une
+// restauration automatique/Drive/manuelle survenue après le premier rendu.
+ipcMain.handle('userdata:isEmpty', () => isUserdataEmpty());
+
+// Mode auto luminosité (2026-08-31, sur demande explicite — redesign complet :
+// avant cette date, "mode auto" ne posait qu'un calque de dimming PAR-DESSUS
+// le thème choisi manuellement, jamais de vrai changement clair/sombre) :
+// clair 06h-21h (dont un calque de dimming subtil 18h-21h, voir
+// dashboard.js/style.css `.brightness-soiree`), sombre 21h-06h. Copie
+// minimale de la même fonction côté renderer (dashboard.js
+// `autoThemeForHour`) — même convention que REMINDER_ICONS plus haut (2
+// contextes JS séparés, main vs renderer, aucun mécanisme de partage de
+// module entre les deux dans cette app) : à garder synchronisée si la
+// tranche horaire change.
+function autoThemeForHour(h) {
+  return (h >= 6 && h < 21) ? 'light' : 'dark';
+}
+
+// Diffuse un thème à toutes les fenêtres SANS le persister dans
+// `app.theme` (voir app:applyAutoTheme plus bas) — extrait de l'ancien corps
+// de app:setTheme pour être réutilisable par les 2 chemins (choix manuel
+// PERSISTÉ vs calcul automatique NON persisté, qui ne doit jamais écraser le
+// dernier choix manuel de l'utilisateur, seulement l'affichage courant).
+function broadcastTheme(safeTheme) {
+  const { color, symbolColor } = titleBarColorsForTheme(safeTheme);
+  for (const win of [mainWindow, configWindow]) {
+    if (!win || win.isDestroyed()) continue;
+    win.setBackgroundColor(color);
+    win.setTitleBarOverlay({ color, symbolColor, height: 38 });
+    win.webContents.send('theme:updated', safeTheme);
+  }
+}
 
 // Thème clair/sombre — voir titleBarColorsForTheme plus haut pour le détail
 // des 3 couches synchronisées. `theme:getInitial` est SYNCHRONE
@@ -1324,21 +1634,29 @@ ipcMain.handle('backups:restore', (_e, file) => {
 // synchrone en tête de <head> — sans ça, le thème ne serait connu qu'après
 // un aller-retour IPC asynchrone, provoquant un flash visible du mauvais
 // thème à chaque lancement/rechargement.
+// Mode auto (2026-08-31, point 3 de la demande "jamais démarrer en sombre en
+// pleine journée") : si actif, calcule le thème depuis l'heure ACTUELLE
+// plutôt que de lire `app.theme` (qui reste le dernier choix MANUEL, ignoré
+// tant que le mode auto est actif) — dès la 1re peinture, jamais un flash du
+// mauvais thème le temps que dashboard.js fasse son propre calcul async.
 ipcMain.on('theme:getInitial', (event) => {
-  event.returnValue = store.get('app.theme') || 'dark';
+  const auto = store.get('app.autoBrightness') === true;
+  event.returnValue = auto ? autoThemeForHour(new Date().getHours()) : (store.get('app.theme') || 'dark');
 });
 
 ipcMain.handle('app:setTheme', (_e, theme) => {
   const safeTheme = theme === 'light' ? 'light' : 'dark'; // toute valeur inattendue retombe sur le défaut sombre
   safeStoreSet('app.theme', safeTheme);
+  broadcastTheme(safeTheme);
+  return true;
+});
 
-  const { color, symbolColor } = titleBarColorsForTheme(safeTheme);
-  for (const win of [mainWindow, configWindow]) {
-    if (!win || win.isDestroyed()) continue;
-    win.setBackgroundColor(color);
-    win.setTitleBarOverlay({ color, symbolColor, height: 38 });
-    win.webContents.send('theme:updated', safeTheme);
-  }
+// Choix AUTOMATIQUE (mode auto luminosité, voir dashboard.js
+// initAutoBrightness) — diffuse sans toucher `app.theme` : si l'utilisateur
+// désactive le mode auto plus tard, il doit retrouver son dernier choix
+// manuel tel quel, pas la dernière valeur que le mode auto avait calculée.
+ipcMain.handle('app:applyAutoTheme', (_e, theme) => {
+  broadcastTheme(theme === 'light' ? 'light' : 'dark');
   return true;
 });
 
@@ -1384,6 +1702,32 @@ ipcMain.handle('app:setSidebarEdge', (_e, edge) => {
     sidebarState.edge = safeEdge;
     animateSidebarX(sidebarState.expanded ? sidebarExpandedX() : sidebarCollapsedX());
   }
+  return true;
+});
+
+// ─── Démarrage automatique Windows (2026-08-30, sur demande explicite,
+// Paramètres → Utile) ────────────────────────────────────────────────────
+// `app.setLoginItemSettings` est l'API Electron native pour s'inscrire dans
+// le registre Windows (démarrage session) — appliqué immédiatement au clic
+// (voir config.js, même principe que le bascule thème/fond/mode d'affichage
+// ci-dessus), PAS différé au bouton Enregistrer : un réglage système doit
+// refléter l'état réel de l'inscription tout de suite, pas rester
+// désynchronisé le temps que l'utilisateur sauvegarde. Persisté dans
+// `app.startOnBoot` pour pouvoir réappliquer le réglage au lancement (voir
+// app.whenReady plus bas) — `setLoginItemSettings` lui-même n'est pas
+// interrogeable de façon fiable comme source de vérité entre 2 lancements
+// (ex. après une réinstallation, un déplacement du dossier projet, ou un
+// changement du binaire lancé — voir CONTEXT.md "raccourci de lancement
+// corrigé" pour un exemple concret de ce genre de dérive).
+// NON VÉRIFIÉ EN CONDITIONS RÉELLES (pas de redémarrage Windows possible
+// dans cet environnement) : l'appel est fait selon la documentation
+// officielle Electron, mais l'inscription effective au registre reste à
+// confirmer au premier usage réel (Paramètres → Utile → activer, puis
+// vérifier Gestionnaire des tâches → Démarrage).
+ipcMain.handle('app:setStartOnBoot', (_e, enabled) => {
+  const safeEnabled = enabled === true;
+  safeStoreSet('app.startOnBoot', safeEnabled);
+  app.setLoginItemSettings({ openAtLogin: safeEnabled });
   return true;
 });
 
@@ -1506,7 +1850,8 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
   if (configChanged) store.set('modules', configCurrent);
   if (userdataChanged) {
     userdataStore.set('modules', userdataCurrent);
-    scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas
+    scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
+    uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   }
   return true;
 });
@@ -1532,7 +1877,7 @@ ipcMain.handle('modules:updateCollapsed', (_e, { key, collapsed }) => {
 });
 
 // Navigation
-ipcMain.handle('window:openConfig', () => createConfigWindow());
+ipcMain.handle('window:openConfig', (_e, opts) => createConfigWindow(opts));
 ipcMain.handle('window:closeConfig', () => { if (configWindow) configWindow.close(); });
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 
@@ -2380,6 +2725,187 @@ ipcMain.handle('epicPromos:fetchDeals', async () => {
 // (cinema.js) réutilise directement `rss:fetchFeed` ci-dessus pour la
 // cascade fetch direct → allorigins.win → jina.ai Reader.
 
+// ─── Suivi de prix Amazon (2026-08-30, sur demande explicite ; chaîne de
+// repli ajoutée le 2026-08-31, sur demande explicite, suite au rapport
+// "jina.ai renvoie Indisponible, Amazon bloque le scraping") ───────────────
+// Le fetch lui-même vit désormais ENTIÈREMENT côté process main (avant le
+// 2026-08-31, le renderer appelait directement `rss:fetchFeed`) : les 4
+// méthodes tentées (jina.ai, allorigins.win, fetch direct, rainforestapi)
+// sont TOUTES sujettes à CORS depuis le renderer sauf jina.ai (déjà proxifié
+// via rss:fetchFeed) — centraliser la cascade entière ici évite d'ajouter 3
+// canaux IPC séparés pour un seul et même besoin ("obtenir un prix"), et
+// garde le contrôle fin des en-têtes (User-Agent/Accept-Language "navigateur
+// réel", demandé explicitement) que `rss:fetchFeed` n'expose pas (en-tête
+// fixe, partagé par tous ses appelants — RSS/Colis/Cinéma/ETF).
+//
+// AVERTISSEMENT (même statut que Colis à sa création) : non vérifié en
+// conditions réelles (aucune URL Amazon testée en direct dans cet
+// environnement) — l'extraction du prix (voir PRICE_EURO_RE ci-dessous) est
+// un motif générique best-effort, à ajuster au premier usage réel si le prix
+// affiché semble faux (voir CONTEXT.md).
+const PRICE_EURO_RE = /(\d{1,3}(?:[.\s]\d{3})*,\d{2})\s?€/;
+function priceParseEuroServer(text) {
+  const m = text.match(PRICE_EURO_RE);
+  if (!m) return null;
+  const normalized = m[1].replace(/[.\s]/g, '').replace(',', '.');
+  const value = parseFloat(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+// En-têtes "navigateur réel" (points 1/3 de la demande) — Amazon bloque plus
+// volontiers un User-Agent par défaut de librairie HTTP (souvent absent ou
+// générique) qu'un Chrome desktop classique + Accept-Language cohérent avec
+// un site .fr.
+const PRICE_BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+};
+
+// Étape 1 : jina.ai Reader, avec en-têtes navigateur (point 1 de la demande —
+// avant le 2026-08-31, aucun en-tête personnalisé n'était envoyé).
+async function priceTryJina(url) {
+  const res = await fetch(`https://r.jina.ai/${url}`, { headers: PRICE_BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`jina.ai HTTP ${res.status}`);
+  const price = priceParseEuroServer(await res.text());
+  if (price == null) throw new Error('jina.ai : prix introuvable dans le texte reçu');
+  return price;
+}
+
+// Étape 2 : proxy allorigins.win (point 2 de la demande) — sert de repli
+// générique déjà utilisé ailleurs dans l'app (Colis/Cinéma) pour contourner
+// un blocage CORS/anti-bot, jamais encore essayé pour ce module précis.
+async function priceTryAllorigins(url) {
+  const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { headers: PRICE_BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`allorigins HTTP ${res.status}`);
+  const price = priceParseEuroServer(await res.text());
+  if (price == null) throw new Error('allorigins : prix introuvable dans le texte reçu');
+  return price;
+}
+
+// Étape 3 : fetch direct de la page Amazon, avec en-têtes navigateur (point 3
+// de la demande) — depuis le process MAIN, aucune restriction CORS (contrairement
+// à un fetch direct depuis le renderer), donc réellement testable ici là où
+// il ne l'aurait pas été côté renderer.
+async function priceTryDirect(url) {
+  const res = await fetch(url, { headers: PRICE_BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`fetch direct HTTP ${res.status}`);
+  const price = priceParseEuroServer(await res.text());
+  if (price == null) throw new Error('fetch direct : prix introuvable dans le texte reçu');
+  return price;
+}
+
+// Étape 4 (point 4 de la demande) : API tierce payante (rainforestapi.com ou
+// équivalent) — DÉSACTIVÉE par défaut, aucune clé `RAINFOREST_API_KEY` dans
+// le `.env` de ce développement (voir CONTEXT.md pour la liste des clés
+// disponibles) : ignorée silencieusement plutôt qu'un échec bruyant tant
+// qu'aucune clé n'est fournie. À activer en ajoutant `RAINFOREST_API_KEY=...`
+// au `.env` — aucun autre changement de code nécessaire.
+async function priceTryRainforest(url) {
+  const apiKey = process.env.RAINFOREST_API_KEY;
+  if (!apiKey) throw new Error('RAINFOREST_API_KEY absente du .env — étape ignorée');
+  const res = await fetch(`https://api.rainforestapi.com/request?api_key=${apiKey}&type=product&amazon_domain=amazon.fr&url=${encodeURIComponent(url)}`);
+  if (!res.ok) throw new Error(`rainforestapi HTTP ${res.status}`);
+  const data = await res.json();
+  const price = data.product?.buybox_winner?.price?.value ?? null;
+  if (price == null) throw new Error('rainforestapi : prix introuvable dans la réponse');
+  return price;
+}
+
+// Tente chaque méthode DANS L'ORDRE demandé, s'arrête à la 1re qui réussit.
+// Point 6 de la demande : logge la méthode qui a réussi ET chaque échec
+// intermédiaire (avec sa raison), pour pouvoir diagnostiquer lequel des 4
+// chemins fonctionne réellement une fois en conditions réelles.
+const PRICE_FETCH_METHODS = [
+  ['jina.ai (en-têtes navigateur)', priceTryJina],
+  ['allorigins.win', priceTryAllorigins],
+  ['fetch direct (en-têtes navigateur)', priceTryDirect],
+  ['rainforestapi', priceTryRainforest],
+];
+
+ipcMain.handle('priceTracking:fetchPrice', async (_e, url) => {
+  for (const [name, fn] of PRICE_FETCH_METHODS) {
+    try {
+      const price = await fn(url);
+      console.log(`[Suivi de prix] ${url} — succès via "${name}" : ${price} €`);
+      return { price, method: name };
+    } catch (err) {
+      console.warn(`[Suivi de prix] ${url} — échec via "${name}" :`, err.message);
+    }
+  }
+  console.error(`[Suivi de prix] ${url} — TOUTES les méthodes ont échoué`);
+  throw new Error('Prix introuvable (toutes les méthodes ont échoué)');
+});
+
+// Ce handler-ci ne fait PAS le fetch (voir priceTracking:fetchPrice
+// ci-dessus) : il persiste le résultat déjà obtenu et décide si une
+// notification est due — séparé du fetch pour que la comparaison "prix
+// précédent" et la décision de notifier restent une SEULE source de vérité
+// (le store), jamais recalculées indépendamment par chaque fenêtre qui
+// pourrait avoir cette carte ouverte.
+ipcMain.handle('priceTracking:reportPrices', (_e, fetched) => {
+  if (!Array.isArray(fetched)) return [];
+
+  const existing = userdataStore.get('modules.priceTracking.config.items') || [];
+  const byUrl = new Map(existing.map(i => [i.url, i]));
+
+  const updated = fetched.map(f => {
+    const prev = byUrl.get(f.url);
+    // `lastKnownPrice`/`lastKnownAt` (point 5 de la demande, 2026-08-31) :
+    // JAMAIS remis à null par un échec — contrairement à `price` (l'état du
+    // DERNIER essai, qui peut légitimement être null), ce champ ne progresse
+    // que sur un succès et survit à n'importe quelle série d'échecs
+    // ultérieurs, pour permettre au renderer d'afficher "dernier prix connu
+    // (non mis à jour)" plutôt que juste "Indisponible".
+    const lastKnownPrice = f.price ?? prev?.lastKnownPrice ?? null;
+    const lastKnownAt = f.price != null ? new Date().toISOString() : (prev?.lastKnownAt || null);
+    return {
+      url: f.url,
+      label: f.label || '',
+      targetPrice: f.targetPrice ?? null,
+      price: f.price ?? null,
+      previousPrice: prev?.price ?? null,
+      lastKnownPrice,
+      lastKnownAt,
+      fetchMethod: f.fetchMethod || null,
+      error: f.error || null,
+      lastCheckedAt: new Date().toISOString(),
+    };
+  });
+
+  // Persisté (+ backup/sync Drive, voir plus haut) seulement si au moins un
+  // prix a réellement changé depuis la dernière vérification — évite une
+  // écriture disque/upload Drive toutes les 2h pour rien quand rien n'a
+  // bougé, même principe que le garde-fou `changed` de checkReminders.
+  const pricesChanged = updated.length !== existing.length
+    || updated.some(u => (byUrl.get(u.url)?.price ?? null) !== u.price);
+  if (pricesChanged) {
+    backupStoreBeforeWrite();
+    userdataStore.set('modules.priceTracking.config.items', updated);
+    scheduleUserdataBackup();
+    uploadToDriveAfterChange();
+  }
+
+  // Notification native seulement au FRANCHISSEMENT du seuil (prix cible pas
+  // encore atteint puis atteint) — jamais répétée à chaque vérification tant
+  // que le prix reste bas, sinon une notification toutes les 2h à l'infini.
+  for (const item of updated) {
+    if (item.targetPrice == null || item.price == null) continue;
+    const wasAboveOrUnknown = item.previousPrice == null || item.previousPrice > item.targetPrice;
+    if (item.price <= item.targetPrice && wasAboveOrUnknown && Notification.isSupported()) {
+      try {
+        new Notification({
+          title: `🔔 Prix atteint — ${item.label || 'Produit suivi'}`,
+          body: `${item.price.toFixed(2)} € (objectif : ${item.targetPrice.toFixed(2)} €)`,
+        }).show();
+      } catch (err) {
+        console.error('[Suivi de prix] Échec notification', err);
+      }
+    }
+  }
+
+  return updated;
+});
+
 // Google OAuth
 ipcMain.handle('google:getToken', () => store.get('google'));
 ipcMain.handle('google:setToken', (_e, tokenData) => {
@@ -2403,7 +2929,7 @@ ipcMain.handle('google:logout', () => {
 // token stocké a expiré (durée de vie standard Google : 1h). Sans ça, tout
 // appel aux API Calendar/Gmail échoue en 401 dès que la session dépasse 1h.
 // Extraite en fonction nommée (2026-08-21, pour le Sync Google Drive plus
-// bas) : `performDriveLaunchSync`/`scheduleDriveUploadAfterChange` ont
+// bas) : `performDriveLaunchSync`/`uploadToDriveAfterChange` ont
 // besoin du MÊME token garanti valide, sans passer par un aller-retour IPC
 // vers son propre process (ipcMain.handle n'est appelable que depuis un
 // renderer) — `ipcMain.handle('google:getValidToken', ...)` délègue
@@ -2632,6 +3158,7 @@ function driveApplyDownloadedUserdata(data) {
   const modules = data.modules && typeof data.modules === 'object' ? data.modules : data;
   backupStoreBeforeWrite();
   userdataStore.set('modules', modules);
+  scheduleUserdataBackup(); // 2026-08-30 — le contenu qui vient d'arriver de Drive mérite lui aussi son propre instantané local
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('drive:userdataRestored', getMergedModules());
   }
@@ -2639,49 +3166,54 @@ function driveApplyDownloadedUserdata(data) {
 
 // Upload silencieux de l'état ACTUEL de matin-userdata — utilisé à la fois
 // par la sync de lancement (aucune version distante, ou version locale plus
-// récente) et par le debounce déclenché après chaque changement de donnée
-// (voir scheduleDriveUploadAfterChange plus bas). Jamais de notifyDriveSync
-// ici : silencieux par design (point 3 de la demande), seule la sync de
-// LANCEMENT affiche l'indicateur (point 4).
+// récente) et par l'upload IMMÉDIAT déclenché après chaque changement de
+// donnée (voir uploadToDriveAfterChange plus bas, plus de débounce depuis le
+// 2026-08-31). Jamais de notifyDriveSync ici : silencieux par design, seule
+// la sync de LANCEMENT affiche l'indicateur.
+//
+// PROTECTION ANTI-PERTE (2026-08-30, sur demande explicite, suite à
+// l'incident de perte de données ETF/Crypto/Prêts) : vérifie le contenu
+// RÉEL de matin-userdata AVANT tout appel réseau — si local est vide, aucun
+// upload n'est tenté, quelle que soit la raison de l'appel (1re synchro,
+// "local plus récent", debounce après changement). Sans ce garde-fou, un
+// vide LOCAL accidentel (bug, store corrompu, course entre process...)
+// finit par écraser la seule copie potentiellement bonne restante — celle
+// sur Drive — exactement le scénario qui a causé l'incident du 2026-08-30
+// (voir CONTEXT.md). Retourne `null` (jamais une exception) : chaque
+// appelant doit gérer ce cas comme "rien à faire", pas comme une erreur.
 async function driveUploadCurrent(accessToken) {
+  const modules = userdataStore.get('modules');
+  if (isUserdataEmptyModules(modules)) {
+    console.warn('[Drive Sync] Upload IGNORÉ — matin-userdata est vide localement (protection anti-perte). Drive conservé tel quel, rien envoyé.');
+    return null;
+  }
   let fileId = store.get('driveSync.fileId') || null;
   const result = await driveUploadUserdata(accessToken, fileId);
   store.set('driveSync.fileId', result.id);
   return result;
 }
 
-// ─── Upload différé après changement de donnée (point 3 de la demande) ─────
-// Debounce avec plafond dur : coalesce les écritures rapprochées (plusieurs
-// champs modifiés en quelques secondes dans Paramètres) en UN seul upload,
-// tout en garantissant qu'il parte au plus tard 30s après le TOUT PREMIER
-// changement en attente — jamais repoussé indéfiniment par des changements
-// continus (contrairement à un debounce simple sans plafond).
-const DRIVE_UPLOAD_SETTLE_MS = 5 * 1000;
-const DRIVE_UPLOAD_MAX_WAIT_MS = 30 * 1000;
-let driveUploadTimer = null;
-let driveUploadFirstPendingAt = null;
-
-function scheduleDriveUploadAfterChange() {
-  const now = Date.now();
-  if (!driveUploadFirstPendingAt) driveUploadFirstPendingAt = now;
-  if (driveUploadTimer) clearTimeout(driveUploadTimer);
-
-  const waited = now - driveUploadFirstPendingAt;
-  const delay = Math.min(DRIVE_UPLOAD_SETTLE_MS, Math.max(0, DRIVE_UPLOAD_MAX_WAIT_MS - waited));
-  driveUploadTimer = setTimeout(() => {
-    driveUploadTimer = null;
-    driveUploadFirstPendingAt = null;
-    (async () => {
-      const token = await getValidGoogleToken();
-      if (!token?.accessToken) return; // pas connecté (point 6) — ignoré silencieusement
-      try {
-        const result = await driveUploadCurrent(token.accessToken);
-        console.log('[Drive Sync] Upload différé réussi', result.id, result.modifiedTime);
-      } catch (err) {
-        console.error('[Drive Sync] Échec de l’upload différé', err);
-      }
-    })();
-  }, delay);
+// ─── Upload IMMÉDIAT après changement de donnée (2026-08-31, sur demande
+// explicite, point 1 — remplace le débounce 5s/plafond 30s introduit le
+// 2026-08-21) : plus aucun délai artificiel, l'upload part dès l'appel,
+// simplement pas attendu par l'appelant (fire-and-forget — un
+// `Enregistrer`/glisser-déposer ne doit pas se bloquer sur un aller-retour
+// réseau Drive). Pas de file d'attente/verrou entre appels concurrents : les
+// PATCH Drive sont idempotents sur le MÊME fileId (dernier écrit gagne), et
+// des changements assez rapprochés pour se chevaucher réellement en pratique
+// portent de toute façon un contenu quasi identique.
+function uploadToDriveAfterChange() {
+  (async () => {
+    const token = await getValidGoogleToken();
+    if (!token?.accessToken) return; // pas connecté — ignoré silencieusement
+    try {
+      const result = await driveUploadCurrent(token.accessToken);
+      if (result) console.log('[Drive] Local plus récent → upload vers Drive', result.id, result.modifiedTime);
+      // sinon déjà loggé (avertissement, protection anti-perte) par driveUploadCurrent
+    } catch (err) {
+      console.error('[Drive] Échec de l’upload immédiat après changement', err);
+    }
+  })();
 }
 
 // ─── Sync au lancement (points 2, 4 et 5 de la demande) ────────────────────
@@ -2707,23 +3239,45 @@ async function performDriveLaunchSync() {
     console.log('[Drive Sync] Recherche du fichier distant —', remote ? `trouvé (id=${remote.id}, modifiedTime=${remote.modifiedTime})` : 'aucun fichier distant');
 
     if (!remote) {
-      // Rien sur Drive pour ce compte — 1re synchronisation, envoie l'état local actuel.
+      // Rien sur Drive pour ce compte — 1re synchronisation, envoie l'état
+      // local actuel. `driveUploadCurrent` refuse tout seul si local est
+      // vide (protection anti-perte, voir sa définition plus haut) : dans ce
+      // cas on ne crée PAS de fichier Drive vide, on attend d'avoir de
+      // vraies données à envoyer.
       const result = await driveUploadCurrent(token.accessToken);
-      console.log('[Drive Sync] 1re synchronisation — envoi local effectué, id =', result.id);
-      notifyDriveSync({ type: 'synced' });
-      console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
+      if (result) {
+        console.log('[Drive Sync] 1re synchronisation — envoi local effectué, id =', result.id);
+        notifyDriveSync({ type: 'synced' });
+      } else {
+        console.warn('[Drive Sync] 1re synchronisation IGNORÉE — local vide, aucun fichier Drive créé (protection anti-perte)');
+        notifyDriveSync({ type: 'emptyLocal' });
+      }
+      console.log('[Drive Sync] notifyDriveSync envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
       return;
     }
     store.set('driveSync.fileId', remote.id);
 
     const localEmpty = isUserdataEmpty();
     if (localEmpty) {
-      // Drive a des données, le local n'en a pas — restauration automatique.
+      // Drive a un fichier, le local n'en a pas — tente une restauration
+      // automatique, mais vérifie le contenu RÉEL du téléchargement avant de
+      // prétendre avoir "synchronisé" : si Drive lui-même est vide (voir
+      // l'incident du 2026-08-30, où c'était exactement le cas), il n'y a
+      // rien à appliquer — la restauration locale par sauvegarde
+      // (autoRestoreUserdataIfEmpty, déjà tentée avant cette fonction) reste
+      // la seule chance, et si elle a échoué aussi, il faut le signaler
+      // plutôt que d'afficher un "✓ synchronisé" trompeur.
       const data = await driveDownloadUserdata(token.accessToken, remote.id);
-      driveApplyDownloadedUserdata(data);
-      console.log('[Drive Sync] Local vide — restauration depuis Drive effectuée');
-      notifyDriveSync({ type: 'synced' });
-      console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
+      const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
+      if (isUserdataEmptyModules(downloadedModules)) {
+        console.warn('[Drive Sync] Local vide ET Drive vide — rien à restaurer depuis Drive');
+        notifyDriveSync({ type: 'emptyLocal' });
+      } else {
+        driveApplyDownloadedUserdata(data);
+        console.log('[Drive Sync] Local vide — restauration depuis Drive effectuée');
+        notifyDriveSync({ type: 'synced' });
+      }
+      console.log('[Drive Sync] notifyDriveSync envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
       return;
     }
 
@@ -2734,22 +3288,37 @@ async function performDriveLaunchSync() {
     // eux-mêmes à chaque écriture, aucun risque de désynchronisation.
     const localMtimeMs = fs.existsSync(userdataStore.path) ? fs.statSync(userdataStore.path).mtimeMs : 0;
     const remoteMtimeMs = new Date(remote.modifiedTime).getTime();
-    const deltaMs = Math.abs(remoteMtimeMs - localMtimeMs);
-    const CONFLICT_WINDOW_MS = 60 * 60 * 1000; // point 5 : conflit si les 2 changées à moins d'1h d'écart
 
-    // Point 5 : en cas de conflit potentiel (fenêtre d'1h), Drive gagne
-    // systématiquement (>=, pas seulement >, pour trancher aussi une égalité
-    // exacte en faveur de Drive comme demandé). Hors fenêtre de conflit :
-    // simplement la version la plus récente qui l'emporte (point 2).
-    const driveWins = deltaMs <= CONFLICT_WINDOW_MS ? remoteMtimeMs >= localMtimeMs : remoteMtimeMs > localMtimeMs;
+    // Comparaison STRICTE (2026-08-31, sur demande explicite, points 2/3/4 —
+    // remplace la fenêtre de conflit d'1h du 2026-08-21, qui faisait gagner
+    // Drive même quand le local était RÉELLEMENT plus récent de quelques
+    // minutes) : Drive ne l'emporte QUE s'il est STRICTEMENT plus récent que
+    // le local. Une égalité exacte (cas limite improbable) reste local par
+    // défaut — jamais Drive n'écrase une donnée locale plus récente ou de
+    // même âge, conformément au point 4 ("Never overwrite local data that is
+    // newer than Drive data").
+    const driveWins = remoteMtimeMs > localMtimeMs;
     console.log('[Drive Sync] Comparaison horodatages — local =', new Date(localMtimeMs).toISOString(), ', distant =', new Date(remoteMtimeMs).toISOString(), ', driveWins =', driveWins);
 
     if (driveWins) {
       const data = await driveDownloadUserdata(token.accessToken, remote.id);
-      driveApplyDownloadedUserdata(data);
-      console.log('[Drive Sync] Drive plus récent — téléchargement + application effectués');
+      const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
+      // Garde-fou symétrique (défense en profondeur, 2026-08-30) : Drive
+      // "gagne" sur l'horodatage mais son contenu est VIDE alors que le
+      // local, lui, a du contenu réel — appliquer quand même écraserait de
+      // bonnes données locales avec du vide. On refuse le téléchargement et
+      // on renvoie le local vers Drive à la place (auto-réparation).
+      if (isUserdataEmptyModules(downloadedModules)) {
+        console.warn('[Drive Sync] Drive plus récent mais VIDE, et le local a du contenu — téléchargement refusé (protection anti-perte), le local est renvoyé vers Drive à la place');
+        await driveUploadCurrent(token.accessToken);
+      } else {
+        driveApplyDownloadedUserdata(data);
+        console.log('[Drive] Drive plus récent → téléchargement'); // format exact demandé (point 5)
+        console.log('[Drive Sync] Drive plus récent — téléchargement + application effectués');
+      }
     } else {
-      await driveUploadCurrent(token.accessToken);
+      await driveUploadCurrent(token.accessToken); // ne peut pas être vide ici (localEmpty déjà écarté plus haut), gardé par cohérence/défense en profondeur
+      console.log('[Drive] Local plus récent → upload vers Drive'); // format exact demandé (point 5)
       console.log('[Drive Sync] Local plus récent — envoi effectué');
     }
     notifyDriveSync({ type: 'synced' });
@@ -2836,7 +3405,8 @@ function checkReminders() {
   if (changed) {
     backupStoreBeforeWrite();
     userdataStore.set('modules.reminders.config.items', items);
-    scheduleDriveUploadAfterChange(); // voir Sync Google Drive plus bas
+    scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
+    uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   }
 }
 
@@ -3052,6 +3622,11 @@ ipcMain.handle('alerts:getCurrent', () => alertsCurrent);
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   createMainWindow();
+  // Réapplique l'inscription registre à CHAQUE lancement (voir
+  // app:setStartOnBoot plus haut) — pas juste au moment du clic dans
+  // Paramètres, pour rester cohérent même si le binaire/raccourci lancé a
+  // changé entre-temps (ex. déplacement du dossier projet, voir CONTEXT.md).
+  app.setLoginItemSettings({ openAtLogin: store.get('app.startOnBoot') === true });
   performDriveLaunchSync().catch(err => console.error('[Drive Sync] Échec inattendu de la synchronisation au lancement', err));
   checkReminders();
   setInterval(checkReminders, REMINDERS_CHECK_MS);

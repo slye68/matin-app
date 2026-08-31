@@ -64,13 +64,15 @@
     </svg>
   </div>
 
-  <!-- Mode auto luminosité (2026-08-08, sur demande explicite) — calque
-       plein écran, `pointer-events: none` (ne doit jamais intercepter les
-       clics/glisser-déposer des cartes en dessous), piloté entièrement par
-       dashboard.js (applyBrightnessOverlay) qui lui ajoute une classe
-       .brightness-<tranche> selon l'heure. Vide/transparent tant que le mode
-       auto est désactivé ou que la tranche horaire ne demande aucun
-       assombrissement (matin/journée). -->
+  <!-- Mode auto luminosité (2026-08-08, sur demande explicite ; redesign
+       2026-08-31 — le mode auto pilote désormais aussi le vrai thème
+       clair/sombre, voir dashboard.js) — calque plein écran,
+       `pointer-events: none` (ne doit jamais intercepter les clics/
+       glisser-déposer des cartes en dessous), piloté entièrement par
+       dashboard.js (applyAutoBrightness) qui lui ajoute la classe
+       .brightness-soiree (18h-21h uniquement, dimming subtil pendant que le
+       thème est encore clair) selon l'heure. Vide/transparent en dehors de
+       cette tranche, ou si le mode auto est désactivé. -->
   <div class="brightness-overlay" id="brightnessOverlay"></div>
 
   <!-- Barre de titre custom -->
@@ -156,6 +158,17 @@
        dynamiquement en JS pour ne jamais laisser une carte sous le bandeau. -->
   <div class="alerts-banner" id="alertsBanner"></div>
 
+  <!-- Bandeau "Données manquantes" (2026-08-30, sur demande explicite, suite
+       à l'incident de perte de données ETF/Crypto/Prêts) — voir
+       dashboard.js initMissingDataWarning/main.js IPC userdata:isEmpty.
+       Vérifié en LIVE (pas un flag figé au lancement), donc peut apparaître
+       ET disparaître au cours d'une même session si une restauration
+       aboutit après le premier rendu (auto/Drive/manuelle). -->
+  <div class="missing-data-banner" id="missingDataBanner">
+    <span>⚠️ Données manquantes — vos ETF, Crypto, Prêts (ou autres) semblent vides.</span>
+    <button type="button" class="missing-data-banner-btn" id="missingDataBannerBtn">Ouvrir Sauvegardes</button>
+  </div>
+
   <!-- Zone de modules : #dashboard est la fenêtre de défilement (taille fixe,
        calée sur le viewport) ; #dashboardCanvas est le calque interne qui
        grandit pour accueillir des modules déplacés loin en bas — un élément
@@ -195,6 +208,7 @@
   <script src="modules/epic-promos.js"></script>
   <script src="modules/parcels-carriers.js"></script>
   <script src="modules/parcels.js"></script>
+  <script src="modules/price-tracking.js"></script>
   <script src="modules/cinema.js"></script>
   <script src="modules/reminders-categories.js"></script>
   <script src="modules/reminders.js"></script>

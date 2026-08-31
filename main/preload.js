@@ -20,16 +20,31 @@ contextBridge.exposeInMainWorld('matin', {
     getAll: ()           => ipcRenderer.invoke('store:getAll'),
   },
 
-  // ── Sauvegardes (voir main.js writeLaunchBackup, 2026-08-10) ───────────────
+  // ── Sauvegardes (voir main.js writeLaunchBackup, 2026-08-10 ; export/import
+  // manuel + protection anti-perte ajoutés le 2026-08-30) ────────────────────
   backups: {
-    list:    ()     => ipcRenderer.invoke('backups:list'),
-    restore: (file) => ipcRenderer.invoke('backups:restore', file),
+    list:         ()     => ipcRenderer.invoke('backups:list'),
+    restore:      (file) => ipcRenderer.invoke('backups:restore', file),
+    exportManual: ()     => ipcRenderer.invoke('backups:exportManual'),
+    importManual: ()     => ipcRenderer.invoke('backups:importManual'),
+  },
+
+  // ── Données manquantes (2026-08-30, voir main.js isUserdataEmpty) —
+  // vérifié en direct par le renderer (dashboard.js), pas un flag figé au
+  // lancement, pour rester à jour après une restauration survenue en cours
+  // de session (auto/Drive/manuelle). ─────────────────────────────────────
+  userdata: {
+    isEmpty: () => ipcRenderer.invoke('userdata:isEmpty'),
   },
 
   // ── Thème clair/sombre — voir main.js (titleBarColorsForTheme, IPC
   // app:setTheme) pour la synchronisation avec titleBarOverlay/backgroundColor.
   theme: {
     set:       (theme) => ipcRenderer.invoke('app:setTheme', theme),
+    // 2026-08-31, voir main.js app:applyAutoTheme — même diffusion que
+    // `set` mais SANS persister `app.theme` (mode auto luminosité, ne doit
+    // jamais écraser le dernier choix manuel de l'utilisateur).
+    setAuto:   (theme) => ipcRenderer.invoke('app:applyAutoTheme', theme),
     onUpdated: (cb)     => ipcRenderer.on('theme:updated', (_e, theme) => cb(theme)),
   },
 
@@ -76,18 +91,31 @@ contextBridge.exposeInMainWorld('matin', {
 
   // ── Fenêtres ──────────────────────────────────────────────────────────────
   window: {
-    openConfig: () => ipcRenderer.invoke('window:openConfig'),
+    openConfig: (opts) => ipcRenderer.invoke('window:openConfig', opts),
     closeConfig: () => ipcRenderer.invoke('window:closeConfig'),
   },
 
   // ── Shell ─────────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+    // 2026-08-30, voir bouton "📥 Exporter mes données" (Paramètres →
+    // Sauvegardes) — révèle le fichier fraîchement exporté dans l'Explorateur.
+    showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
   },
 
   // ── RSS (fetch sans restriction CORS, exécuté dans le process main) ────────
   rss: {
     fetchFeed: (url) => ipcRenderer.invoke('rss:fetchFeed', url),
+  },
+
+  // ── Suivi de prix Amazon (2026-08-30) — le fetch lui-même a déménagé côté
+  // process main le 2026-08-31 (voir main.js priceTracking:fetchPrice,
+  // cascade jina.ai/allorigins/direct/rainforestapi) : le renderer
+  // n'orcheste plus rien, juste `fetchPrice` puis `reportPrices` (persistance
+  // + notification, inchangé). ────────────────────────────────────────────
+  priceTracking: {
+    fetchPrice:   (url)     => ipcRenderer.invoke('priceTracking:fetchPrice', url),
+    reportPrices: (fetched) => ipcRenderer.invoke('priceTracking:reportPrices', fetched),
   },
 
   // ── FDJ (résultats Loto/EuroMillions/EuroDreams, exécuté dans le process main) ──
@@ -142,6 +170,12 @@ contextBridge.exposeInMainWorld('matin', {
   // ── Promos Epic Games (exécuté dans le process main) ────────────────────────
   epicPromos: {
     fetchDeals: () => ipcRenderer.invoke('epicPromos:fetchDeals'),
+  },
+
+  // ── Réglages applicatifs divers, non liés à un module (2026-08-30) ──────────
+  app: {
+    // Démarrage automatique Windows — voir main.js app:setStartOnBoot.
+    setStartOnBoot: (enabled) => ipcRenderer.invoke('app:setStartOnBoot', enabled),
   },
 
   // ── Google OAuth ──────────────────────────────────────────────────────────

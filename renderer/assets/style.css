@@ -68,9 +68,10 @@
   --border:        #d1d5db;
   --border-light:  #e5e7eb;
 
+  /* Assombries (2026-08-30, sur demande explicite — meilleure lisibilité) */
   --text-primary:  #1a1a2e;
-  --text-secondary:#4b5563;
-  --text-muted:    #9ca3af;
+  --text-secondary:#3d4450;
+  --text-muted:    #6b7280;
 
   --color-scheme: light;
 }
@@ -1669,11 +1670,12 @@ body.ultrawide .module-card { max-width: 500px; }
   background: transparent;
   transition: background-color 1.5s ease;
 }
+/* Seule tranche qui garde un calque depuis le redesign du 2026-08-31 (voir
+   dashboard.js applyAutoBrightness) — la nuit est désormais un vrai
+   changement de thème (clair→sombre), plus un calque par-dessus le thème
+   clair ; `.brightness-nuit` (ancien calque teinté bleu/violet) retiré,
+   devenu mort. */
 .brightness-overlay.brightness-soiree { background: rgba(0, 0, 0, 0.15); }
-/* Nuit : plus sombre QUE le calque du soir, teinté bleu/violet plutôt que
-   noir pur (demandé explicitement) — un seul rgba avec R/G abaissés et B
-   conservé rend cette teinte directement, sans superposer 2 calques. */
-.brightness-overlay.brightness-nuit { background: rgba(20, 10, 45, 0.35); }
 
 /* ─── Volet latéral (2026-08-23, sur demande explicite) — bande de 20px
    (12px→20px, 2e révision même jour, sur demande explicite — trop étroite
@@ -2045,6 +2047,43 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
   text-decoration: underline;
 }
 .alerts-banner-item:hover .alerts-banner-link { opacity: 1; }
+
+/* Bandeau "Données manquantes" (2026-08-30) — même position/mécanique que
+   .alerts-banner ci-dessus (fixed, top: titlebar, poussé au-dessus des
+   cartes), mais TOUJOURS orange (pas de gravité variable, un seul message
+   possible) et son propre id : les 2 peuvent en théorie être visibles en
+   même temps (une alerte active ET des données manquantes ne sont pas
+   mutuellement exclusives), dashboard.js empile leur `top` dynamiquement. */
+.missing-data-banner {
+  position: fixed;
+  top: var(--titlebar-h);
+  left: 0; right: 0;
+  z-index: 999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #78350f, #92400e);
+  border-bottom: 2px solid #f59e0b;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-weight: 500;
+  color: #ffffff;
+}
+.missing-data-banner.visible { display: flex; }
+.missing-data-banner-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  color: #ffffff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.missing-data-banner-btn:hover { background: rgba(255, 255, 255, 0.28); }
 
 /* Soleil à 70% de la largeur de l'écran (demandé explicitement) — en `vw`
    sur les deux dimensions (pas juste `width`) pour rester un cercle parfait
@@ -2893,23 +2932,40 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .fuel-station-row.cheapest .fuel-station-city { color: var(--accent); }
 .fuel-station-main { display: flex; flex-direction: column; gap: 1px; }
 .fuel-station-address {
-  font-size: 14px;
+  font-size: 13px; /* -1px (2026-08-31, sur demande explicite — jugée trop grande) */
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.fuel-station-city { font-size: 12px; color: var(--text-muted); }
-.fuel-station-prices { display: flex; gap: 8px; flex-wrap: wrap; }
-.fuel-price { display: flex; flex-direction: column; gap: 1px; }
+/* Couleur fixe (2026-08-31, sur demande explicite — pas var(--text-muted)
+   qui suivrait le thème et ne serait plus "blanc" en thème clair) : même
+   logique que les couleurs d'accent de l'app, volontairement identiques
+   dans les 2 thèmes. */
+.fuel-station-city { font-size: 12px; color: #e8eaf0; }
+/* Grille à 4 colonnes égales (2026-08-30, sur demande explicite — remplace
+   un `flex-wrap` qui pouvait faire passer SP95 à la ligne suivante et le
+   rendre invisible sur une carte étroite) : SP95/SP98/Diesel/E10 gardent
+   TOUJOURS la même largeur et restent alignés colonne par colonne d'une
+   ligne (station) à l'autre, avec un séparateur vertical fin entre chaque
+   (`border-right`, retiré sur la dernière colonne via `:last-child`). */
+.fuel-station-prices { display: grid; grid-template-columns: repeat(4, 1fr); }
+.fuel-price {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+}
+.fuel-price:last-child { border-right: none; }
 .fuel-price-label {
-  font-size: 8px;
+  font-size: 9px; /* +1px (2026-08-31, sur demande explicite) */
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-muted);
+  color: var(--accent-green); /* #34d399 demandé explicitement — valeur exacte de --accent-green, fixe dans les 2 thèmes */
 }
-.fuel-price-value { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
+.fuel-price-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
 
 /* ─── Module : Promos Steam ───────────────────────────────────── */
 /* Liste déroulante plutôt qu'une grille (2026-08-10, sur demande explicite) :
@@ -3012,6 +3068,47 @@ body.display-mode-sidebar .sidebar-strip { display: flex; }
 .parcels-green  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
 .parcels-yellow { color: var(--accent-yellow); background: rgba(251, 191, 36, 0.12); }
 .parcels-red    { color: var(--accent-red); background: rgba(248, 113, 113, 0.12); }
+
+/* ─── Module : Suivi de prix Amazon (2026-08-30, sur demande explicite) ────
+   Même structure que Colis (.parcels-row-display) juste au-dessus, mais
+   chaque ligne est cliquable (ouvre la page produit Amazon — contrairement
+   à Colis, qui n'a pas d'URL utile côté renderer) : cursor + hover ajoutés
+   en conséquence. */
+.price-tracking-module { height: 100%; }
+.price-tracking-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; height: 100%; }
+.price-tracking-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.price-tracking-row:hover { background: var(--bg-hover); }
+.price-tracking-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.price-tracking-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.price-tracking-target { font-size: 12px; color: var(--text-muted); }
+.price-tracking-value { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+.price-tracking-trend { font-size: 14px; font-weight: 700; }
+.price-tracking-trend-up   { color: var(--accent-red); }
+.price-tracking-trend-down { color: var(--accent-green); }
+.price-tracking-trend-flat { color: var(--text-muted); }
+.price-tracking-price { font-size: 14px; font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
+/* Dernier prix connu, pas le prix actuel (2026-08-31, sur demande explicite,
+   point 5 — toutes les méthodes de récupération ont échoué) : italique +
+   couleur atténuée pour signaler visuellement que la valeur peut être
+   périmée, sans pour autant la cacher comme un "Indisponible" sec. */
+.price-tracking-price-stale { font-style: italic; color: var(--text-secondary); font-weight: 500; }
+.price-tracking-alert-badge { font-size: 14px; }
 
 /* ─── Module : Cinéma — 3 sections (2026-08-10 → 2026-08-11 → 2026-08-15 →
    2026-08-15, sur demande explicite à chaque révision) : actus statiques

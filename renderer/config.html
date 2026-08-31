@@ -284,6 +284,16 @@
       transform: translateX(16px);
       background: white;
     }
+    /* Sombre/Clair désactivés quand le mode auto est actif (2026-08-31, sur
+       demande explicite — le mode auto pilote désormais le thème lui-même,
+       voir dashboard.js applyAutoBrightness) : `.disabled` posée par
+       config.js (syncThemeToggleDisabled) sur le `.theme-toggle-group`
+       Sombre/Clair, jamais sur celui du mode auto lui-même (toujours
+       actionnable). `pointer-events: none` sur `.toggle` (pas sur le groupe
+       entier) pour garder le curseur `not-allowed` visible sur toute la
+       zone, y compris les libellés texte. */
+    .theme-toggle-group.disabled { opacity: 0.4; cursor: not-allowed; }
+    .theme-toggle-group.disabled .toggle { pointer-events: none; }
 
     /* Indices boursiers — un .toggle par indice (réutilise le composant
        ci-dessus tel quel), pas une simple case à cocher (sur demande
@@ -561,6 +571,33 @@
       transition: background 0.15s;
     }
     .backups-modal-close:hover { background: var(--bg-hover); }
+
+    /* Export/Import manuel (2026-08-30) — même conteneur .backups-modal,
+       séparé visuellement des sauvegardes automatiques par une bordure
+       supérieure plutôt qu'un espacement seul (2 groupes d'actions
+       clairement distincts dans une popup qui reste par ailleurs compacte). */
+    .backups-manual-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .backups-manual-hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+    .backups-manual-actions { display: flex; gap: 8px; }
+    .backups-manual-btn {
+      flex: 1;
+      padding: 9px 10px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .backups-manual-btn:hover { background: var(--bg-hover); }
+    .backups-manual-btn:disabled { opacity: 0.6; cursor: default; }
 
     /* Ligne titre "Profil" + bouton Personnaliser à droite (2026-08-11) —
        même conteneur que .config-section-title, juste mis en ligne avec le
@@ -1111,6 +1148,19 @@
     <div class="backups-modal">
       <div class="backups-modal-title">💾 Sauvegardes</div>
       <div class="backups-list" id="backupsList"></div>
+
+      <!-- Export/Import manuel (2026-08-30, sur demande explicite, suite à
+           l'incident de perte de données ETF/Crypto/Prêts) — voir config.js
+           initManualExportImport. Séparé des sauvegardes automatiques
+           ci-dessus par une ligne de séparation + un texte d'instruction. -->
+      <div class="backups-manual-section">
+        <div class="backups-manual-hint">Sauvegardez ce fichier sur une clé USB ou envoyez-le par email pour le garder en lieu sûr, ailleurs que sur cet ordinateur.</div>
+        <div class="backups-manual-actions">
+          <button type="button" class="backups-manual-btn" id="btnExportManual">📥 Exporter mes données</button>
+          <button type="button" class="backups-manual-btn" id="btnImportManual">📤 Importer des données</button>
+        </div>
+      </div>
+
       <button type="button" class="backups-modal-close" id="btnBackupsClose">Fermer</button>
     </div>
   </div>

@@ -1,5 +1,5 @@
 {
-  "name": "matin-windows",
+  "name": "matin-app",
   "version": "0.1.0",
   "description": "Matin!* — Dashboard personnel du matin pour Windows",
   "main": "main/main.js",

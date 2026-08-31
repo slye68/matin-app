@@ -39,6 +39,7 @@ const MODULE_META = {
   fuelPrices: { label: 'Carburants',  icon: '⛽', requiresGoogle: false,
                 configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' } },
   parcels:    { label: 'Colis',       icon: '📦', requiresGoogle: false, parcelsField: true },
+  priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, priceTrackingField: true },
   cinema:     { label: 'Cinéma',      icon: '🎬', requiresGoogle: false }, // pas de config : scraping AlloCiné, aucune clé requise
   steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false }, // pas de config
   epicPromos: { label: 'Promos Epic Games', icon: '🎁', requiresGoogle: false }, // pas de config
@@ -98,6 +99,13 @@ const MODULE_META = {
 
 let modulesState = {};
 
+// Démarrage automatique Windows (2026-08-30, sur demande explicite) — pas un
+// module (pas de `enabled`/`config` dans modulesState), juste un réglage
+// système. Chargé une fois dans initConfig AVANT le 1er renderTabPanels
+// (voir plus bas, createStartOnBootRow) pour que le switch reflète l'état
+// réel dès l'ouverture de Paramètres, pas seulement après un 1er rendu à vide.
+let startOnBootEnabled = false;
+
 // ─── Onglets (2026-08-06, sur demande explicite) ───────────────────────────
 // Réorganisation complète de Paramètres : Profil reste hors onglets (voir
 // config.html), tous les autres modules sont répartis dans 6 onglets fixes
@@ -136,7 +144,7 @@ const TAB_MODULE_ORDER = {
   actualites: ['france', 'tech', 'bourse', 'science', 'gaming', 'sante'],
   loisirs:    ['ol', 'live', 'monEquipe', 'fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast'],
   maison:     ['hue', 'kasa', 'tradfri'],
-  services:   ['parcels', 'fuelPrices', 'maps', 'nasa', 'youtube'],
+  services:   ['parcels', 'fuelPrices', 'priceTracking', 'maps', 'nasa', 'youtube'],
   utile:      ['reminders', 'weather', 'airQuality', 'calendar', 'gmail', 'googleTasks', 'birthdays', 'alerts'],
 };
 
@@ -271,6 +279,9 @@ function removePretsInstance(key) {
 // ─── Init ────────────────────────────────────────────────────────────────────
 async function initConfig() {
   modulesState = await window.matin.modules.getAll();
+  // Lu AVANT le 1er renderTabPanels (voir createStartOnBootRow) pour que le
+  // switch reflète l'état réel dès l'ouverture de Paramètres.
+  startOnBootEnabled = (await window.matin.store.get('app.startOnBoot')) === true;
 
   // Ordre des onglets persisté indépendamment de modulesState (pas un
   // module, pas soumis au bouton "Enregistrer" — sauvegarde immédiate au
@@ -294,6 +305,12 @@ async function initConfig() {
   await initGoogleSection();
   await initSpotifySection();
   await initBackupsSection();
+  // 2026-08-30 — voir bouton "Ouvrir Sauvegardes" du bandeau "⚠️ Données
+  // manquantes" (dashboard.js) : ouvre directement la popup Sauvegardes
+  // plutôt que de laisser l'utilisateur la retrouver lui-même.
+  if (new URLSearchParams(location.search).get('openBackups') === '1') {
+    document.getElementById('btnBackups')?.click();
+  }
   await initPersonnaliserSection();
   loadCryptoDatalist(); // en tâche de fond — les suggestions apparaissent dès que prêtes
 
@@ -342,6 +359,21 @@ function initThemeToggle() {
   });
 }
 
+// Grise/dégrise le switch Sombre/Clair selon l'état du mode auto (2026-08-31,
+// sur demande explicite, point 1 — "l'utilisateur ne doit pas pouvoir
+// basculer manuellement pendant que le mode auto pilote le thème").
+// Vérifie l'état ACTUEL de la case (pas encore forcément sauvegardé — voir
+// saveConfig) : retour visuel immédiat au clic, sans attendre Enregistrer.
+function syncThemeToggleDisabled() {
+  const themeToggle = document.getElementById('themeToggle');
+  const autoToggle = document.getElementById('autoBrightnessToggle');
+  const group = themeToggle?.closest('.theme-toggle-group');
+  if (!themeToggle || !autoToggle || !group) return;
+  const autoOn = autoToggle.checked;
+  group.classList.toggle('disabled', autoOn);
+  themeToggle.disabled = autoOn;
+}
+
 // ─── Profil (prénom affiché dans la barre de titre) ────────────────────────────
 async function initProfileSection() {
   const input = document.getElementById('firstNameInput');
@@ -353,6 +385,8 @@ async function initProfileSection() {
   // comble pas un champ manquant dans un objet `app` déjà présent sur disque)
   // — traité comme "désactivé", même valeur que le défaut réel.
   autoBrightness.checked = (await window.matin.store.get('app.autoBrightness')) === true;
+  syncThemeToggleDisabled();
+  autoBrightness.addEventListener('change', syncThemeToggleDisabled);
 }
 
 // Autocomplétion du champ "Crypto" à partir du top 100 CoinGecko par capitalisation.
@@ -453,6 +487,15 @@ function renderTabPanels() {
     if (!panel) return;
     panel.innerHTML = '';
 
+    // Démarrage automatique Windows (2026-08-30) — pas une entrée
+    // TAB_MODULE_ORDER (pas un module) : reconstruit en tête de l'onglet
+    // Utile à chaque renderTabPanels, exactement comme le reste de cet
+    // onglet (jamais wipé séparément puisque rien ne le préserve entre 2
+    // appels).
+    if (tab.id === 'utile') {
+      panel.appendChild(createStartOnBootRow());
+    }
+
     (TAB_MODULE_ORDER[tab.id] || []).forEach((entry) => {
       if (entry === 'fdj') {
         const fdjKeys = FDJ_KEYS.filter(k => modulesState[k]);
@@ -485,6 +528,37 @@ function renderTabPanels() {
       panel.appendChild(createModuleRow(entry, mod, meta));
     });
   });
+}
+
+// ─── Démarrage automatique Windows (2026-08-30, sur demande explicite) ─────
+// Réutilise les classes `.module-row-wrap`/`.module-row`/`.toggle` déjà
+// stylées pour les modules (aucune CSS nouvelle nécessaire) mais N'EST PAS
+// un module : pas de clé `modulesState`, pas de `enabled`/`config`, pas de
+// carte dashboard. Appliqué immédiatement au clic (voir main.js
+// app:setStartOnBoot), même principe que le bascule thème (initThemeToggle)
+// plutôt que différé au bouton Enregistrer — un réglage système doit
+// refléter l'état réel de l'inscription registre tout de suite.
+function createStartOnBootRow() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'module-row-wrap';
+
+  const row = document.createElement('div');
+  row.className = 'module-row';
+  row.innerHTML = `
+    <span class="module-row-icon">🚀</span>
+    <span class="module-row-name">Lancer Matin au démarrage de Windows</span>
+    <label class="toggle">
+      <input type="checkbox" id="startOnBootToggle" ${startOnBootEnabled ? 'checked' : ''}>
+      <span class="toggle-slider"></span>
+    </label>
+  `;
+  row.querySelector('#startOnBootToggle').addEventListener('change', (e) => {
+    startOnBootEnabled = e.target.checked;
+    window.matin.app.setStartOnBoot(startOnBootEnabled);
+  });
+
+  wrapper.appendChild(row);
+  return wrapper;
 }
 
 function createModuleRow(key, mod, meta) {
@@ -741,6 +815,10 @@ function createModuleRow(key, mod, meta) {
 
   if (meta.parcelsField) {
     wrapper.appendChild(renderParcelsConfigSection(modulesState[key]));
+  }
+
+  if (meta.priceTrackingField) {
+    wrapper.appendChild(renderPriceTrackingConfigSection(modulesState[key]));
   }
 
   if (meta.hueField) {
@@ -1287,6 +1365,77 @@ function renderParcelsConfigSection(mod) {
   addBtn.addEventListener('click', () => {
     if (items.length >= MAX_PARCELS) return;
     items.push({ label: '', trackingNumber: '' });
+    renderItems();
+    syncAddBtn();
+  });
+
+  renderItems();
+  syncAddBtn();
+
+  return wrap;
+}
+
+// ─── Suivi de prix Amazon (libellé + URL produit + prix cible, max 10)
+// (2026-08-30, sur demande explicite) — même structure que Colis
+// juste au-dessus (`.parcels-row`/`.parcels-list`), sa grille 4 colonnes
+// (1.2fr 1.2fr 0.8fr 22px) tombe pile pour ce module : label | URL | prix
+// cible | ×, à la place de label | n° suivi | indice transporteur | ×.
+const MAX_PRICE_TRACKING = 10;
+
+function renderPriceTrackingConfigSection(mod) {
+  if (!mod.config) mod.config = {};
+  if (!Array.isArray(mod.config.items)) mod.config.items = [];
+  const items = mod.config.items;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field parcels-config-field';
+  wrap.innerHTML = `
+    <label>Mes produits suivis (max ${MAX_PRICE_TRACKING})</label>
+    <div class="parcels-list"></div>
+    <button type="button" class="etf-add-line-btn price-tracking-add-btn">+ Ajouter un produit</button>
+  `;
+
+  const listEl = wrap.querySelector('.parcels-list');
+  const addBtn = wrap.querySelector('.price-tracking-add-btn');
+
+  function renderItems() {
+    listEl.innerHTML = '';
+    items.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'parcels-row';
+      row.innerHTML = `
+        <input type="text" class="parcels-label-input" placeholder="Ex : Casque Bluetooth" value="${item.label || ''}">
+        <input type="text" class="parcels-tracking-input" placeholder="URL du produit Amazon.fr" value="${item.url || ''}">
+        <input type="number" min="0" step="0.01" class="price-tracking-target-input" placeholder="Prix cible €" value="${item.targetPrice ?? ''}">
+        <button type="button" class="row-delete-btn price-tracking-delete-btn" title="Supprimer ce produit">×</button>
+      `;
+
+      row.querySelector('.parcels-label-input').addEventListener('input', (e) => { item.label = e.target.value; });
+      row.querySelector('.parcels-tracking-input').addEventListener('input', (e) => { item.url = e.target.value.trim(); });
+      row.querySelector('.price-tracking-target-input').addEventListener('input', (e) => {
+        item.targetPrice = e.target.value === '' ? null : parseFloat(e.target.value);
+      });
+
+      row.querySelector('.price-tracking-delete-btn').addEventListener('click', () => {
+        const idx = items.indexOf(item);
+        if (idx !== -1) items.splice(idx, 1);
+        renderItems();
+        syncAddBtn();
+      });
+
+      listEl.appendChild(row);
+    });
+  }
+
+  function syncAddBtn() {
+    const maxed = items.length >= MAX_PRICE_TRACKING;
+    addBtn.disabled = maxed;
+    addBtn.title = maxed ? `Maximum de ${MAX_PRICE_TRACKING} produits atteint` : '';
+  }
+
+  addBtn.addEventListener('click', () => {
+    if (items.length >= MAX_PRICE_TRACKING) return;
+    items.push({ label: '', url: '', targetPrice: null });
     renderItems();
     syncAddBtn();
   });
@@ -2226,6 +2375,59 @@ async function initBackupsSection() {
   // autres overlays de l'app (ex. alertsBanner) : e.target === overlay
   // exclut tout clic remonté depuis .backups-modal ou ses enfants.
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+  initManualExportImport();
+}
+
+// ─── Export / Import manuel (2026-08-30, sur demande explicite, suite à
+// l'incident de perte de données ETF/Crypto/Prêts) — même popup Sauvegardes,
+// section séparée en bas (voir config.html .backups-manual-section). Portable
+// PAR DESIGN (voir main.js backups:exportManual/importManual) : userdata
+// seulement, jamais de token OAuth dans le fichier exporté.
+function initManualExportImport() {
+  const btnExport = document.getElementById('btnExportManual');
+  const btnImport = document.getElementById('btnImportManual');
+  if (!btnExport || !btnImport) return;
+
+  const countsLabel = (counts) => Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .map(([key, n]) => `${key} : ${n}`)
+    .join(', ') || 'aucune';
+
+  btnExport.addEventListener('click', async () => {
+    btnExport.disabled = true;
+    const original = btnExport.textContent;
+    btnExport.textContent = 'Export…';
+    try {
+      const { filePath, counts } = await window.matin.backups.exportManual();
+      const openIt = confirm(`Export réussi :\n${filePath}\n\nContenu : ${countsLabel(counts)}\n\nSauvegardez ce fichier sur une clé USB ou envoyez-le par email pour le garder en lieu sûr.\n\nOuvrir le dossier maintenant ?`);
+      if (openIt) window.matin.shell.showItemInFolder(filePath);
+    } catch (err) {
+      alert(`Échec de l'export : ${err.message}`);
+      console.error('[Config] Échec export manuel', err);
+    } finally {
+      btnExport.disabled = false;
+      btnExport.textContent = original;
+    }
+  });
+
+  btnImport.addEventListener('click', async () => {
+    btnImport.disabled = true;
+    const original = btnImport.textContent;
+    btnImport.textContent = 'Import…';
+    try {
+      const result = await window.matin.backups.importManual();
+      if (result.canceled) return;
+      alert(`Import réussi : ${countsLabel(result.counts)}.\n\nLa fenêtre va se recharger.`);
+      window.location.reload();
+    } catch (err) {
+      alert(`Échec de l'import : ${err.message}`);
+      console.error('[Config] Échec import manuel', err);
+    } finally {
+      btnImport.disabled = false;
+      btnImport.textContent = original;
+    }
+  });
 }
 
 async function renderBackupsList() {
@@ -2410,7 +2612,25 @@ function updateSpotifyUI(spotifyData, statusOverride) {
 async function saveConfig() {
   const firstName = document.getElementById('firstNameInput').value.trim();
   await window.matin.store.set('app.firstName', firstName);
-  await window.matin.store.set('app.autoBrightness', document.getElementById('autoBrightnessToggle').checked);
+
+  const autoBrightness = document.getElementById('autoBrightnessToggle').checked;
+  await window.matin.store.set('app.autoBrightness', autoBrightness);
+  // Point 3 de la demande (2026-08-31, "appliquer le bon thème
+  // immédiatement") : le dashboard le ferait de toute façon tout seul au
+  // rechargement déclenché par modules.update ci-dessous (voir
+  // dashboard.js initAutoBrightness), mais CETTE fenêtre (Paramètres) ne se
+  // recharge pas — sans cet appel elle resterait sur l'ancien thème jusqu'à
+  // sa prochaine ouverture.
+  if (autoBrightness) {
+    const hour = new Date().getHours();
+    await window.matin.theme.setAuto(hour >= 6 && hour < 21 ? 'light' : 'dark');
+  } else {
+    // Mode auto désactivé : retrouve le dernier choix MANUEL — `app.theme`
+    // n'est jamais écrasé par le mode auto (voir main.js app:applyAutoTheme).
+    const manualTheme = (await window.matin.store.get('app.theme')) || 'dark';
+    await window.matin.theme.set(manualTheme);
+  }
+
   await window.matin.modules.update(modulesState);
 
   const notice = document.getElementById('saveNotice');

@@ -24,7 +24,70 @@ window.MatinModules = window.MatinModules || {};
 
 const LIVE_REFRESH_LIVE_MS = 60 * 1000;
 const LIVE_REFRESH_IDLE_MS = 5 * 60 * 1000;
-const LIVE_EQUIPE_URL = 'https://www.lequipe.fr/Football/';
+
+// Clic sur un match — URL SPÉCIFIQUE à CE match plutôt que la page d'accueil
+// L'Équipe fixe (2026-08-30/31, sur demande explicite). TheSportsDB (mode
+// club/National) n'expose aucune page de match dans son API gratuite : repli
+// direct sur une recherche Google construite à partir des noms d'équipe.
+function liveGoogleFallbackUrl(homeName, awayName) {
+  return `https://www.google.com/search?q=${encodeURIComponent(`${homeName} ${awayName} score direct`)}`;
+}
+
+// ─── Construction de l'URL L'Équipe pour un match ESPN (2026-08-31, sur
+// demande explicite, remplace le repli sur `event.links` du 2026-08-30 —
+// l'API ESPN n'a pas pu être vérifiée en direct depuis l'environnement de
+// développement, bloquée en 403 par son pare-feu Akamai ; cette approche ne
+// dépend, elle, que des champs déjà exploités par ce module) ─────────────
+// Format demandé : lequipe.fr/Football/match-direct/{competition}/{saison}/
+// {equipe1}-{equipe2}-live/{matchId} — best-effort assumé : l'ID de match
+// L'Équipe ne correspond structurellement PAS à l'ID ESPN utilisé ici en
+// repli, donc l'URL construite peut très bien 404. Vérifiée en direct (voir
+// wireControls plus bas) AVANT ouverture — 404 → repli Google avec l'indice
+// "lequipe.fr" (demandé explicitement), jamais un lien mort envoyé à
+// l'utilisateur.
+const LIVE_LEQUIPE_COMPETITION_SLUGS = {
+  'soccer/fra.1':           'ligue-1',
+  'soccer/fra.2':           'ligue-2',
+  'soccer/uefa.champions':  'champions-league',
+  'soccer/uefa.europa':     'europa-league',
+  'soccer/esp.1':           'liga',
+  'soccer/eng.1':           'premier-league',
+  'soccer/ger.1':           'bundesliga',
+  'soccer/ita.1':           'serie-a',
+};
+
+// Saison française "AAAA-AAAA+1" — démarre en août, donc juillet (mois
+// index 6) bascule déjà sur la saison à venir plutôt que la précédente.
+function liveCurrentSeason() {
+  const now = new Date();
+  const start = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${start}-${start + 1}`;
+}
+
+// "Olympique Lyonnais" → "olympique-lyonnais" mécaniquement — pas de table
+// de correspondance vers les surnoms courts type "lyon" (aucune règle
+// générale fiable sans dictionnaire par club à maintenir à la main) : accepté
+// comme limite connue de cette heuristique, compensée par la vérification
+// 404 + repli Google juste après.
+function liveSlugifyTeam(name) {
+  return (name || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // enlève les accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function liveBuildLequipeUrl(espnKey, homeName, awayName, matchId) {
+  const competition = LIVE_LEQUIPE_COMPETITION_SLUGS[espnKey];
+  const team1 = liveSlugifyTeam(homeName);
+  const team2 = liveSlugifyTeam(awayName);
+  if (!competition || !team1 || !team2 || !matchId) return null;
+  return `https://www.lequipe.fr/Football/match-direct/${competition}/${liveCurrentSeason()}/${team1}-${team2}-live/${matchId}`;
+}
+
+function liveGoogleLequipeFallbackUrl(homeName, awayName) {
+  return `https://www.google.com/search?q=${encodeURIComponent(`${homeName} ${awayName} lequipe.fr direct`)}`;
+}
 
 // Liste des championnats : voir live-championships.js (partagé avec
 // config.js, chargé avant ce fichier dans index.html).
@@ -69,7 +132,7 @@ async function liveFetchEspn(league, query) {
   return res.json();
 }
 
-function liveNormalizeEspnEvent(event, leagueLabel) {
+function liveNormalizeEspnEvent(event, leagueLabel, espnKey) {
   const competition = event.competitions?.[0];
   if (!competition) return null;
   const competitors = competition.competitors || [];
@@ -82,18 +145,28 @@ function liveNormalizeEspnEvent(event, leagueLabel) {
   // normalisation nécessaire, contrairement à TheSportsDB (voir
   // liveParseTsdbUtc plus haut) ; log gardé quand même pour vérification.
   console.log('[Live] Heure brute API (ESPN, UTC) :', event.date);
+  const homeName = home.team?.shortDisplayName || home.team?.displayName || '?';
+  const awayName = away.team?.shortDisplayName || away.team?.displayName || '?';
+  const espnEventId = competition.id || event.id;
+  // URL L'Équipe construite (2026-08-31, sur demande explicite) — best-effort,
+  // vérifiée en direct au clic avant ouverture (voir wireControls) : null ici
+  // si la ligue n'a pas de slug connu (voir LIVE_LEQUIPE_COMPETITION_SLUGS),
+  // géré par le repli Google générique au rendu dans ce cas.
+  const lequipeUrl = liveBuildLequipeUrl(espnKey, homeName, awayName, espnEventId);
   return {
-    id: `espn-${competition.id || event.id}`,
+    id: `espn-${espnEventId}`,
     league: leagueLabel,
     date: new Date(event.date),
     state: statusType.state || 'pre',
     detail: statusType.shortDetail || statusType.detail || '',
-    homeName: home.team?.shortDisplayName || home.team?.displayName || '?',
+    homeName,
     homeScore: home.score ?? null,
     homeLogo: home.team?.logo || null,
-    awayName: away.team?.shortDisplayName || away.team?.displayName || '?',
+    awayName,
     awayScore: away.score ?? null,
     awayLogo: away.team?.logo || null,
+    matchUrl: lequipeUrl,
+    needsUrlCheck: !!lequipeUrl,
   };
 }
 
@@ -106,7 +179,7 @@ async function liveFetchLeagueEspn(champ) {
   // que de supposer que la réponse par défaut est déjà bornée à aujourd'hui.
   const data = await liveFetchEspn(champ.espn);
   const todayMatches = (data.events || [])
-    .map(ev => liveNormalizeEspnEvent(ev, champ.label))
+    .map(ev => liveNormalizeEspnEvent(ev, champ.label, champ.espn))
     .filter(m => m && liveIsToday(m.date));
   if (todayMatches.length) return { matches: todayMatches, isNext: false };
 
@@ -119,7 +192,7 @@ async function liveFetchLeagueEspn(champ) {
   const data2 = await liveFetchEspn(champ.espn, `dates=${liveDateStamp(today)}-${liveDateStamp(future)}`);
   const now = Date.now();
   const upcoming = (data2.events || [])
-    .map(ev => liveNormalizeEspnEvent(ev, champ.label))
+    .map(ev => liveNormalizeEspnEvent(ev, champ.label, champ.espn))
     .filter(m => m && m.date.getTime() >= now)
     .sort((a, b) => a.date - b.date);
   return { matches: upcoming.slice(0, 1), isNext: true };
@@ -173,6 +246,10 @@ function liveNormalizeTsdbEvent(ev) {
     awayName: away,
     awayScore: ev.intAwayScore,
     awayLogo: ev.strAwayTeamBadge || null,
+    // TheSportsDB (mode club/National) n'expose aucun lien de page de match
+    // dans son API gratuite — toujours le repli Google (voir liveMatchRowHtml).
+    matchUrl: null,
+    needsUrlCheck: false,
   };
 }
 
@@ -243,8 +320,17 @@ function liveMatchRowHtml(m, isNext) {
   const timeLabel = isNext
     ? liveFmtNextDateTime(m.date)
     : (isLive ? (m.detail || 'En direct') : (m.state === 'post' ? (m.detail || 'Terminé') : liveFmtTime(m.date)));
+  // URL par match (2026-08-30/31) : URL L'Équipe construite s'il y en a une
+  // (voir liveNormalizeEspnEvent/liveBuildLequipeUrl, mode championnat
+  // seulement), sinon recherche Google directement (mode club/National) —
+  // jamais la même URL fixe pour tous les matchs comme avant le 2026-08-30.
+  // `data-needs-check` : l'URL L'Équipe est un best-effort (ID de match
+  // deviné, voir liveBuildLequipeUrl) — vérifiée au clic avant ouverture
+  // (voir wireControls plus bas), repli sur `data-fallback-url` si 404.
+  const clickUrl = m.matchUrl || liveGoogleFallbackUrl(m.homeName, m.awayName);
+  const fallbackUrl = m.matchUrl ? liveGoogleLequipeFallbackUrl(m.homeName, m.awayName) : clickUrl;
   return `
-    <div class="live-match-row ${isLive ? 'live-match-row-live' : ''}">
+    <div class="live-match-row ${isLive ? 'live-match-row-live' : ''}" data-match-url="${clickUrl}" data-fallback-url="${fallbackUrl}" data-needs-check="${m.needsUrlCheck ? '1' : '0'}">
       <div class="live-match-meta">
         ${isLive ? '<span class="live-dot"></span>' : ''}
         <span class="live-match-time">${isNext ? 'Prochain match — ' : ''}${timeLabel}</span>
@@ -289,8 +375,27 @@ window.MatinModules.live = {
     }
 
     if (!container.dataset.liveClickBound) {
-      container.addEventListener('click', (e) => {
-        if (e.target.closest('.live-match-row')) window.matin.shell.openExternal(LIVE_EQUIPE_URL);
+      // URL L'Équipe construite = best-effort (voir liveBuildLequipeUrl) —
+      // vérifiée AVANT ouverture via le même proxy main process que les flux
+      // RSS (`rss:fetchFeed`, jette sur tout statut non-2xx) : réutilisé ici
+      // tel quel plutôt que d'ajouter un canal IPC dédié pour un simple test
+      // d'existence de page. 404 (ou toute autre erreur) → repli Google avec
+      // l'indice "lequipe.fr" (demandé explicitement), jamais un lien mort.
+      container.addEventListener('click', async (e) => {
+        const row = e.target.closest('.live-match-row');
+        const url = row?.dataset.matchUrl;
+        if (!url) return;
+        if (row.dataset.needsCheck !== '1') {
+          window.matin.shell.openExternal(url);
+          return;
+        }
+        try {
+          await window.matin.rss.fetchFeed(url);
+          window.matin.shell.openExternal(url);
+        } catch (err) {
+          console.warn('[Live] URL L\'Équipe invalide, repli Google :', url, err.message);
+          window.matin.shell.openExternal(row.dataset.fallbackUrl);
+        }
       });
       container.dataset.liveClickBound = '1';
     }
