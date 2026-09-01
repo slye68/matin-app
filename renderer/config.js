@@ -46,8 +46,12 @@ const MODULE_META = {
   spotify:  { label: 'Spotify',      icon: '🎵',   requiresGoogle: false },
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air', icon: '🌡️', requiresGoogle: false }, // pas de config : réutilise la ville de Météo
+  // `fuelTypesField` (2026-09-01, sur demande explicite) — cases à cocher
+  // "quels carburants afficher", voir renderFuelTypesConfigSection plus bas
+  // et modules/fuel-types.js (catalogue partagé avec fuel-prices.js).
   fuelPrices: { label: 'Carburants',  icon: '⛽', requiresGoogle: false,
-                configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' } },
+                configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' },
+                fuelTypesField: true },
   priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, priceTrackingField: true },
   cinema:     { label: 'Cinéma',      icon: '🎬', requiresGoogle: false }, // pas de config : scraping AlloCiné, aucune clé requise
   steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false }, // pas de config
@@ -179,7 +183,7 @@ let tabDragSrc = null;
 
 // ─── Sections repliables réutilisables (2026-08-16, sur demande explicite) ──
 // Appliqué à 4 sections de Paramètres pouvant contenir beaucoup de lignes
-// (YouTube jusqu'à 10 chaînes, ETF/Crypto jusqu'à N lignes de portefeuille,
+// (YouTube jusqu'à 18 chaînes, ETF/Crypto jusqu'à N lignes de portefeuille,
 // Prêts jusqu'à 5 prêts par groupe) : REPLIÉES PAR DÉFAUT, un en-tête
 // cliquable affiche un compte dynamique + une flèche ▶ qui pivote à 90°
 // (▶ → visuellement ▼) en 300ms. Même mécanique CSS que
@@ -195,8 +199,9 @@ function wrapCollapsibleSection(contentEl, { storeKey, labelFor, compact }) {
   // `compact` (2026-09-01, sur demande explicite) — soude visuellement le
   // header "X ... configuré(e)s ▶" au bloc titre+toggle du module juste
   // au-dessus (voir .config-collapsible--compact dans style.css), au lieu de
-  // flotter en dessous avec un espace vide. Réservé à ETF/Crypto/Prêts par
-  // les appelants ci-dessous (PAS YouTube, qui garde ce composant tel quel).
+  // flotter en dessous avec un espace vide. Utilisé par les 4 appelants
+  // ci-dessous (ETF/Crypto/Prêts/YouTube — ce dernier ajouté le même jour,
+  // 2e révision, "no separate border, no floating element").
   wrap.className = 'config-collapsible' + (compact ? ' config-collapsible--compact' : '');
   wrap.innerHTML = `
     <div class="config-collapsible-header">
@@ -779,7 +784,11 @@ function showPriceTrackingInfoPopup(anchorEl) {
     <div class="price-tracking-info-title">Sites compatibles testés :</div>
     <div class="price-tracking-info-sites">
       <span>✅ Darty</span><span>✅ Fnac</span><span>✅ LDLC</span>
-      <span>✅ Vinted</span><span>✅ Boulanger</span><span class="price-tracking-info-incompatible">❌ Amazon (non compatible)</span>
+      <span>✅ Vinted</span><span>✅ Boulanger</span><span>✅ Zalando</span>
+      <span>✅ Jules</span><span>✅ Cultura</span>
+      <span class="price-tracking-info-incompatible">❌ Amazon (non compatible)</span>
+      <span class="price-tracking-info-incompatible">❌ Instant Gaming (non compatible)</span>
+      <span class="price-tracking-info-incompatible">❌ G2A (non compatible)</span>
     </div>
     <div class="price-tracking-info-warning">⚠️ Peut fonctionner avec d'autres sites marchands.</div>
   `;
@@ -882,6 +891,12 @@ function createModuleRow(key, mod, meta) {
 
   let teamFieldInput = null;
   let sportSelectInput = null;
+  // Badge "Bêta" (à côté du sélecteur) + note Basketball (sous le champ) —
+  // 2026-09-01, sur demande explicite : réassignée plus bas (voir
+  // meta.configField), appelée aussi depuis le listener `change` du
+  // sélecteur un peu plus loin dans cette même fonction (2 blocs `if`
+  // séparés mais même portée de fonction).
+  let updateSportExtras = () => {};
 
   if (meta.configField) {
     const field = meta.configField;
@@ -898,7 +913,8 @@ function createModuleRow(key, mod, meta) {
         ${window.SportsSources.MANUAL_SPORT_OPTIONS.map(opt =>
           `<option value="${opt.value}" ${((mod.config?.sport || '') === opt.value) ? 'selected' : ''}>${opt.label}</option>`
         ).join('')}
-      </select>` : '';
+      </select>
+      <span class="sports-sport-beta-badge"></span>` : '';
 
     const fieldWrap = document.createElement('div');
     fieldWrap.className = 'module-config-field';
@@ -913,8 +929,38 @@ function createModuleRow(key, mod, meta) {
       modulesState[key].config[field.key] = e.target.value;
     });
     sportSelectInput = fieldWrap.querySelector('.sports-manual-select');
+    const sportBetaBadge = fieldWrap.querySelector('.sports-sport-beta-badge');
 
     wrapper.appendChild(fieldWrap);
+
+    // Note Basketball + badge "Bêta" (2026-09-01, sur demande explicite) —
+    // bloc SÉPARÉ (comme le rappel Anniversaires, voir meta.hintText plus
+    // haut) plutôt que casé dans la même ligne flex que le champ Équipe/le
+    // sélecteur : c'est le seul moyen d'obtenir une VRAIE 2e ligne sous le
+    // champ (`.module-config-field` ci-dessus est une rangée flex qui ne
+    // wrap pas), réutilise `.module-config-hint-text` telle quelle (muet,
+    // 11px, italique, exactement le style déjà demandé pour Anniversaires).
+    // Le badge Bêta, lui, reste DANS la rangée du sélecteur (juste à côté,
+    // comme demandé) — un <option> de <select> ne peut afficher que du texte
+    // brut (voir sports-sources.js/MANUAL_SPORT_OPTIONS), ce badge est donc
+    // le seul endroit où "Bêta" peut être réellement stylé (italique/muet/
+    // 10px, voir .sports-sport-beta-badge, config.html) plutôt que du texte
+    // plat comme dans le menu déroulant lui-même.
+    let basketHintWrap = null;
+    if (isSportsKey(key)) {
+      basketHintWrap = document.createElement('div');
+      basketHintWrap.className = 'module-config-field module-config-hint-field sports-basket-hint';
+      basketHintWrap.innerHTML = `<p class="module-config-hint-text">ℹ️ Si votre équipe est aussi connue comme club de football, ajoutez 'Basket' au nom pour éviter toute confusion. Ex: 'Monaco Basket' au lieu de 'Monaco'</p>`;
+      wrapper.appendChild(basketHintWrap);
+    }
+
+    updateSportExtras = () => {
+      if (!sportSelectInput) return;
+      const val = sportSelectInput.value;
+      if (sportBetaBadge) sportBetaBadge.textContent = (val === 'basketball' || val === 'rugby') ? 'β Bêta' : '';
+      if (basketHintWrap) basketHintWrap.style.display = val === 'basketball' ? 'flex' : 'none';
+    };
+    updateSportExtras();
   }
 
   // Prêts DE CE groupe (jusqu'à 5) — indépendant du champ nom ci-dessus,
@@ -1031,6 +1077,7 @@ function createModuleRow(key, mod, meta) {
       modulesState[key].config.sport = e.target.value;
       delete modulesState[key].config.sources;
       clearTimeout(debounceTimer);
+      updateSportExtras();
       refreshSources(teamFieldInput.value);
     });
 
@@ -1183,6 +1230,10 @@ function createModuleRow(key, mod, meta) {
 
   if (meta.priceTrackingField) {
     wrapper.appendChild(renderPriceTrackingConfigSection(modulesState[key]));
+  }
+
+  if (meta.fuelTypesField) {
+    wrapper.appendChild(renderFuelTypesConfigSection(modulesState[key]));
   }
 
   if (meta.hueField) {
@@ -1351,7 +1402,7 @@ function renderMonEquipeConfigSection(mod) {
     <div class="monequipe-upcoming-list"></div>
     <button type="button" class="etf-add-line-btn monequipe-add-upcoming-btn">+ Ajouter un match</button>
 
-    <label class="monequipe-list-label">Derniers résultats (max ${MON_EQUIPE_MAX_MATCHES})</label>
+    <label class="monequipe-list-label monequipe-list-label--results">Derniers résultats (max ${MON_EQUIPE_MAX_MATCHES})</label>
     <div class="monequipe-results-header">
       <span>Date</span><span>Adversaire</span><span>Score</span><span>Domicile / Extérieur</span><span>Type de match</span><span></span>
     </div>
@@ -1769,6 +1820,50 @@ function renderPriceTrackingConfigSection(mod) {
   return wrap;
 }
 
+// ─── Carburants — carburants affichés (cases à cocher) ─────────────────────
+// (2026-09-01, sur demande explicite) — quels types de carburant afficher en
+// colonne dans le module dashboard (voir renderer/modules/fuel-types.js,
+// catalogue partagé, ET fuel-prices.js qui applique exactement cette
+// sélection). Réutilise `.sports-sources-field`/`.sports-source-item` (même
+// besoin visuel qu'une liste de cases à cocher, voir meta.newsSourcesField
+// plus haut) plutôt que d'introduire une 3e famille de classes CSS pour la
+// même chose. Pas de contrainte "au moins 1 coché" ici (contrairement à
+// newsSourcesField) : rien ne l'exige côté demande, et une sélection vide
+// affiche simplement un module sans colonne de prix plutôt qu'un état invalide.
+function renderFuelTypesConfigSection(mod) {
+  if (!mod.config) mod.config = {};
+  const enabled = new Set(
+    Array.isArray(mod.config.fuelTypes) && mod.config.fuelTypes.length
+      ? mod.config.fuelTypes
+      : window.FuelTypes.DEFAULT_ENABLED
+  );
+  mod.config.fuelTypes = Array.from(enabled); // fige l'état par défaut dès l'ouverture, même sans y toucher
+
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field sports-sources-field';
+  wrap.innerHTML = `
+    <label>Carburants affichés</label>
+    <div class="sports-sources-list">
+      ${window.FuelTypes.OPTIONS.map(opt => `
+        <label class="sports-source-item">
+          <input type="checkbox" class="fuel-type-checkbox" value="${opt.id}" ${enabled.has(opt.id) ? 'checked' : ''}>
+          <span>${opt.label}</span>
+        </label>
+      `).join('')}
+    </div>
+  `;
+
+  wrap.querySelectorAll('.fuel-type-checkbox').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      mod.config.fuelTypes = Array.from(
+        wrap.querySelectorAll('.fuel-type-checkbox:checked')
+      ).map((el) => el.value);
+    });
+  });
+
+  return wrap;
+}
+
 // ─── Podcasts (libellé + URL de flux RSS, max 10) ───────────────────────────
 // Même structure que Colis (label + valeur par ligne, ajout/suppression) mais
 // pour label + URL de flux — pas de détection auto ici (contrairement au
@@ -1836,15 +1931,16 @@ function renderPodcastConfigSection(mod) {
 }
 
 // ─── YouTube Notifications (résolution de chaîne + liste) ──────────────────
-// (2026-08-15, sur demande explicite) Jusqu'à 10 chaînes, chacune saisie par
-// nom ou URL — résolue automatiquement en ID de chaîne via l'API YouTube
-// Data v3 (Search, ou Channels si l'URL contient déjà `channel/UC...`, moins
-// coûteux en quota). La résolution nécessite un compte Google connecté avec
-// le scope `youtube.readonly` (voir main/auth/google-oauth.js) — contrairement
-// au module dashboard lui-même (youtube.js), qui ne lit ensuite QUE le flux
-// RSS public de chaque chaîne déjà résolue (aucune auth requise pour ça,
-// donc `MODULE_META.youtube.requiresGoogle` reste `false`).
-const MAX_YOUTUBE_CHANNELS = 10;
+// (2026-08-15, sur demande explicite) Jusqu'à 18 chaînes (10→18, 2026-09-01,
+// sur demande explicite), chacune saisie par nom ou URL — résolue
+// automatiquement en ID de chaîne via l'API YouTube Data v3 (Search, ou
+// Channels si l'URL contient déjà `channel/UC...`, moins coûteux en quota).
+// La résolution nécessite un compte Google connecté avec le scope
+// `youtube.readonly` (voir main/auth/google-oauth.js) — contrairement au
+// module dashboard lui-même (youtube.js), qui ne lit ensuite QUE le flux RSS
+// public de chaque chaîne déjà résolue (aucune auth requise pour ça, donc
+// `MODULE_META.youtube.requiresGoogle` reste `false`).
+const MAX_YOUTUBE_CHANNELS = 18;
 
 async function youtubeFetchChannelById(channelId, accessToken) {
   const params = new URLSearchParams({ part: 'snippet', id: channelId });
@@ -1928,6 +2024,19 @@ function renderYoutubeConfigSection(mod) {
     return '';
   }
 
+  // Repli lettre (2026-09-01, sur demande explicite, "show a placeholder
+  // with the first letter of the channel name") — remplace l'ancien repli
+  // 🔔 FIXE : 1re lettre du nom RÉSOLU (`channel.title`) si disponible,
+  // sinon celle du texte tel que tapé (`channel.query`, avant résolution),
+  // sinon 🔔 pour une ligne fraîchement ajoutée et encore vide. Utilisée à
+  // la fois pour le rendu initial (pas encore résolu/en échec) et pour le
+  // repli en direct si l'`<img>` échoue à charger (voir listener 'error'
+  // plus bas) — même fonction dans les 2 cas, jamais dupliquée.
+  function avatarFallbackHtml(channel) {
+    const letter = (channel.title || channel.query || '').trim().charAt(0).toUpperCase();
+    return `<div class="youtube-channel-avatar youtube-channel-avatar-fallback">${letter || '🔔'}</div>`;
+  }
+
   function renderChannels() {
     listEl.innerHTML = '';
     channels.forEach((channel) => {
@@ -1942,7 +2051,7 @@ function renderYoutubeConfigSection(mod) {
       // signalé par l'utilisateur, car écrasé sur 28px de large).
       const avatarHtml = channel.avatar
         ? `<img class="youtube-channel-avatar" src="${channel.avatar}" alt="">`
-        : `<div class="youtube-channel-avatar youtube-channel-avatar-fallback">🔔</div>`;
+        : avatarFallbackHtml(channel);
       row.innerHTML = `
         ${avatarHtml}
         <div class="youtube-channel-main">
@@ -1951,6 +2060,18 @@ function renderYoutubeConfigSection(mod) {
         </div>
         <button type="button" class="row-delete-btn youtube-delete-btn" title="Supprimer cette chaîne">×</button>
       `;
+
+      // Repli EN DIRECT (2026-09-01, sur demande explicite, "if thumbnail
+      // fails to load") — `channel.avatar` non vide ne garantit pas que
+      // l'image charge RÉELLEMENT (URL périmée, réseau, blocage) : sans ce
+      // listener, une image cassée resterait un cadre vide/icône brisée du
+      // navigateur au lieu de basculer sur la lettre de repli. `{ once:
+      // true }` : un seul remplacement, jamais besoin de 2e essai sur la
+      // même balise (déjà retirée du DOM après le 1er échec).
+      const avatarImg = row.querySelector('img.youtube-channel-avatar');
+      avatarImg?.addEventListener('error', () => {
+        avatarImg.outerHTML = avatarFallbackHtml(channel);
+      }, { once: true });
 
       const input = row.querySelector('.youtube-channel-input');
       const statusEl = row.querySelector('.youtube-channel-status');
@@ -1993,10 +2114,14 @@ function renderYoutubeConfigSection(mod) {
     collapsible?.refreshLabel();
   }
 
+  // Bouton MASQUÉ (pas seulement désactivé) une fois le maximum atteint
+  // (2026-09-01, sur demande explicite — "the '+ Ajouter une chaîne' button
+  // should be hidden") : diffère du pattern "disabled" utilisé pour les
+  // autres boutons "+ Ajouter" de ce fichier (ETF/Crypto/Prêts...), suivi
+  // ici à la lettre pour YouTube spécifiquement.
   function syncAddBtn() {
     const maxed = channels.length >= MAX_YOUTUBE_CHANNELS;
-    addBtn.disabled = maxed;
-    addBtn.title = maxed ? `Maximum de ${MAX_YOUTUBE_CHANNELS} chaînes atteint` : '';
+    addBtn.style.display = maxed ? 'none' : '';
   }
 
   addBtn.addEventListener('click', () => {
@@ -2010,9 +2135,25 @@ function renderYoutubeConfigSection(mod) {
   syncAddBtn();
 
   // Repliable (2026-08-16, sur demande explicite) — voir wrapCollapsibleSection.
+  // `compact: true` (2026-09-01, sur demande explicite — "no separate
+  // border, no floating element... one unified card") : YouTube gardait
+  // volontairement son espacement PAR DÉFAUT depuis l'introduction de ce
+  // composant (voir le commentaire de wrapCollapsibleSection/
+  // .config-collapsible--compact dans style.css, qui documentait ce choix
+  // explicite), mais ça laissait le libellé flotter sous la ligne du module
+  // avec un espace vide visible — même symptôme déjà corrigé pour
+  // ETF/Crypto/Prêts via ce même modificateur, qui soude l'en-tête (et le
+  // corps déplié) directement sous `.module-row` (fond/bordure assortis,
+  // coin haut carré, chevauchement -1px).
+  // Libellé changé de "— N configurée(s)" (compte dynamique) à "(max 18)"
+  // (2026-09-01, 2e demande explicite le même jour, "Update the label:
+  // 'Mes chaînes YouTube (max 18)'") — statique plutôt que recalculé à
+  // chaque appel de refreshLabel(), MAX_YOUTUBE_CHANNELS injecté plutôt que
+  // "18" en dur pour rester synchronisé si cette constante change à nouveau.
   collapsible = wrapCollapsibleSection(wrap, {
     storeKey: 'app.configCollapsed.youtube.channels',
-    labelFor: () => `Mes chaînes YouTube — ${channels.length} configurée${channels.length !== 1 ? 's' : ''}`,
+    labelFor: () => `Mes chaînes YouTube (max ${MAX_YOUTUBE_CHANNELS})`,
+    compact: true,
   });
   return collapsible.wrap;
 }
@@ -2725,32 +2866,28 @@ async function initGoogleSection() {
   });
 }
 
-// Compact (2026-08-31, sur demande explicite, redesign "pills") — `label`
-// ne porte plus que le verbe d'action ("Connecter"/"Déconnecter", le lien
-// texte de la pill), `status` porte l'email + ✓ vert une fois connecté (le
-// détail "modules Agenda/Gmail/Tâches activés" est retiré de l'affichage
-// compact, toujours visible via le `title` de la pill pour qui en a besoin).
+// Action/détail SEUL (2026-09-01, 3e révision, sur demande explicite —
+// "G Google — Déconnecter (email)") : `label` ne porte plus que "Connecter"/
+// "Déconnecter (email)" (ou le message d'attente/d'erreur), le nom du
+// service ("Google", statique) vit désormais dans le HTML juste avant, voir
+// config.html `.profil-info-account-name`. `pill` (le conteneur
+// `.profil-account-pill`, PAS le bouton lui-même) reçoit
+// `.profil-info-connected`/`.profil-info-pending` (voir config.html) pour la
+// couleur du bouton — vert connecté, jaune en attente d'autorisation/erreur
+// (`statusOverride`), neutre sinon.
 function updateGoogleUI(googleData, statusOverride) {
-  const label  = document.getElementById('googleLabel');
-  const status = document.getElementById('googleStatus');
-  const pill   = document.getElementById('accountPillGoogle');
+  const label = document.getElementById('googleLabel');
+  const pill  = document.getElementById('accountPillGoogle');
 
   if (googleData?.accessToken) {
-    label.textContent  = 'Déconnecter';
-    status.textContent = `${googleData.email || 'Compte connecté'} ✓`;
-    status.style.color = 'var(--accent-green)';
+    label.textContent = `Déconnecter (${googleData.email || 'compte connecté'})`;
     if (pill) pill.title = 'Modules Agenda, Gmail et Tâches Google activés';
   } else {
-    label.textContent  = 'Connecter';
-    status.textContent = statusOverride || 'Non connecté';
-    status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
+    label.textContent = statusOverride || 'Connecter';
     if (pill) pill.title = 'Nécessaire pour les modules Agenda, Gmail et Tâches Google';
   }
-  // Icône verte une fois connecté (2026-09-01, sur demande explicite, voir
-  // config.html .profil-notch-connected) — le texte de statut ci-dessus
-  // (`status`) est désormais masqué visuellement dans le notch Profil, seule
-  // cette classe porte l'information au premier coup d'œil.
-  pill?.classList.toggle('profil-notch-connected', !!googleData?.accessToken);
+  pill?.classList.toggle('profil-info-connected', !!googleData?.accessToken);
+  pill?.classList.toggle('profil-info-pending', !googleData?.accessToken && !!statusOverride);
 }
 
 // ─── Spotify Auth ────────────────────────────────────────────────────────────
@@ -3093,27 +3230,21 @@ async function renderDisplayModeOptions() {
 // explicite (voir CONTEXT.md) : `renderAutoScrollOptions` et son toggle dans
 // la popup Affichage retirés.
 
-// Compact (2026-08-31, sur demande explicite, redesign "pills") — même
+// Action/détail SEUL (2026-09-01, 3e révision, sur demande explicite) — même
 // principe que updateGoogleUI ci-dessus.
 function updateSpotifyUI(spotifyData, statusOverride) {
-  const label  = document.getElementById('spotifyLabel');
-  const status = document.getElementById('spotifyStatus');
-  const pill   = document.getElementById('accountPillSpotify');
+  const label = document.getElementById('spotifyLabel');
+  const pill  = document.getElementById('accountPillSpotify');
 
   if (spotifyData?.accessToken) {
-    label.textContent  = 'Déconnecter';
-    status.textContent = `${spotifyData.email || spotifyData.displayName || 'Compte connecté'} ✓`;
-    status.style.color = 'var(--accent-green)';
+    label.textContent = `Déconnecter (${spotifyData.email || spotifyData.displayName || 'compte connecté'})`;
     if (pill) pill.title = 'Module Spotify activé';
   } else {
-    label.textContent  = 'Connecter';
-    status.textContent = statusOverride || 'Non connecté';
-    status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
+    label.textContent = statusOverride || 'Connecter';
     if (pill) pill.title = 'Nécessaire pour le module Spotify';
   }
-  // Icône verte une fois connecté (2026-09-01, sur demande explicite — voir
-  // updateGoogleUI ci-dessus, même principe).
-  pill?.classList.toggle('profil-notch-connected', !!spotifyData?.accessToken);
+  pill?.classList.toggle('profil-info-connected', !!spotifyData?.accessToken);
+  pill?.classList.toggle('profil-info-pending', !spotifyData?.accessToken && !!statusOverride);
 }
 
 // ─── Sauvegarde ──────────────────────────────────────────────────────────────

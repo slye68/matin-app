@@ -96,7 +96,18 @@ const MODULE_REGISTRY = {
   // youtube.js, ytStartScheduler), même raison que Podcast/ETF/Crypto/NASA-
   // cache/Currency (un re-render externe empilerait un 2e setInterval à
   // chaque cycle). Thème 'services' + bordure slate #94a3b8 (voir style.css).
-  youtube: { label: 'YouTube', icon: '🔔', requiresGoogle: false, defaultSize: { w: 320, h: 260 }, theme: 'services' },
+  // Taille par défaut ajustée le 2026-09-01 (2e révision, sur demande
+  // explicite, "Keep larger avatar thumbnails (~70-80px)... exactly 2
+  // avatars per row... width adjusts to fit 2 avatars comfortably") — 200px
+  // = 2 avatars de 76px (voir style.css .youtube-avatar-img) + espacement de
+  // grille (16px) + le padding horizontal normal de la carte (16px de
+  // chaque côté, comme tout autre module — plus besoin de la dérogation
+  // ultra-étroite d'une révision précédente, cette largeur repasse
+  // au-dessus du plancher générique .module-card{min-width:220px} de toute
+  // façon désormais très proche). Hauteur portée à 320 pour laisser ~3
+  // rangées visibles sans avoir à faire défiler dès l'ouverture — au-delà,
+  // .youtube-module-avatars défile verticalement comme avant.
+  youtube: { label: 'YouTube', icon: '🔔', requiresGoogle: false, defaultSize: { w: 200, h: 320 }, theme: 'services' },
   nasa:    { label: 'NASA',     icon: '🌍', requiresGoogle: false, defaultSize: { w: 440, h: 460 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'perso' },
   // Prêts immobiliers (2026-08-08, sur demande explicite) — instances
   // multiples comme Sports (voir isPretsKey/resolveModuleMeta plus haut) : un
@@ -217,6 +228,16 @@ function isAutoHeightKey(key) {
   // une fois dépliées, au lieu de rester à taille fixe avec un défilement
   // interne.
   if (key === 'monEquipe') return true;
+  // YouTube (2026-09-01, sur demande explicite, "auto-fit its content...
+  // shrinks to fit exactly the avatar rows, no empty space below") — SANS
+  // ce correctif, la carte gardait la hauteur FIGÉE de defaultSize.h (ou
+  // celle enregistrée après un redimensionnement manuel), et
+  // .youtube-module-avatars-wrap { flex: 1 } l'étirait pour combler tout
+  // l'espace restant sous la grille d'avatars — c'était très probablement
+  // la vraie cause de l'espace vide signalé (voir aussi le retrait de
+  // `overflow-y: auto`/`flex: 1` dans style.css, devenus inutiles une fois
+  // la hauteur pilotée par le contenu plutôt que l'inverse).
+  if (key === 'youtube') return true;
   return isPretsKey(key);
 }
 function resolveModuleTitle(key, meta, config) {

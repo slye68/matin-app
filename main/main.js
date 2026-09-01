@@ -2724,10 +2724,10 @@ ipcMain.handle('tradfri:turnAll', async (_e, { gatewayIp, identity, psk, on }) =
 // v2.1), gratuite et sans clé, vérifiée en direct le 2026-08-05 : le filtre
 // géographique `within_distance(geom, geom'POINT(lon lat)', 20km)` fonctionne
 // tel quel (testé sur Lyon : 86 stations dans un rayon de 10km). Champs
-// aplatis confirmés sur une vraie réponse : sp95_prix/sp98_prix/gazole_prix/
-// e10_prix (nombre ou null si le carburant n'est pas vendu — SP95 classique
-// est souvent absent, remplacé par l'E10 dans beaucoup de stations), geom.lat/
-// geom.lon, cp, ville, adresse.
+// aplatis confirmés sur une vraie réponse À CETTE DATE : sp95_prix/sp98_prix/
+// gazole_prix/e10_prix (nombre ou null si le carburant n'est pas vendu — SP95
+// classique est souvent absent, remplacé par l'E10 dans beaucoup de
+// stations), geom.lat/geom.lon, cp, ville, adresse.
 //
 // Rayon élargi de 15 à 20km et limite brute portée à 40 (2026-08-05, suite à
 // un signalement "aucune station près du 01090") : en zone rurale peu dense,
@@ -2736,11 +2736,23 @@ ipcMain.handle('tradfri:turnAll', async (_e, { gatewayIp, identity, psk, on }) =
 // distance réel côté renderer (fuel-prices.js). Le vrai bug rapporté n'était
 // en fait PAS ce rayon mais le géocodage en amont (voir fuel-prices.js) —
 // élargi quand même par précaution pour les zones rurales.
+//
+// `select=` RETIRÉ (2026-09-01, sur demande explicite, "SP95 price is still
+// not displaying... the government fuel API may have changed field names")
+// — nommer explicitement `sp95_prix` dans `select=` ne peut QUE renvoyer ce
+// nom précis (ou rien) : si l'API a renommé ce champ depuis la vérification
+// du 2026-08-05 ci-dessus, un `select=` figé sur l'ancien nom masque
+// silencieusement le problème plutôt que de le révéler. Sans restriction, la
+// réponse contient maintenant TOUS les champs bruts de chaque station — la
+// résolution du nom réel du champ SP95 (parmi plusieurs candidats connus) se
+// fait désormais dynamiquement côté renderer, voir fuel-prices.js
+// FUEL_FIELD_CANDIDATES/fuelResolveFieldMap, avec logging explicite pour
+// vérifier en direct quel nom l'API utilise réellement aujourd'hui.
 const FUEL_API_URL = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
 
 ipcMain.handle('fuel:fetchNearby', async (_e, { lat, lon }) => {
   const where = `within_distance(geom, geom'POINT(${lon} ${lat})', 20km)`;
-  const url = `${FUEL_API_URL}?where=${encodeURIComponent(where)}&limit=40&select=ville,cp,adresse,geom,sp95_prix,sp98_prix,gazole_prix,e10_prix`;
+  const url = `${FUEL_API_URL}?where=${encodeURIComponent(where)}&limit=40`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Prix carburants indisponibles (${res.status})`);
   const data = await res.json();

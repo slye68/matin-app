@@ -495,15 +495,24 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .live-match-row:hover { border-color: #ef4444; background: var(--bg-hover); }
 .live-match-row-live { border-color: rgba(239, 68, 68, 0.4); }
-.live-match-meta { display: flex; align-items: center; gap: 6px; }
+/* Heure/mi-temps SEULE sur sa ligne (2026-09-01, sur demande explicite —
+   avant ce correctif, elle partageait la même ligne flex que la compétition
+   ci-dessous, `.live-match-league`) : `.live-match-meta` renommée
+   `.live-match-time-row`, ne contient plus QUE le point rouge + l'heure. */
+.live-match-time-row { display: flex; align-items: center; gap: 6px; }
 .live-match-time { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-.live-match-league { font-size: 12px; color: var(--text-muted); margin-left: auto; }
-/* [Logo][Nom][Score][Nom][Logo] — 5 colonnes, les 2 noms convergent vers le
-   score au centre (texte aligné vers l'intérieur de chaque côté) pour une
-   lecture symétrique façon tableau de scores. */
+/* Compétition sur SA PROPRE ligne désormais (plus de `margin-left:auto`,
+   qui n'avait de sens que pour se pousser à droite d'un voisin sur la même
+   ligne — ici seule sur la sienne, entre l'heure et le score). */
+.live-match-league { font-size: 11px; color: var(--text-muted); }
+/* [Nom][Score][Nom] — 3 colonnes (2026-09-01, sur demande explicite : logos/
+   initiales d'équipe retirés, redondants avec les noms complets déjà
+   affichés ici) — les 2 noms convergent toujours vers le score au centre
+   (texte aligné vers l'intérieur de chaque côté) pour une lecture
+   symétrique façon tableau de scores. */
 .live-match-teams {
   display: grid;
-  grid-template-columns: auto 1fr auto 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 6px;
 }
@@ -517,25 +526,6 @@ body.ultrawide .module-card { max-width: 500px; }
   text-align: right;
 }
 .live-match-team-away { text-align: left; }
-.live-team-logo {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-.live-team-logo-empty {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--bg-hover);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
 .live-match-score {
   font-family: var(--font-mono);
   font-size: 16px;
@@ -1434,11 +1424,13 @@ body.ultrawide .module-card { max-width: 500px; }
    Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
    malgré le nom historique "sports-" : Sports (ol.js) réutilise ces mêmes
    classes pour son propre ticker d'actualités, `.sports-ticker-source`
-   servant de libellé SOIT à l'heure relative (RSS) SOIT au nom de la source
-   (Sports) selon le module — jamais les deux en même temps. Tailles
-   standardisées à 13px (titre)/11px (source ou heure) le 2026-08-11, sur
-   demande explicite ("même taille partout") — un seul jeu de règles, donc
-   déjà cohérent par construction pour tous les modules qui les réutilisent. */
+   servant de libellé à l'heure relative (RSS) OU au nom de la source ET son
+   heure de publication (Sports, "L'ÉQUIPE · 14h32", ajouté le 2026-09-01 sur
+   demande explicite — voir ol.js fetchNewsItems/formatArticleTime) selon le
+   module. Tailles standardisées à 13px (titre)/11px (source ou heure) le
+   2026-08-11, sur demande explicite ("même taille partout") — un seul jeu de
+   règles, donc déjà cohérent par construction pour tous les modules qui les
+   réutilisent. */
 .sports-ticker-vwrap {
   overflow: hidden;
   border-top: 1px solid var(--border-light);
@@ -1484,6 +1476,14 @@ body.ultrawide .module-card { max-width: 500px; }
   color: var(--text-muted);
   margin-right: 5px;
 }
+/* Heure de publication, imbriquée dans .sports-ticker-source — Sports
+   uniquement (2026-09-01, sur demande explicite, "L'ÉQUIPE · 14h32", voir
+   ol.js) — `text-transform:none` ANNULE explicitement l'uppercase hérité du
+   parent : sans ça, le "h" minuscule de "14h32" serait capitalisé avec le
+   reste du libellé ("14H32"), pas le format demandé. `letter-spacing:normal`
+   même raison (évite l'espacement de lettres du parent sur des chiffres, où
+   ça se voit particulièrement). */
+.sports-ticker-time { text-transform: none; letter-spacing: normal; }
 @keyframes sports-ticker-v {
   from { transform: translateY(0); }
   to   { transform: translateY(-50%); }
@@ -3167,15 +3167,19 @@ body.ultrawide .module-card { max-width: 500px; }
    avant même le 1er affichage du contenu. */
 .config-collapsible-body.expanded .config-collapsible-body-inner { padding-top: 6px; }
 
-/* Variante compacte ETF/Crypto/Prêts (2026-09-01, sur demande explicite) —
-   "X ... configuré(e)s ▶" doit être SOUDÉ au bloc titre+toggle du module
-   (.module-row) juste au-dessus, sans espace vide entre les deux : même
-   traitement visuel que .module-config-field (fond/bordure assortis, coin
-   haut carré + `margin-top:-1px` pour chevaucher la bordure du dessus, voir
-   config.html). Réservé via le modificateur `config-collapsible--compact`
-   posé côté JS (voir wrapCollapsibleSection dans config.js) — YouTube
-   (seule autre section repliable) n'a PAS ce modificateur et garde son
-   espacement par défaut, comme demandé.
+/* Variante compacte ETF/Crypto/Prêts/YouTube (2026-09-01, sur demande
+   explicite — YouTube ajouté le même jour, 2e révision : gardait
+   volontairement l'espacement par défaut ci-dessous depuis l'introduction de
+   ce composant, mais "Mes chaînes YouTube — N configurées" flottait alors
+   sous la carte du module avec un espace/bordure visible, même symptôme que
+   les 3 autres avant leur passage en `compact`) — "X ... configuré(e)s ▶"
+   doit être SOUDÉ au bloc titre+toggle du module (.module-row) juste
+   au-dessus, sans espace vide entre les deux : même traitement visuel que
+   .module-config-field (fond/bordure assortis, coin haut carré +
+   `margin-top:-1px` pour chevaucher la bordure du dessus, voir config.html).
+   Réservé via le modificateur `config-collapsible--compact` posé côté JS
+   (voir wrapCollapsibleSection dans config.js) — les 4 SEULES sections
+   repliables de Paramètres l'utilisent désormais toutes.
    Le fond/bordure du header n'est posé que sur le header (jamais sur
    .config-collapsible-body au repos) : la transition grid-template-rows
    0fr→1fr écrase la hauteur du body à ~0 mais pas ses bordures, qui
@@ -3424,13 +3428,19 @@ body.ultrawide .module-card { max-width: 500px; }
    logique que les couleurs d'accent de l'app, volontairement identiques
    dans les 2 thèmes. */
 .fuel-station-city { font-size: 12px; color: #e8eaf0; }
-/* Grille à 4 colonnes égales (2026-08-30, sur demande explicite — remplace
-   un `flex-wrap` qui pouvait faire passer SP95 à la ligne suivante et le
-   rendre invisible sur une carte étroite) : SP95/SP98/Diesel/E10 gardent
+/* Grille à colonnes égales (2026-08-30, sur demande explicite — remplace un
+   `flex-wrap` qui pouvait faire passer SP95 à la ligne suivante et le rendre
+   invisible sur une carte étroite) : les carburants affichés gardent
    TOUJOURS la même largeur et restent alignés colonne par colonne d'une
    ligne (station) à l'autre, avec un séparateur vertical fin entre chaque
-   (`border-right`, retiré sur la dernière colonne via `:last-child`). */
-.fuel-station-prices { display: grid; grid-template-columns: repeat(4, 1fr); }
+   (`border-right`, retiré sur la dernière colonne via `:last-child`).
+   `grid-template-columns` n'est PLUS fixé ici à `repeat(4, 1fr)` (2026-09-01,
+   sur demande explicite — carburants désormais cochables dans Paramètres,
+   voir fuel-types.js) : le nombre de colonnes affichées varie maintenant de
+   1 à 6 selon les cases cochées, posé en style inline par fuel-prices.js
+   fuelStationRowHtml (`repeat(N, 1fr)`, N = carburants cochés) plutôt qu'ici
+   où le nombre exact n'est pas connu à l'avance. */
+.fuel-station-prices { display: grid; }
 .fuel-price {
   display: flex;
   flex-direction: column;
@@ -3945,99 +3955,200 @@ body.ultrawide .module-card { max-width: 500px; }
 .podcast-row-meta { font-size: 12px; color: var(--text-muted); }
 
 /* ─── Module : YouTube Notifications (2026-08-15, sur demande explicite) ────
-   Grille compacte d'avatars (pas une liste comme Podcasts) : chaque chaîne
-   n'a qu'une seule info utile à montrer d'un coup d'œil ("y a-t-il du
-   nouveau ?"), une grille de cartes rondes s'y prête mieux qu'une liste de
-   lignes. Badge positionné en absolu sur le coin de l'avatar plutôt qu'à
-   côté du nom, pour rester lisible même très petit (voir .size-icon-only). */
-/* Conteneur + bouton "Vérifier maintenant" (2026-08-16, sur demande
-   explicite, pour tester la détection sans attendre un créneau planifié) —
-   élément STATIQUE (voir youtube.js) : reste affiché/cliquable pendant que
-   `.youtube-module-grid-wrap` seul est reconstruit à chaque vérification. */
-.youtube-module { display: flex; flex-direction: column; gap: 6px; height: 100%; }
+   REDESSINÉ 3 FOIS le 2026-09-01 : liste verticale [avatar+nom+badge]
+   d'abord ("more compact vertical layout"), puis 1 colonne d'avatars seuls
+   ultra-compacts ("ultra-compact... ~60px total"), puis la version ACTUELLE
+   ("Keep larger avatar thumbnails (~70-80px)... exactly 2 avatars per row")
+   — grille de 2 colonnes d'avatars de 76px, toujours sans nom visible par
+   défaut (bulle CSS au survol, voir [data-name]::after plus bas), badge de
+   notification en absolu sur le coin de l'avatar (ne le recouvre pas). */
+/* `height: 100%` retiré (2026-09-01, sur demande explicite, "auto-fit its
+   content... no empty space below the avatars") — la carte est maintenant
+   à hauteur AUTOMATIQUE (voir dashboard.js isAutoHeightKey, `youtube`
+   ajouté à cet ensemble le même jour) : `.module-card` n'a donc plus de
+   hauteur figée pour que `.youtube-module`/`.youtube-module-avatars-wrap`
+   puissent s'étirer dedans. Sans ce retrait, `flex: 1` sur
+   `.youtube-module-avatars-wrap` ci-dessous aurait continué à combler tout
+   l'espace vertical dont la carte hérite par ailleurs (defaultSize.h ou une
+   hauteur enregistrée après un ancien redimensionnement manuel) — c'était
+   très probablement la cause réelle de l'espace vide sous la grille. */
+.youtube-module { display: flex; flex-direction: column; }
+/* Bouton "Vérifier maintenant" — DÉPLACÉ dans `.module-header`, à droite du
+   titre "YOUTUBE" (2026-09-01, 3e révision, sur demande explicite ; voir
+   youtube.js render(), qui l'insère comme dernier enfant de `.module-title`
+   plutôt que dans le contenu de la carte). `.module-title` impose déjà
+   majuscules/gras/espacement à tout son contenu (voir .module-title
+   ci-dessus dans ce fichier) — ces propriétés sont remises à plat ici, sinon
+   l'icône 🔄 hériterait bêtement de `text-transform: uppercase` etc. (sans
+   effet visuel réel sur un emoji, mais `font-weight`/`letter-spacing`
+   affecteraient sa boîte de rendu). */
 .youtube-check-now-btn {
-  align-self: flex-start;
   flex-shrink: 0;
   background: transparent;
   border: 1px dashed var(--text-secondary);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 11px;
-  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1;
+  padding: 3px 5px;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
 .youtube-check-now-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .youtube-check-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.youtube-module-grid-wrap { flex: 1; min-height: 0; }
-.youtube-module-grid {
+/* `flex: 1` retiré (même correctif que .youtube-module ci-dessus) — le wrap
+   ne fait plus que porter la grille, sans plus jamais s'étirer pour combler
+   une hauteur de carte désormais elle-même pilotée par le contenu. */
+.youtube-module-avatars-wrap { width: 100%; }
+/* Exactement 2 avatars par rangée (point 2 de la demande) — `repeat(2, ...)`
+   plutôt que `auto-fill`/`auto-fit` : ces derniers ajusteraient eux-mêmes le
+   nombre de colonnes selon la largeur disponible, alors que "exactly 2" doit
+   rester vrai même si la carte est redimensionnée plus large à la main.
+   `overflow: hidden` sur les 2 axes (2026-09-01, sur demande explicite,
+   "remove the horizontal scrollbar... no scrollbars at all") — plus de
+   `height: 100%`/`overflow-y: auto` : la carte suit maintenant TOUJOURS
+   exactement la hauteur du contenu (voir dashboard.js isAutoHeightKey), il
+   n'y a donc plus jamais matière à défiler verticalement. `overflow-x:
+   hidden` remplace l'ancien `overflow-x: visible` (qui laissait
+   délibérément déborder la bulle CSS de survol, voir plus bas) — la bulle
+   se retrouve donc désormais tronquée au bord droit de la carte pour les
+   avatars de la colonne de droite, compromis accepté pour supprimer la
+   barre de défilement horizontale du canevas (le contenu invisible mais
+   toujours en boîte de la bulle, même en `visibility: hidden`, agrandissait
+   la zone de défilement du canevas dès lors que son ancêtre ne le clippait
+   plus). */
+.youtube-module-avatars {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, 76px);
+  justify-content: center;
+  gap: 14px 16px;
   padding: 4px 2px;
-  overflow-y: auto;
-  height: 100%;
-  align-content: start;
+  overflow: hidden;
 }
-.youtube-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  text-align: center;
+/* `.module-content` retombe sur son `overflow-x: hidden` générique (voir
+   plus haut dans ce fichier, règle commune à tous les modules) — plus
+   besoin de la dérogation `overflow: visible` d'une révision précédente,
+   dont le seul but était de laisser passer la bulle de survol ; `overflow-y`
+   explicitement forcé à `hidden` ici (le générique est `auto`) pour
+   supprimer toute barre de défilement verticale résiduelle, cohérente avec
+   une carte désormais toujours exactement à la hauteur de son contenu. */
+#module-youtube .module-content { overflow-y: hidden; }
+/* Point 1 de la demande, littéralement "overflow-x: hidden on the module
+   card" — défense en profondeur en plus de .module-content/.youtube-module-
+   avatars ci-dessus : n'a normalement rien à clipper à ce niveau (le
+   .resize-handle, seul élément en position absolue de la carte, reste bien
+   à l'intérieur via `right:3px;bottom:3px`, voir plus haut), mais couvre le
+   cas d'un en-tête qui déborderait légèrement à 200px de large (icône +
+   "YOUTUBE" + bouton 🔄). */
+#module-youtube { overflow-x: hidden; }
+.youtube-avatar {
+  position: relative;
+  width: 76px;
+  height: 76px;
 }
-.youtube-cell-clickable { cursor: pointer; }
-.youtube-cell-avatar-wrap { position: relative; width: 40px; height: 40px; }
-.youtube-cell-avatar {
-  width: 40px;
-  height: 40px;
+.youtube-avatar-clickable { cursor: pointer; }
+.youtube-avatar-img {
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   object-fit: cover;
   display: block;
+  transition: box-shadow 0.15s;
 }
-.youtube-cell-avatar-fallback {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+.youtube-avatar-fallback {
   background: var(--bg-panel-alt);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 28px;
 }
-/* Anneau rouge discret en plus du badge numérique quand il y a du nouveau —
-   reste visible même si le badge est masqué en mode carte minuscule
+.youtube-avatar-clickable:hover .youtube-avatar-img { box-shadow: 0 0 0 3px var(--accent); }
+/* Anneau rouge discret en plus du badge quand il y a du nouveau — reste
+   visible même si le badge est masqué en mode carte minuscule
    (.size-icon-only cache .module-content en entier de toute façon, donc sans
    effet à cette taille, mais utile dès qu'un peu d'espace revient). */
-.youtube-cell-new .youtube-cell-avatar,
-.youtube-cell-new .youtube-cell-avatar-fallback {
-  box-shadow: 0 0 0 2px #ef4444;
-}
-.youtube-cell-badge {
+.youtube-avatar-new .youtube-avatar-img { box-shadow: 0 0 0 3px #ef4444; }
+.youtube-avatar-new.youtube-avatar-clickable:hover .youtube-avatar-img { box-shadow: 0 0 0 3px #ef4444; }
+/* Badge en absolu sur le coin (point 4, "does NOT cover the avatar, sits on
+   the corner") — remonté à 22px (était 16px) pour rester proportionné à un
+   avatar de 76px (était 36px) ; `border` de la couleur de fond de carte pour
+   le détacher visuellement de l'avatar en dessous (même technique que les
+   badges ETF/Crypto/autres dans ce fichier). `.youtube-avatar-badge-dot`
+   réduit le badge à un simple point (sans chiffre, contenu HTML vide côté
+   JS) quand il n'y a qu'UNE seule nouvelle vidéo — la distinction chiffrée
+   ne devient utile qu'à partir de 2. */
+.youtube-avatar-badge {
   position: absolute;
   top: -4px;
   right: -4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
   background: #ef4444;
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
   border: 2px solid var(--bg-panel);
+  box-sizing: border-box;
 }
-.youtube-cell-name {
+.youtube-avatar-badge-dot {
+  min-width: 13px;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  top: 0;
+  right: 0;
+}
+/* Bulle CSS au survol — REPOSITIONNÉE le 2026-09-01 (sur demande explicite,
+   "must appear OVERLAID on top of the avatar thumbnail itself — not to the
+   right of it") : ne déborde plus à droite de l'avatar (voir l'ancienne
+   version de cette règle, `left: calc(100% + 8px)` — abandonnée, elle
+   dépendait de place libre à droite, absente une fois la grille à 2
+   colonnes serrées). Centrée horizontalement EN BAS de l'avatar, superposée
+   dessus (`bottom` positif = remonte depuis le bas de `.youtube-avatar`,
+   qui fait référence pour ce positionnement absolu). Reste correcte "quelle
+   que soit la largeur du module ou sa position à l'écran" (point 3) puisque
+   ancrée à l'avatar lui-même, plus jamais au bord de la carte. `max-width`
+   + `text-overflow: ellipsis` (nouveau) : un nom de chaîne long ne doit plus
+   s'étirer indéfiniment en largeur comme avant (`white-space: nowrap` sans
+   limite), maintenant qu'il se superpose à un avatar de largeur fixe
+   (76px) plutôt que de flotter librement dans l'espace à droite.
+   `pointer-events: none` pour ne jamais intercepter le clic destiné à
+   l'avatar (ouverture de la vidéo) si la souris passe sur la bulle
+   elle-même. */
+.youtube-avatar[data-name]::after {
+  content: attr(data-name);
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 8px);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
   font-size: 11px;
-  color: var(--text-secondary);
-  max-width: 72px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+  z-index: 5;
+}
+.youtube-avatar[data-name]:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Config YouTube (page Paramètres) — même grille .parcels-row que Colis/
@@ -4051,8 +4162,18 @@ body.ultrawide .module-card { max-width: 500px; }
    le bloc champ+statut dans la 1re colonne étroite (28px) au lieu de la
    colonne centrale extensible, écrasant le texte au point de le rendre
    illisible. `config.js` rend maintenant TOUJOURS un avatar (image ou cercle
-   de repli 🔔, `.youtube-channel-avatar-fallback`), donc la grille reçoit
-   systématiquement ses 3 enfants dans le bon ordre. */
+   de repli — 1re lettre du nom, `.youtube-channel-avatar-fallback`, voir
+   config.js avatarFallbackHtml), donc la grille reçoit systématiquement ses
+   3 enfants dans le bon ordre.
+   CORRIGÉ le 2026-09-01 (sur demande explicite, "channel thumbnails are not
+   displaying") : l'image ne chargeait JAMAIS, quelle que soit son URL — le
+   CSP de cette fenêtre (voir la balise <meta> en tête de config.html)
+   n'avait pas de directive `img-src`, retombant sur `default-src 'self'`
+   pour les images aussi et bloquant silencieusement tout domaine externe
+   (yt3.ggpht.com/yt3.googleusercontent.com). Le repli 🔔 fixe est aussi
+   devenu une lettre (1re du nom de chaîne) à cette occasion, à la fois pour
+   l'état "pas encore résolu" ET pour un échec de chargement en direct (voir
+   config.js, listener 'error' sur l'`<img>`). */
 .youtube-channel-row {
   grid-template-columns: 32px 1fr 22px;
   align-items: center;
@@ -4070,7 +4191,9 @@ body.ultrawide .module-card { max-width: 500px; }
   align-items: center;
   justify-content: center;
   background: var(--bg-panel-alt);
+  color: var(--text-secondary);
   font-size: 14px;
+  font-weight: 700;
 }
 .youtube-channel-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 /* Champ de saisie — taille/contraste relevés explicitement (demande

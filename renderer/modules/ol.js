@@ -83,6 +83,19 @@ function isWithinMaxAge(pubDate) {
   return (Date.now() - t) <= NEWS_MAX_AGE_MS;
 }
 
+// Heure de publication à côté du libellé de source (2026-09-01, sur demande
+// explicite — "L'ÉQUIPE · 14h32") — "14h32" (pas "14:32") pour rester
+// cohérent avec le format déjà utilisé ailleurs dans l'app pour une heure
+// affichée en toutes lettres (voir mon-equipe.js monEquipeFormatDateTime).
+// Chaîne vide (jamais "Invalid Date") si `pubDate` est absent/imparsable —
+// l'appelant (voir fetchNewsItems ci-dessous) omet alors le séparateur " · ".
+function formatArticleTime(pubDate) {
+  if (!pubDate) return '';
+  const d = new Date(pubDate);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+}
+
 // Équilibrage entre sources : au plus NEWS_SOURCE_QUOTA articles par source
 // dans le ticker final (round-robin), pour qu'une source prolifique (ex. RMC
 // Sport, Foot Mercato — dont beaucoup plus d'articles bruts mentionnent
@@ -440,23 +453,48 @@ function resolveWebsiteOverride(team) {
   return hit ? hit.url : null;
 }
 
-async function fetchTeamId(team) {
+// `expectedCategory` (2026-09-01, sur demande explicite — bug "Monaco
+// Basket" : contamination croisée basket/football) : sport manuel choisi
+// dans Paramètres, ou déduit du nom d'équipe (ex. "Basket" dans "Monaco
+// Basket", voir SportsSources.detectCategoryFromTeamName) — connu AVANT
+// même d'interroger TheSportsDB, donc utilisable ici pour choisir le bon
+// candidat. Une recherche par nom peut renvoyer PLUSIEURS clubs
+// homonymes/proches de sports différents (typiquement un club de football
+// et une section basket du même nom de ville) — TheSportsDB/searchteams.php
+// ne classe pas ses résultats par pertinence de sport. Sans ce paramètre,
+// l'ancien code prenait AVEUGLÉMENT `data.teams[0]`, risquant de résoudre
+// l'idTeam du MAUVAIS sport et de contaminer eventslast.php/eventsnext.php
+// (résultats/calendrier) avec les matchs d'un club homonyme d'un autre sport
+// — un simple re-thème/filtre ESPN après coup n'aurait rien changé, l'idTeam
+// lui-même aurait déjà été celui du mauvais club.
+async function fetchTeamId(team, expectedCategory) {
   const res = await fetch(`${SPORTSDB_BASE}/searchteams.php?t=${encodeURIComponent(team)}`);
   if (!res.ok) throw new Error(`Recherche équipe KO (${res.status})`);
   const data = await res.json();
   console.log(`[Sports] searchteams.php?t=${encodeURIComponent(team)} →`, data);
 
-  const found = data.teams?.[0];
-  if (!found) throw new Error('Équipe introuvable sur TheSportsDB');
+  const candidates = data.teams || [];
+  if (!candidates.length) throw new Error('Équipe introuvable sur TheSportsDB');
+
+  let found = candidates[0];
+  if (expectedCategory) {
+    const match = candidates.find(c => window.SportsSources.mapSportToCategory(c.strSport) === expectedCategory);
+    if (match) {
+      found = match;
+    } else {
+      console.warn(`[Sports] "${team}" — aucun des ${candidates.length} résultat(s) TheSportsDB ne correspond au sport attendu ("${expectedCategory}"), repli sur le 1er résultat (${candidates[0].strTeam}, ${candidates[0].strSport})`);
+    }
+  }
   console.log(`[Sports] Équipe "${team}" résolue vers idTeam=${found.idTeam} (${found.strTeam}, ${found.strSport}, ${found.strLeague})`);
 
   const overrideUrl = resolveWebsiteOverride(team);
   if (overrideUrl) {
     console.log(`[Sports] Site officiel forcé (override connu) pour "${team}" : ${overrideUrl} (TheSportsDB renvoyait : ${found.strWebsite || '—'})`);
   }
-  // strSport remonté avec l'idTeam (pas un 2e appel réseau) — sert uniquement
-  // à teinter la carte par sport (voir olThemeForSport/render ci-dessous, sur
-  // demande explicite 2026-08-08), réutilise le mapping déjà utilisé pour les
+  // strSport remonté avec l'idTeam (pas un 2e appel réseau) — sert à résoudre
+  // la catégorie du sport (voir resolveSportCategory/olThemeForCategory/
+  // render ci-dessous, sur demande explicite 2026-08-08, étendu le
+  // 2026-09-01), réutilise le mapping déjà utilisé pour les
   // sources RSS (sports-sources.js) plutôt que d'en dupliquer un ici. `website`
   // (strWebsite, même réponse, aucun appel réseau de plus, sauf override
   // ci-dessus) sert au titre de carte cliquable (2026-08-10, sur demande
@@ -466,9 +504,11 @@ async function fetchTeamId(team) {
 
 // football/basketball → couleur dédiée ; tout le reste (rugby, F1, cyclisme,
 // sport non reconnu) → "other-sports", couleur générique demandée pour "les
-// autres sports".
-function olThemeForSport(strSport) {
-  const category = window.SportsSources.mapSportToCategory(strSport);
+// autres sports". Prend directement une CATÉGORIE déjà résolue (2026-09-01 —
+// voir resolveSportCategory/render ci-dessous), plus `strSport` brut comme
+// avant : sport manuel/nom d'équipe (ex. "Monaco Basket") doivent pouvoir
+// changer le thème de la carte au même titre que la détection TheSportsDB.
+function olThemeForCategory(category) {
   if (category === 'football') return 'football';
   if (category === 'basketball') return 'basket';
   return 'other-sports';
@@ -612,10 +652,26 @@ async function fetchReverseFixtureMatch(idTeam, nextMatch) {
 //     proprement (log clair ci-dessous, `catch` déjà en place), sans casser
 //     le reste du module. Log explicite de teamId/réponse brute demandé
 //     explicitement — voir espnFindTeam/fetchEspnSchedule.
+// ÉLARGI le 2026-09-01 (sur demande explicite, "Fix the Sports module —
+// Basketball vs Football cross-contamination", liste demandée : "NBA,
+// Euroleague, Pro A (LNB), FIBA") — 'nba' et 'fiba' ajoutés à la liste
+// basketball existante. NI L'UN NI L'AUTRE VÉRIFIÉ en direct (accès réseau à
+// site.api.espn.com bloqué — 403 — au moment de ce changement, y compris sur
+// fra.1/soccer déjà utilisé en production par ce même fichier : pas un
+// signal exploitable sur la validité des slugs eux-mêmes). Aucun risque à
+// les tenter : un slug invalide échoue proprement, même filet de sécurité
+// que 'fiba.euroleague'/'fra.lnb' ci-dessus (jamais vérifiés non plus).
 const ESPN_SPORT_LEAGUES = {
   soccer: ['fra.1', 'uefa.champions', 'uefa.europa', 'uefa.europa.conference'],
-  basketball: ['fiba.euroleague', 'fra.lnb'],
+  basketball: ['fra.lnb', 'fiba.euroleague', 'nba', 'fiba'],
 };
+
+// Catégorie SportsSources ('football'/'basketball'/...) → chemin ESPN
+// ('soccer'/'basketball') — seuls ces 2 sports ont un mapping ESPN connu
+// dans ce fichier (voir ESPN_SPORT_LEAGUES ci-dessus) ; tout le reste
+// (rugby, F1, cyclisme, tennis, athlétisme, catégorie non reconnue) reste
+// `undefined` ici → `null` côté appelant (render()), comme avant.
+const ESPN_SPORT_PATH_BY_CATEGORY = { football: 'soccer', basketball: 'basketball' };
 
 // Label texte injecté dans `strLeague` (voir espnEventToNextMatch) — sert de
 // donnée d'entrée à `classifyCompetition`/`detectStandingsLeague` (même
@@ -628,6 +684,8 @@ const ESPN_SLUG_LEAGUE_LABEL = {
   'uefa.europa.conference': 'UEFA Europa Conference League',
   'fiba.euroleague': 'EuroLeague',
   'fra.lnb': 'French LNB',
+  'nba': 'NBA',
+  'fiba': 'FIBA',
 };
 
 // Cherche l'équipe dans CHAQUE championnat de ESPN_SPORT_LEAGUES[sportPath],
@@ -1040,7 +1098,23 @@ async function fetchNewsItems(team, config) {
 
   const balanced = balanceAcrossSources(perSource, NEWS_SOURCE_QUOTA, NEWS_TICKER_TARGET);
   console.log(`[Sports] Équilibrage sources (quota ${NEWS_SOURCE_QUOTA}/source, cible ${NEWS_TICKER_TARGET}) : ${perSource.map(s => `${s.sourceLabel}=${s.items.length}`).join(', ')} → ${balanced.length} retenus`);
-  console.log('[Sports] Articles affichés dans le ticker :', balanced.map(i => i.title));
+
+  // Tri chronologique, plus récent en premier (2026-09-01, sur demande
+  // explicite) — APRÈS balanceAcrossSources, jamais avant : celui-ci choisit
+  // QUELS articles entrent dans le ticker (équilibrage entre sources, voir
+  // son commentaire plus haut), ce tri ne change que leur ORDRE d'affichage
+  // une fois la sélection figée. Un article sans date exploitable (pubDate
+  // absent/imparsable — ex. l'item "site officiel du club", voir
+  // fetchNewsItems plus haut) est relégué en FIN de liste (Number.
+  // NEGATIVE_INFINITY) plutôt que traité comme "maintenant", qui l'aurait
+  // fait apparaître à tort en tête de ticker.
+  balanced.sort((a, b) => {
+    const ta = new Date(a.pubDate).getTime();
+    const tb = new Date(b.pubDate).getTime();
+    return (Number.isNaN(tb) ? -Infinity : tb) - (Number.isNaN(ta) ? -Infinity : ta);
+  });
+
+  console.log('[Sports] Articles affichés dans le ticker (triés du plus récent au plus ancien) :', balanced.map(i => `${i.title} (${i.pubDate || 'sans date'})`));
   return balanced;
 }
 
@@ -1068,6 +1142,12 @@ function renderNextMatchHtml(match) {
 window.MatinModules.ol = {
   async render(container, config, _google, setBadge) {
     const team = config?.team?.trim() || DEFAULT_TEAM;
+    // Sport manuel choisi dans Paramètres (2026-09-01, sur demande explicite
+    // — voir sports-sources.js MANUAL_SPORT_OPTIONS) : même lecture que
+    // fetchNewsItems ci-dessous, mais nécessaire ICI en plus pour que
+    // résultats/calendrier (pas seulement les actualités) en tiennent
+    // compte — voir `expectedCategoryHint`/`sportCategory` plus bas.
+    const manualSport = config?.sport || undefined;
     setBadge(''); // le titre de la carte affiche déjà l'équipe
 
     container.innerHTML = `
@@ -1093,9 +1173,23 @@ window.MatinModules.ol = {
 
     // Résultats et calendrier (TheSportsDB)
     try {
-      const { idTeam, strSport, website } = await fetchTeamId(team);
+      // Connu AVANT même d'interroger TheSportsDB (sport manuel, ou déduit du
+      // nom d'équipe — ex. "Basket" dans "Monaco Basket") : sert à choisir le
+      // bon candidat parmi plusieurs homonymes possibles (voir fetchTeamId).
+      const expectedCategoryHint = manualSport
+        ? (manualSport === 'autre' ? null : manualSport)
+        : window.SportsSources.detectCategoryFromTeamName(team);
+      const { idTeam, strSport, website } = await fetchTeamId(team, expectedCategoryHint);
+      // Catégorie FINALE (2026-09-01, sur demande explicite — bug
+      // "Basketball vs Football cross-contamination") : même résolution que
+      // pour les actualités (sport manuel > nom d'équipe > cas connus de
+      // détection non fiable > `strSport` brut, voir resolveSportCategory) —
+      // seule source de vérité désormais pour le THÈME de la carte ET le
+      // chemin ESPN interrogé plus bas, à la place de `strSport` brut utilisé
+      // séparément et sans ces garde-fous jusqu'ici.
+      const sportCategory = window.SportsSources.resolveSportCategory(team, strSport, manualSport).category;
       const card = container.closest('.module-card');
-      card?.setAttribute('data-theme', olThemeForSport(strSport));
+      card?.setAttribute('data-theme', olThemeForCategory(sportCategory));
       // Titre de carte cliquable → site officiel du club (2026-08-10, sur
       // demande explicite) : posé sur la carte immédiatement pour un clic dès
       // maintenant (voir dashboard.js, resolveModuleClickUrl — lu au moment du
@@ -1146,9 +1240,12 @@ window.MatinModules.ol = {
       // ESPN_SPORT_LEAGUES) : plus seulement football, basketball tenté en
       // best-effort aussi désormais (ASVEL notamment) — `null` pour tout
       // sport sans mapping ESPN connu, comme avant pour le non-football.
-      const espnSportKey = strSport?.toLowerCase() === 'soccer' ? 'soccer'
-        : strSport?.toLowerCase() === 'basketball' ? 'basketball'
-        : null;
+      // Dérivé de `sportCategory` (sport manuel/nom d'équipe/détection déjà
+      // résolus ci-dessus), PLUS `strSport` brut seul comme avant le
+      // correctif "Monaco Basket" (2026-09-01) — un basket mal détecté par
+      // TheSportsDB comme football n'interroge plus jamais soccer, et
+      // inversement, quelle que soit la fiabilité de `strSport` lui-même.
+      const espnSportKey = ESPN_SPORT_PATH_BY_CATEGORY[sportCategory] || null;
       const [reverseCandidate, espnResult] = await Promise.all([
         fetchReverseFixtureMatch(idTeam, nextMatchTsdb).catch(err => { console.warn('[Sports] fetchReverseFixtureMatch a échoué', err); return null; }),
         espnSportKey
@@ -1209,9 +1306,19 @@ window.MatinModules.ol = {
         return;
       }
 
-      const itemsHtml = items.map(item =>
-        `<div class="sports-ticker-vitem" data-link="${item.link}">${item.sourceLabel ? `<span class="sports-ticker-source">${item.sourceLabel}</span>` : ''}${item.title}</div>`
-      ).join('');
+      // Heure de publication à côté de la source (2026-09-01, sur demande
+      // explicite, "L'ÉQUIPE · 14h32") — `.sports-ticker-time` imbriqué
+      // ANNULE explicitement le `text-transform:uppercase` hérité de
+      // `.sports-ticker-source` (voir style.css) : sans lui, "14h32"
+      // deviendrait "14H32" (le "h" minuscule capitalisé avec le reste du
+      // libellé), ce qui n'est pas le format demandé.
+      const itemsHtml = items.map((item) => {
+        const timeLabel = formatArticleTime(item.pubDate);
+        const sourceHtml = item.sourceLabel
+          ? `<span class="sports-ticker-source">${item.sourceLabel}${timeLabel ? ` · <span class="sports-ticker-time">${timeLabel}</span>` : ''}</span>`
+          : '';
+        return `<div class="sports-ticker-vitem" data-link="${item.link}">${sourceHtml}${item.title}</div>`;
+      }).join('');
 
       const track = document.createElement('div');
       track.className = 'sports-ticker-vtrack';

@@ -85,11 +85,20 @@ window.SportsSources = (function () {
   // ces valeurs pendant la brève période où elles étaient proposées — un tel
   // réglage continue de fonctionner exactement comme avant, simplement plus
   // proposé à la sélection pour un NOUVEAU choix.
+  // "(Bêta)" ajouté aux libellés Basket/Rugby (2026-09-01, sur demande
+  // explicite) — Football reste sans mention (seul sport dont la détection
+  // ESPN/TheSportsDB a été vérifiée/rodée en profondeur dans ce fichier).
+  // Un <option> de <select> natif ne peut afficher que du texte brut (aucune
+  // balise/CSS imbriquée possible, limitation du DOM, pas de ce fichier) :
+  // "(Bêta)" fait donc partie du texte de l'option elle-même plutôt qu'un
+  // badge stylé séparé (italique/11px/muet demandé) — voir config.js pour le
+  // badge réellement stylé, affiché lui à côté du sélecteur (pas dans son
+  // menu déroulant).
   const MANUAL_SPORT_OPTIONS = [
     { value: '', label: '🔍 Détection automatique' },
     { value: 'football', label: '⚽ Football' },
-    { value: 'basketball', label: '🏀 Basket' },
-    { value: 'rugby', label: '🏉 Rugby' },
+    { value: 'basketball', label: '🏀 Basket (Bêta)' },
+    { value: 'rugby', label: '🏉 Rugby (Bêta)' },
   ];
 
   // TheSportsDB n'a pas de catégorie "Formula 1" dédiée : tout sport moteur
@@ -141,6 +150,57 @@ window.SportsSources = (function () {
     return /^[A-ZÀ-Þ]{2,4}$/.test((team || '').trim());
   }
 
+  // "Monaco Basket" (2026-09-01, sur demande explicite, "Fix the Sports
+  // module — Basketball vs Football cross-contamination") — une recherche
+  // TheSportsDB par nom peut renvoyer un homonyme d'un AUTRE sport (ex. le
+  // club de football AS Monaco au lieu du club de basket Monaco Basket) :
+  // quand le nom TAPÉ PAR L'UTILISATEUR contient le mot entier "basket", la
+  // catégorie Basketball est forcée AVANT même de faire confiance au sport
+  // renvoyé par TheSportsDB pour l'équipe trouvée — jamais Football dans ce
+  // cas, quel que soit `strSport`. Mot entier (`\b`) : ne matche pas un futur
+  // nom qui contiendrait "basket" accolé à d'autres lettres (cas non
+  // rencontré en pratique, gardé par prudence, même principe que
+  // isAmbiguousShortName/isKnownUnreliableDetection ci-dessus).
+  function detectCategoryFromTeamName(team) {
+    const t = (team || '').toLowerCase();
+    if (/\bbasket\b/.test(t)) return 'basketball';
+    return null;
+  }
+
+  // Résolution de catégorie PARTAGÉE (2026-09-01, sur demande explicite) —
+  // extraite de detectSportSources ci-dessous pour être réutilisable telle
+  // quelle par ol.js (résultats/calendrier ESPN, thème de la carte), qui
+  // AVANT ce correctif se fiait UNIQUEMENT à `strSport` (TheSportsDB) sans
+  // jamais appliquer ni le sport manuel (config.sport, Paramètres) ni le nom
+  // d'équipe ni les cas connus de faux positifs déjà gérés ICI pour les
+  // actualités — d'où un ticker actualités correctement filtré en Basketball
+  // pendant que les résultats/le prochain match de la MÊME carte continuaient
+  // d'interroger soccer. Même ordre de priorité qu'avant : sport manuel >
+  // nom d'équipe (ex. "Basket") > cas connus de détection non fiable >
+  // `strSport` brut. `strSport` peut être `undefined` (équipe pas encore
+  // résolue, ou introuvable) : dans ce cas seuls le sport manuel et le nom
+  // d'équipe peuvent produire une catégorie.
+  function resolveSportCategory(team, strSport, manualSport) {
+    if (manualSport) return { category: manualSport === 'autre' ? null : manualSport, rejected: false };
+
+    const nameOverride = detectCategoryFromTeamName(team);
+    const rawCategory = mapSportToCategory(strSport);
+
+    if (nameOverride && rawCategory !== nameOverride) {
+      console.warn(`[Sports] "${team}" — nom contient "basket", catégorie forcée en Basketball (détection brute : "${rawCategory || strSport || 'aucune'}")`);
+      return { category: nameOverride, rejected: false };
+    }
+    if (isAmbiguousShortName(team)) {
+      console.warn(`[Sports] "${team}" — sigle court ambigu (cas connu, ex. LOU/ASM/FCG), détection auto ignorée.`);
+      return { category: null, rejected: true };
+    }
+    if (rawCategory && isKnownUnreliableDetection(team, rawCategory)) {
+      console.warn(`[Sports] "${team}" — détection auto "${rawCategory}" jugée non fiable (cas connu), ignorée.`);
+      return { category: null, rejected: true };
+    }
+    return { category: rawCategory, rejected: false };
+  }
+
   // Interroge TheSportsDB pour l'équipe donnée et construit la liste blanche
   // de sources RSS du sport détecté, plafonnée à MAX_SOURCES.
   //
@@ -170,26 +230,15 @@ window.SportsSources = (function () {
     if (!res.ok) throw new Error(`Recherche équipe KO (${res.status})`);
     const data = await res.json();
     const found = data.teams?.[0];
-    if (!found && !manualSport) throw new Error('Équipe introuvable sur TheSportsDB');
-
-    let category = found ? mapSportToCategory(found.strSport) : null;
-    let autoRejected = false;
-    if (found && !manualSport) {
-      if (isAmbiguousShortName(team)) {
-        console.warn(`[Sports] "${team}" — sigle court ambigu (cas connu, ex. LOU/ASM/FCG), détection auto ignorée.`);
-        category = null;
-        autoRejected = true;
-      } else if (category && isKnownUnreliableDetection(team, category)) {
-        console.warn(`[Sports] "${team}" — détection auto "${category}" jugée non fiable (cas connu), ignorée.`);
-        category = null;
-        autoRejected = true;
-      }
+    // Le nom d'équipe peut à lui seul trahir le sport (ex. "Monaco Basket")
+    // même quand TheSportsDB ne trouve RIEN — ne pas bloquer sur "introuvable"
+    // dans ce cas précis, voir resolveSportCategory ci-dessus.
+    if (!found && !manualSport && !detectCategoryFromTeamName(team)) {
+      throw new Error('Équipe introuvable sur TheSportsDB');
     }
 
-    // Le sport manuel gagne inconditionnellement une fois choisi (voir
-    // commentaire au-dessus de la fonction) — 'autre' vaut "hors catalogue",
-    // jamais une catégorie CATALOG réelle.
-    if (manualSport) category = manualSport === 'autre' ? null : manualSport;
+    const resolved = resolveSportCategory(team, found?.strSport, manualSport);
+    const category = resolved.category;
 
     const list = category ? [...(CATALOG[category] || [])] : [];
 
@@ -204,12 +253,12 @@ window.SportsSources = (function () {
       // Signale à l'appelant (config.js) que la détection auto a été
       // écartée pour un cas connu — permet d'afficher un message explicite
       // invitant à choisir manuellement plutôt qu'un simple "non reconnu".
-      autoRejected: autoRejected && !manualSport,
+      autoRejected: resolved.rejected,
     };
   }
 
   return {
     MAX_SOURCES, CATALOG, CATEGORY_LABELS, MANUAL_SPORT_OPTIONS,
-    mapSportToCategory, detectSportSources,
+    mapSportToCategory, detectCategoryFromTeamName, resolveSportCategory, detectSportSources,
   };
 })();

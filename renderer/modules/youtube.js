@@ -1,7 +1,16 @@
 /**
- * Module YouTube Notifications (2026-08-15, sur demande explicite) — grille
- * compacte d'avatars de chaînes, badge rouge si nouvelle vidéo publiée dans
- * les dernières 24h depuis la dernière vérification.
+ * Module YouTube Notifications (2026-08-15, sur demande explicite) —
+ * REDESSINÉ 3 FOIS le 2026-09-01 : liste verticale [avatar+nom+badge]
+ * ("more compact vertical layout"), puis avatars ultra-compacts empilés en 1
+ * colonne de 36px ("ultra-compact... ~60px total"), puis la version ACTUELLE
+ * ("Keep larger avatar thumbnails (~70-80px)... exactly 2 avatars per row")
+ * — grille de 2 colonnes d'avatars de 76px, toujours sans nom visible par
+ * défaut (bulle CSS au survol, voir ytAvatarHtml/style.css
+ * .youtube-avatar-*). Badge rouge si nouvelle vidéo publiée dans les
+ * dernières 24h depuis la dernière vérification — chiffre si plusieurs,
+ * simple point si une seule (voir ytAvatarHtml). Bouton "Vérifier
+ * maintenant" déplacé dans l'en-tête de carte, à droite du titre (voir
+ * render() plus bas), plus dans le contenu.
  *
  * Détection SANS coût de quota API : flux Atom public de chaque chaîne
  * (`https://www.youtube.com/feeds/videos.xml?channel_id=...`) via le même
@@ -82,22 +91,40 @@ function ytCurrentSlot(now) {
   return YT_FIXED_TIMES.includes(time) ? `${now.toDateString()} ${time}` : null;
 }
 
-function ytCellHtml(channel, idx, newCount, latest) {
+// Échappe une valeur destinée à un attribut HTML entre guillemets doubles
+// (2026-09-01, sur demande explicite — le nom de chaîne, jusqu'ici seulement
+// injecté en TEXTE de nœud dans .youtube-row-name, part maintenant aussi dans
+// `data-name` pour la bulle CSS ci-dessous : un nom contenant `"` casserait
+// l'attribut sans cet échappement).
+function ytEscapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+// Avatar seul (2026-09-01, sur demande explicite, "avatars only, no channel
+// names visible") — le nom part en bulle CSS au survol (`data-name`, voir
+// .youtube-avatar[data-name]::after dans style.css) au lieu d'être affiché en
+// permanence à côté. Badge en absolu sur le coin de l'avatar (voir "Keep red
+// notification badge on top-right corner of each avatar"). Point demandé :
+// point simple (sans chiffre) si UNE seule nouvelle vidéo, nombre sinon —
+// distinction utile seulement au-delà de 1.
+function ytAvatarHtml(channel, idx, newCount, latest) {
   const avatarHtml = channel.avatar
-    ? `<img class="youtube-cell-avatar" src="${channel.avatar}" alt="">`
-    : `<div class="youtube-cell-avatar youtube-cell-avatar-fallback">🔔</div>`;
-  const badgeHtml = newCount > 0 ? `<span class="youtube-cell-badge">${newCount}</span>` : '';
+    ? `<img class="youtube-avatar-img" src="${channel.avatar}" alt="">`
+    : `<div class="youtube-avatar-img youtube-avatar-fallback">🔔</div>`;
+  const isNew = newCount > 0;
+  const badgeHtml = isNew
+    ? `<span class="youtube-avatar-badge${newCount === 1 ? ' youtube-avatar-badge-dot' : ''}">${newCount === 1 ? '' : newCount}</span>`
+    : '';
   const clickable = !!latest;
+  const name = channel.title || channel.query;
 
   return `
-    <div class="youtube-cell${newCount > 0 ? ' youtube-cell-new' : ''}${clickable ? ' youtube-cell-clickable' : ''}"
+    <div class="youtube-avatar${isNew ? ' youtube-avatar-new' : ''}${clickable ? ' youtube-avatar-clickable' : ''}"
          data-channel-idx="${idx}"
+         data-name="${ytEscapeAttr(name)}"
          ${clickable ? `data-video-url="${latest.link}" data-latest-id="${latest.videoId}"` : ''}>
-      <div class="youtube-cell-avatar-wrap">
-        ${avatarHtml}
-        ${badgeHtml}
-      </div>
-      <span class="youtube-cell-name">${channel.title || channel.query}</span>
+      ${avatarHtml}
+      ${badgeHtml}
     </div>`;
 }
 
@@ -125,21 +152,56 @@ window.MatinModules.youtube = {
       return;
     }
 
-    // Bouton "Vérifier maintenant" (2026-08-16, sur demande explicite, pour
-    // pouvoir tester la détection sans attendre un des 6 créneaux fixes ni
-    // relancer toute l'app) — élément STATIQUE en dehors de la grille (qui,
-    // elle, est reconstruite à chaque vérification) pour rester cliquable
-    // pendant tout le cycle de vie du module, pas juste après le 1er rendu.
     container.innerHTML = `
       <div class="youtube-module">
-        <button type="button" class="youtube-check-now-btn" title="Vérifier maintenant, sans attendre le prochain créneau planifié">🔄 Vérifier maintenant</button>
-        <div class="youtube-module-grid-wrap">
+        <div class="youtube-module-avatars-wrap">
           <div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>
         </div>
       </div>
     `;
-    const gridWrap = container.querySelector('.youtube-module-grid-wrap');
-    const checkNowBtn = container.querySelector('.youtube-check-now-btn');
+    const listWrap = container.querySelector('.youtube-module-avatars-wrap');
+
+    // Bouton "Vérifier maintenant" (2026-08-16, sur demande explicite, pour
+    // pouvoir tester la détection sans attendre un des 6 créneaux fixes ni
+    // relancer toute l'app) — déplacé dans `.module-header`, À DROITE du
+    // titre "YOUTUBE" (2026-09-01, 3e révision, sur demande explicite),
+    // plutôt que dans le contenu de la carte. `render()` (cette fonction) ne
+    // s'exécute qu'UNE SEULE fois par chargement de dashboard (voir
+    // ytStartScheduler/loadAndRender plus bas — c'est loadAndRender qui est
+    // rappelée en boucle, jamais render() elle-même ; confirmé aussi côté
+    // dashboard.js : `youtube` n'a pas de `refreshMs`, donc le bouton
+    // "Actualiser" global — voir btnRefresh — ne rappelle pas non plus
+    // render() pour ce module), donc CE bouton n'est créé/inséré qu'une
+    // seule fois — jamais dupliqué à chaque vérification, contrairement à
+    // `.youtube-module-avatars` reconstruite ci-dessous à chaque cycle.
+    // Inséré comme DERNIER enfant de `.module-title` (pas un sibling de
+    // `.module-header`) pour rester visuellement collé au titre plutôt que
+    // dispersé par le `justify-content: space-between` du header (qui
+    // n'a que 2 emplacements : titre à gauche, badge de compte à droite) —
+    // `.module-title` est lui-même cliquable pour 'youtube' (voir
+    // dashboard.js MODULE_CLICK_URLS, ouvre youtube.com/feed/subscriptions),
+    // d'où le `stopPropagation` ci-dessous : sans lui, cliquer le bouton
+    // déclencherait AUSSI l'ouverture du site en plus du rafraîchissement.
+    const card = container.closest('.module-card');
+    const titleEl = card?.querySelector('.module-title');
+    // Garde-fou anti-doublon (2026-09-01, sur demande explicite, "remove the
+    // duplicate refresh button") — retire tout `.youtube-check-now-btn`
+    // déjà présent AVANT d'en (re)créer un : `render()` ne s'exécute
+    // normalement qu'une fois par chargement de dashboard (voir commentaire
+    // ci-dessus), donc ceci ne devrait rien trouver à retirer en usage
+    // normal, mais protège contre un doublon visuel si un ancien bouton
+    // était resté dans le DOM d'une fenêtre non relancée depuis une
+    // précédente version de ce fichier (Electron ne recharge jamais le JS du
+    // renderer tout seul). Cible TOUTE la carte (pas juste `titleEl`), au
+    // cas où un bouton résiduel d'une ancienne révision traînerait ailleurs
+    // dans `.module-content` plutôt que dans le titre.
+    card?.querySelectorAll('.youtube-check-now-btn').forEach(el => el.remove());
+    const checkNowBtn = document.createElement('button');
+    checkNowBtn.type = 'button';
+    checkNowBtn.className = 'youtube-check-now-btn';
+    checkNowBtn.title = 'Vérifier maintenant, sans attendre le prochain créneau planifié';
+    checkNowBtn.textContent = '🔄';
+    titleEl?.appendChild(checkNowBtn);
 
     async function loadAndRender() {
       checkNowBtn.disabled = true;
@@ -161,11 +223,11 @@ window.MatinModules.youtube = {
       let totalNew = 0;
       let baselineChanged = false;
 
-      const cellsHtml = results.map((r, i) => {
+      const avatarsHtml = results.map((r, i) => {
         const ch = channels[i];
         if (r.status === 'rejected') {
           console.warn(`[YouTube] ${ch.title || ch.query} indisponible`, r.reason?.message);
-          return ytCellHtml(ch, i, 0, null);
+          return ytAvatarHtml(ch, i, 0, null);
         }
 
         const entries = r.value;
@@ -178,7 +240,7 @@ window.MatinModules.youtube = {
           console.log(`[YouTube] ${ch.title || ch.query} — pas de référence connue, pose silencieuse de la base sur "${latest.title}" (${latest.videoId}, publiée ${latest.published})`);
           ch.lastSeenVideoId = latest.videoId;
           baselineChanged = true;
-          return ytCellHtml(ch, i, 0, latest);
+          return ytAvatarHtml(ch, i, 0, latest);
         }
 
         const newCount = ytCountNewSince(entries, ch.lastSeenVideoId, now);
@@ -203,12 +265,12 @@ window.MatinModules.youtube = {
           console.log(`[YouTube] ${ch.title || ch.query} — flux vide (0 vidéo dans le flux Atom)`);
         }
 
-        return ytCellHtml(ch, i, newCount, latest);
+        return ytAvatarHtml(ch, i, newCount, latest);
       }).join('');
 
-      gridWrap.innerHTML = `<div class="youtube-module-grid">${cellsHtml}</div>`;
+      listWrap.innerHTML = `<div class="youtube-module-avatars">${avatarsHtml}</div>`;
 
-      gridWrap.querySelectorAll('.youtube-cell-clickable').forEach((el) => {
+      listWrap.querySelectorAll('.youtube-avatar-clickable').forEach((el) => {
         el.addEventListener('click', () => {
           const idx = Number(el.dataset.channelIdx);
           const ch = channels[idx];
@@ -220,8 +282,8 @@ window.MatinModules.youtube = {
             ch.lastSeenVideoId = latestId;
             window.matin.store.set(YT_CHANNELS_KEY, channels);
           }
-          el.classList.remove('youtube-cell-new');
-          el.querySelector('.youtube-cell-badge')?.remove();
+          el.classList.remove('youtube-avatar-new');
+          el.querySelector('.youtube-avatar-badge')?.remove();
         });
       });
 
@@ -234,7 +296,12 @@ window.MatinModules.youtube = {
       checkNowBtn.disabled = false;
     }
 
-    checkNowBtn.addEventListener('click', () => {
+    checkNowBtn.addEventListener('click', (e) => {
+      // `.module-title` (parent de ce bouton) est lui-même cliquable pour
+      // 'youtube' — voir dashboard.js MODULE_CLICK_URLS — sans ceci, un clic
+      // sur 🔄 ouvrirait AUSSI youtube.com/feed/subscriptions en plus de
+      // déclencher la vérification.
+      e.stopPropagation();
       console.log('[YouTube] Vérification manuelle déclenchée ("Vérifier maintenant")');
       loadAndRender().catch((err) => console.error('[YouTube] Erreur lors de la vérification manuelle', err));
     });

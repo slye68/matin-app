@@ -457,10 +457,22 @@ async function liveFetchLeague(championshipKey) {
 }
 
 // ─── Rendu ───────────────────────────────────────────────────────────────
-function liveTeamLogoHtml(logo, name) {
-  if (logo) return `<img class="live-team-logo" src="${logo}" alt="" loading="lazy">`;
-  const initial = (name || '?').trim().charAt(0).toUpperCase();
-  return `<div class="live-team-logo live-team-logo-empty">${initial}</div>`;
+// Logos/initiales d'équipe RETIRÉS (2026-09-01, sur demande explicite,
+// "redondants avec les noms d'équipe déjà affichés sur la ligne de score")
+// — l'ancienne `liveTeamLogoHtml` (image si dispo, sinon un cercle avec la
+// 1re lettre du nom) n'a plus d'appelant, supprimée avec son CSS
+// (.live-team-logo/-empty, voir style.css). `m.homeLogo`/`m.awayLogo`
+// restent calculés par liveNormalizeEspnEvent (aucun rapport avec l'UI,
+// inoffensif de les garder) mais ne sont plus lus nulle part côté rendu.
+
+// Libellés mi-temps en français (2026-09-01, sur demande explicite) — ESPN
+// renvoie "1H"/"2H" (shortDetail) pendant les 2 mi-temps d'un match en
+// direct, trop cryptique tel quel pour un affichage grand public :
+// substitution EXACTE demandée, correspondance stricte (===) — tout le
+// reste de `m.detail` (ex. "MI-TEMPS", "45+2'", "TERMINÉ") passe inchangé.
+const LIVE_HALF_LABELS = { '1H': '1ère MT', '2H': '2ème MT' };
+function liveHalfLabel(detail) {
+  return LIVE_HALF_LABELS[detail] || detail;
 }
 
 // Couleur du score selon le résultat (2026-09-01, sur demande explicite) —
@@ -485,7 +497,7 @@ function liveMatchRowHtml(m, isNext, isGoal) {
   const isLive = m.state === 'in';
   const timeLabel = isNext
     ? liveFmtNextDateTime(m.date)
-    : (isLive ? (m.detail || 'En direct') : (m.state === 'post' ? (m.detail || 'Terminé') : liveFmtTime(m.date)));
+    : (isLive ? (liveHalfLabel(m.detail) || 'En direct') : (m.state === 'post' ? (liveHalfLabel(m.detail) || 'Terminé') : liveFmtTime(m.date)));
   // URL par match (2026-08-30/31) : URL L'Équipe construite s'il y en a une
   // (voir liveNormalizeEspnEvent/liveBuildLequipeUrl, mode championnat
   // seulement), sinon recherche Google directement (mode club/National) —
@@ -495,19 +507,22 @@ function liveMatchRowHtml(m, isNext, isGoal) {
   // (voir wireControls plus bas), repli sur `data-fallback-url` si 404.
   const clickUrl = m.matchUrl || liveGoogleFallbackUrl(m.homeName, m.awayName);
   const fallbackUrl = m.matchUrl ? liveGoogleLequipeFallbackUrl(m.homeName, m.awayName) : clickUrl;
+  // Structure à 3 lignes (2026-09-01, sur demande explicite) : heure/mi-temps
+  // SEULE sur sa ligne (`.live-match-time-row`, ne partage plus la ligne
+  // flex avec la compétition comme avant), compétition sur sa propre ligne
+  // juste en dessous, puis la ligne de score — logos/initiales d'équipe
+  // retirés de cette dernière (redondants avec les noms déjà affichés ici).
   return `
     <div class="live-match-row ${isLive ? 'live-match-row-live' : ''}" data-match-url="${clickUrl}" data-fallback-url="${fallbackUrl}" data-needs-check="${m.needsUrlCheck ? '1' : '0'}">
-      <div class="live-match-meta">
+      <div class="live-match-time-row">
         ${isLive ? '<span class="live-dot"></span>' : ''}
         <span class="live-match-time">${isNext ? 'Prochain match — ' : ''}${timeLabel}</span>
-        <span class="live-match-league">${m.league}</span>
       </div>
+      <div class="live-match-league">${m.league}</div>
       <div class="live-match-teams">
-        ${liveTeamLogoHtml(m.homeLogo, m.homeName)}
         <span class="live-match-team" title="${m.homeName}">${m.homeName}</span>
         <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}${liveResultColorClass(m, isNext)}${isGoal ? ' live-goal-score' : ''}">${isNext ? 'vs' : `${m.homeScore ?? '—'} - ${m.awayScore ?? '—'}`}</span>
         <span class="live-match-team live-match-team-away" title="${m.awayName}">${m.awayName}</span>
-        ${liveTeamLogoHtml(m.awayLogo, m.awayName)}
       </div>
     </div>`;
 }

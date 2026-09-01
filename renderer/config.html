@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- `img-src 'self' data: https:` (2026-09-01, sur demande explicite —
+       corrige les avatars de chaîne YouTube qui ne s'affichaient jamais,
+       voir renderYoutubeConfigSection dans config.js) : sans directive
+       `img-src` explicite, le CSP retombe sur `default-src 'self'` pour les
+       images aussi, bloquant SILENCIEUSEMENT toute image hébergée hors de
+       cette fenêtre (ex. yt3.ggpht.com/yt3.googleusercontent.com pour les
+       avatars de chaîne) — aucune erreur visible dans l'UI, juste une image
+       qui ne charge jamais. Même directive que index.html (voir sa propre
+       CSP), qui a le même besoin pour les logos d'équipes Sports/LIVE!. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http:;">
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http:; img-src 'self' data: https:;">
   <title>Matin — Paramètres</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
@@ -59,22 +68,12 @@
       margin: 0 auto;
       box-sizing: border-box;
     }
-    /* Bascule thème clair/sombre (2026-08-08, sur demande explicite) — TOUT
-       en haut de la fenêtre, hors onglets, toujours visible (même principe
-       que .config-profil juste en dessous, mais encore au-dessus). Réutilise
-       .toggle/.toggle-slider (voir plus bas) : décoché = sombre (état par
-       défaut de l'app), coché = clair — les 2 libellés flanquent le
-       switch dans l'ordre demandé ("🌙 Sombre / ☀️ Clair").
-       `justify-content: space-between` (2026-08-10, sur demande explicite,
-       remplace `flex-start`) : le bouton Sauvegardes rejoint cette ligne, à
-       l'extrême droite.
-       REDESIGN 2026-08-31 (sur demande explicite) : la bascule Sombre/Clair
-       elle-même a déménagé DANS la popup "🎨 Affichage" (voir
+    /* Ligne du haut (.theme-toggle-row, voir plus bas pour le détail des 3
+       colonnes) — TOUT en haut de la fenêtre, hors onglets, toujours
+       visible. La bascule Sombre/Clair qui vivait ici à l'origine
+       (2026-08-08) a depuis déménagé DANS la popup "🎨 Affichage" (voir
        #personnaliserModalOverlay, .theme-toggle-group y est réutilisée telle
-       quelle) — cette ligne ne contient plus que 2 boutons (Affichage à
-       gauche, Sauvegardes à droite), `.theme-toggle-left` (qui regroupait
-       les 2 anciennes bascules Sombre/Clair + Mode auto côte à côte) n'a
-       donc plus d'usage, retiré. */
+       quelle) — ne subsiste ici que le nom de la classe, historique. */
     /* En-tête dégradé (2026-08-10, sur demande explicite) — s'étend sur
        .titlebar ET .theme-toggle-row (2 éléments empilés distincts, pas un
        seul conteneur : restructurer le DOM pour n'en faire qu'un aurait été
@@ -100,22 +99,21 @@
          deviendrait illisible dessus. */
       color: #e8eaf0;
     }
+    /* 3 lignes empilées (2026-09-01, 3e révision, sur demande explicite,
+       "fix the top layout") — remplace la 2e révision (prénom/Google/
+       Spotify compressés dans la colonne GAUCHE, à côté du bouton
+       Affichage) : `.theme-toggle-row` est désormais une colonne flex de 3
+       blocs pleine largeur, chacun aligné à GAUCHE par défaut (sauf
+       `.theme-toggle-top`, qui a son propre centrage 3-colonnes pour
+       PROFILS). */
     .theme-toggle-row {
-      /* position:relative (2026-09-01, sur demande explicite) — ancre
-         .profil-notch ci-dessous, positionnée en absolu par rapport à CETTE
-         ligne pour rester CENTRÉE indépendamment de la largeur des 2 boutons
-         qui l'encadrent (un simple `justify-content:space-between` sur 3
-         enfants ne centre PAS vraiment le du milieu si les 2 autres n'ont
-         pas la même largeur — "Affichage" et "Sauvegardes" n'en ont pas). */
-      position: relative;
-      flex-shrink: 0;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-direction: column;
+      gap: 10px;
       /* Padding vertical resserré (2026-08-23, sur demande explicite — voir
          petits écrans 14"/mise à l'échelle Windows plus bas) : 14px→8px,
          gagne 12px de hauteur sur cette ligne sans la rendre illisible. */
-      padding: 8px 20px;
+      padding: 10px 20px;
       max-width: 760px;
       width: 100%;
       margin: 0 auto;
@@ -128,109 +126,82 @@
       font-size: 12px;
       color: #b8c2d9; /* fixe, voir .app-logo/.app-name ci-dessus */
     }
-
-    /* Notch Profil (2026-09-01, sur demande explicite, "like an iPhone
-       notch") — ancrée en haut de .theme-toggle-row (top:0) et plus HAUTE
-       que celle-ci (calc(100% + 10px)) : déborde donc de ~10px sous son bord
-       inférieur, exactement l'effet "encoche taillée dans le bandeau du
-       haut" — coins du BAS arrondis seulement (le haut reste carré, flush
-       avec le bord supérieur de la fenêtre, comme une encoche physique),
-       fond volontairement PLUS SOMBRE que le dégradé du bandeau (contraste =
-       carte "surélevée", pas juste posée dessus) + ombre portée pour
-       accentuer le relief. `.config-profil` juste en dessous compense ce
-       débordement avec un padding-top augmenté (voir plus bas) pour que la
-       pointe de l'encoche ne recouvre jamais le bandeau PROFILS. */
-    .profil-notch {
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      height: calc(100% + 10px);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 0 16px;
-      background: #0a0e18;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-top: none;
-      border-radius: 0 0 20px 20px;
-      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
-      z-index: 2;
+    /* Ligne 1 — Affichage / PROFILS / Sauvegardes. `1fr auto 1fr` : le
+       milieu ne prend que la largeur de son contenu (le bandeau PROFILS),
+       gauche/droite se partagent le reste à parts égales, ce qui centre
+       RÉELLEMENT PROFILS (un simple `justify-content: space-between` sur 3
+       enfants de largeurs différentes ne centre pas vraiment celui du
+       milieu — "Affichage" et "Sauvegardes" n'ont pas la même largeur). */
+    .theme-toggle-top {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: start;
+      gap: 20px;
     }
-    .profil-notch-input {
-      width: 110px;
-      background: var(--bg-base);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+    .theme-toggle-profiles { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+
+    /* Ligne 2 — prénom (2026-09-01, 3e révision, sur demande explicite,
+       "left aligned, below the top row"). Fond FONCÉ FIXE (pas
+       var(--bg-panel-alt), qui suit le thème clair/sombre) — cette zone est
+       posée sur le dégradé sombre de .theme-toggle-row, un fond clair y
+       jurerait en thème clair. */
+    .profil-details-row { display: flex; align-items: center; gap: 8px; }
+    .profil-details-label { font-size: 12px; color: #b8c2d9; flex-shrink: 0; }
+    .profil-details-input {
+      width: 160px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: var(--radius-sm);
-      padding: 5px 9px;
+      padding: 6px 9px;
       font-size: 12px;
-      color: var(--text-primary);
+      color: #e8eaf0;
       font-family: var(--font-ui);
     }
-    .profil-notch-input::placeholder { color: var(--text-muted); }
-    .profil-notch-input:focus { outline: none; border-color: var(--accent); }
-    .profil-notch-accounts { display: flex; align-items: center; gap: 6px; }
-    /* Icônes de statut Gmail/Spotify (2026-09-01) — remplacent les grosses
-       pills "icône + nom + statut + lien texte" (.account-pill, encore
-       utilisée ailleurs si besoin) par un simple rond cliquable : le DÉTAIL
-       (email connecté / "Non connecté") reste dans le DOM pour le `title` de
-       .profil-notch-pill (posé par updateGoogleUI/updateSpotifyUI, voir
-       config.js) et pour l'accessibilité (.profil-notch-sr-only ci-dessous),
-       juste masqué visuellement — un notch n'a la place que pour l'icône. */
-    .profil-notch-account-btn {
-      width: 26px;
-      height: 26px;
-      flex-shrink: 0;
+    .profil-details-input::placeholder { color: #7c88a6; }
+    .profil-details-input:focus { outline: none; border-color: var(--accent); }
+
+    /* Ligne 3 — Google + Spotify CÔTE À CÔTE (2026-09-01, 3e révision, sur
+       demande explicite, "both on same line, side by side, full text: Google
+       and Spotify written out"). */
+    .profil-details-accounts { display: flex; gap: 10px; flex-wrap: wrap; }
+    .profil-info-account-btn {
       display: flex;
       align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      background: var(--bg-panel-alt);
-      border: 1.5px solid var(--border);
-      color: var(--text-secondary);
-      font-size: 11px;
-      font-weight: 700;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 99px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #e8eaf0;
       font-family: var(--font-ui);
       cursor: pointer;
       transition: border-color 0.15s, background 0.15s, color 0.15s;
+      white-space: nowrap;
     }
-    .profil-notch-account-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-    /* Vert une fois connecté (2026-09-01) — classe posée par updateGoogleUI/
-       updateSpotifyUI (config.js), même condition (`accessToken` présent)
-       que le texte de statut désormais masqué : l'icône DOIT porter cette
-       information toute seule puisque c'est tout ce qui reste visible. */
-    .profil-notch-pill.profil-notch-connected .profil-notch-account-btn {
+    .profil-info-account-btn:hover { background: rgba(255, 255, 255, 0.1); }
+    .profil-info-account-icon { font-size: 12px; font-weight: 700; flex-shrink: 0; }
+    /* Nom du service STATIQUE ("Google"/"Spotify", 2026-09-01, 3e révision,
+       sur demande explicite, "full text... written out, not just icons") —
+       toujours affiché, contrairement à `#googleLabel`/`#spotifyLabel`
+       juste après (action/détail DYNAMIQUE, voir config.js updateGoogleUI/
+       updateSpotifyUI : "Connecter" / "Déconnecter (email)"). */
+    .profil-info-account-name { font-weight: 600; flex-shrink: 0; }
+    .profil-info-account-sep { color: #7c88a6; flex-shrink: 0; }
+    /* Connecté = vert, en attente d'autorisation/erreur = jaune (2026-09-01)
+       — classes posées par updateGoogleUI/updateSpotifyUI (config.js), sur
+       #accountPillGoogle/#accountPillSpotify (le conteneur `.profil-account-
+       pill` autour du bouton), même conditions qu'à la révision précédente. */
+    .profil-account-pill.profil-info-connected .profil-info-account-btn {
       border-color: var(--accent-green);
       background: rgba(52, 211, 153, 0.15);
       color: var(--accent-green);
     }
-    /* Masqué visuellement mais toujours lu par un lecteur d'écran/toujours
-       présent pour que config.js (textContent) n'ait rien à changer — motif
-       "sr-only" standard (pas display:none, qui retirerait l'élément du
-       flux d'accessibilité). */
-    .profil-notch-sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
+    .profil-account-pill.profil-info-pending .profil-info-account-btn {
+      border-color: var(--accent-yellow);
+      color: var(--accent-yellow);
     }
 
-    /* Padding/marges resserrés (2026-08-23, sur demande explicite — petits
-       écrans 14"/mise à l'échelle Windows 125-150%, voir createConfigWindow
-       dans main.js pour la hauteur de fenêtre adaptative associée) :
-       16px→10px de padding haut, 28px→14px d'espacement entre sections —
-       la zone Profil (hors onglets, toujours visible) est celle qui coûtait
-       le plus de hauteur fixe avant même d'atteindre le contenu des onglets.
-       padding-top 10px→18px (2026-09-01, sur demande explicite) — compense
-       le débordement de ~10px de .profil-notch ci-dessus (voir son
-       commentaire), pour que sa pointe arrondie ne recouvre jamais le
-       bandeau PROFILS juste en dessous. */
-    .config-profil { flex-shrink: 0; padding: 18px 20px 2px; }
     .config-section { margin-bottom: 14px; }
     .config-section-title {
       font-size: 10px;
@@ -422,6 +393,23 @@
     }
     .module-config-field select.sports-manual-select:focus { outline: none; border-color: var(--accent); }
 
+    /* Badge "Bêta" à côté du sélecteur (2026-09-01, sur demande explicite) —
+       visible seulement pour Basket/Rugby (voir config.js, updateSportExtras),
+       vide/masqué pour Football et Détection automatique. flex-shrink:0 pour
+       ne jamais se faire écraser par le select voisin (largeur fixe lui aussi). */
+    .sports-sport-beta-badge {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Note Basketball sous le champ Équipe (2026-09-01, sur demande
+       explicite) — visible seulement quand le sport manuel est Basket (voir
+       config.js, updateSportExtras) ; masquée par défaut pour ne pas
+       apparaître un instant avant que le JS n'ait tranché. */
+    .sports-basket-hint { display: none; }
+
     /* Lignes de portefeuille ETF (ISIN + date + qté + prix + frais) — nombre libre de lignes */
     .module-config-field.etf-lines-field {
       flex-direction: column;
@@ -590,6 +578,26 @@
       padding: 0 2px;
     }
     .monequipe-list-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+    /* Bandeau dégradé "Derniers résultats" (2026-09-01, sur demande explicite)
+       — UNIQUEMENT ce label (voir `.monequipe-list-label--results` posé côté
+       JS, config.js), PAS "Matchs à venir" au-dessus qui garde le style texte
+       nu de base ci-dessus. `display: block` + `width: 100%` nécessaires : un
+       <label> est inline par défaut, ni le dégradé ni la pleine largeur
+       demandée ("Full width of the config section") ne s'appliqueraient sans
+       ça. Coin gauche arrondi/droit carré (dégradé qui s'estompe déjà
+       visuellement vers la transparence côté droit, un coin arrondi y serait
+       redondant). Texte blanc #ffffff (2026-09-01, 3e demande explicite le
+       même jour — remplace #3b82f6, lui-même un remplacement de #1a1a2e
+       signalé illisible sur le fond jaune). */
+    .monequipe-list-label--results {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      background: linear-gradient(to right, #fbbf24, transparent);
+      color: #ffffff;
+      padding: 4px 12px;
+      border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    }
 
     /* Colonnes réajustées le 2026-08-16 (sur demande explicite) : DATE/HEURE
        élargies (date/heure complètes visibles sans coupure), ADVERSAIRE et
@@ -640,22 +648,21 @@
     }
     .monequipe-upcoming-list,
     .monequipe-results-list { display: flex; flex-direction: column; gap: 6px; }
-    /* Teinte jaune (2026-09-01, sur demande explicite — remplace la bordure
-       teal #0d9488 posée la même journée, plus tôt) : "Apply subtle yellow
-       tint to ALL input fields in the Derniers résultats section... Apply
-       same yellow tint to Matchs à venir section inputs too for
-       consistency" — les 2 tableaux de lignes (pas les champs Nom/Sport
-       au-dessus, restés en teal, hors périmètre de cette demande) partagent
-       donc désormais bordure #fbbf24 + fond jaune très atténué (8%
-       d'opacité, cohérent avec le reste de l'app — voir ETF/Crypto/Prêts
-       pour le même principe de teinte de fond légère). */
+    /* Teinte bleu clair (2026-09-01, sur demande explicite — remplace la
+       teinte jaune #fbbf24 posée la même journée, plus tôt, elle-même un
+       remplacement de la bordure teal #0d9488 d'origine) : "Change from
+       yellow tint to light blue tint" — les 2 tableaux de lignes (pas les
+       champs Nom/Sport au-dessus, restés en teal, toujours hors périmètre
+       de cette demande) partagent donc désormais bordure #60a5fa + fond
+       bleu très atténué (8% d'opacité, cohérent avec le reste de l'app —
+       voir ETF/Crypto/Prêts pour le même principe de teinte de fond légère). */
     .monequipe-upcoming-row input,
     .monequipe-upcoming-row select,
     .monequipe-results-row input,
     .monequipe-results-row select {
       width: 100%;
-      background: rgba(251, 191, 36, 0.08);
-      border: 1.5px solid #fbbf24;
+      background: rgba(96, 165, 250, 0.08);
+      border: 1.5px solid #60a5fa;
       border-radius: var(--radius-sm);
       padding: 6px 8px;
       font-size: 11px;
@@ -665,7 +672,7 @@
     .monequipe-upcoming-row input:focus,
     .monequipe-upcoming-row select:focus,
     .monequipe-results-row input:focus,
-    .monequipe-results-row select:focus { outline: none; border-color: #fbbf24; }
+    .monequipe-results-row select:focus { outline: none; border-color: #60a5fa; }
     /* Bouton × réduit à 20×20 (au lieu des 22×22 de .row-delete-btn
        génériques, réutilisées partout ailleurs dans Paramètres) — demandé
        explicitement pour ces 2 tableaux uniquement. */
@@ -769,11 +776,20 @@
     .profile-tab-edit:hover, .profile-tab-save:hover { opacity: 1; background: var(--bg-panel); }
 
     /* Panneau d'édition (renommer + activation automatique) — masqué par
-       défaut, ouvert par le ✏️ d'un onglet (voir config.js). */
+       défaut, ouvert par le ✏️ d'un onglet (voir config.js). `width: 280px`
+       (2026-09-01, sur demande explicite — nécessaire depuis que PROFILS vit
+       dans .theme-toggle-profiles, au centre de .theme-toggle-top qui est une
+       colonne de grille `auto` ne faisant QUE la largeur du bandeau PROFILS
+       replié — sans largeur explicite ici, `align-items:center` sur
+       .theme-toggle-profiles réduirait ce panneau (7 boutons de jour +
+       champs de saisie) à une largeur illisible une fois ouvert) — la
+       colonne `auto` s'élargit d'elle-même pour l'accueillir, seulement
+       pendant l'édition. */
     .profile-edit-panel {
       display: none;
       flex-direction: column;
       gap: 10px;
+      width: 280px;
       background: var(--bg-panel-alt);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
@@ -1448,131 +1464,142 @@
   </header>
 
   <div class="config-wrap">
-    <!-- Ligne 1 — Affichage (gauche) + Profil "en encoche" (centre) +
-         Sauvegardes (droite), TOUT en haut, hors onglets, toujours visible
-         (2026-08-10, sur demande explicite — Sauvegardes vivait avant dans
-         une section dédiée sous Profil, remontée ici sur la même ligne pour
-         condenser la fenêtre).
+    <!-- Ligne 1 — Affichage + prénom/Google/Spotify (gauche) + PROFILS
+         (centre) + Sauvegardes (droite), TOUT en haut, hors onglets,
+         toujours visible (2026-08-10, sur demande explicite — Sauvegardes
+         vivait avant dans une section dédiée sous Profil, remontée ici sur
+         la même ligne pour condenser la fenêtre).
          REDESIGN 2026-08-31 (sur demande explicite) : les toggles Sombre/
          Clair/Mode auto qui vivaient ici sont retirés — Sombre/Clair a migré
          DANS la popup "🎨 Affichage" (ex-"Personnaliser", voir
          #personnaliserModalOverlay plus bas), Mode auto est supprimé
          entièrement (plus de toggle nulle part, voir CONTEXT.md pour le
          détail de ce qui a été retiré côté dashboard.js/main.js/style.css).
-         REDESIGN 2026-09-01 (sur demande explicite, "notch design like an
-         iPhone notch") — prénom + statut Gmail/Spotify (qui vivaient dans
-         .config-profil, "Row 3"/"Row 4" ci-dessous à l'époque) déménagent
-         ICI, dans .profil-notch : positionnée en absolu, CENTRÉE entre les 2
-         boutons, ancrée au bord SUPÉRIEUR de cette ligne et débordant
-         légèrement de son bord inférieur (voir style.css .profil-notch) pour
-         l'effet "encoche taillée dans le bandeau du haut" — coins du bas
-         arrondis, fond plus sombre que le dégradé du bandeau, ombre portée.
-         .config-profil ne garde plus que le bandeau PROFILS (sélecteur de
-         profil 1/2, fonctionnalité DISTINCTE du prénom/comptes ci-dessus,
-         non mentionnée dans la demande d'encoche — reste à sa place).
+         REDESIGN 2026-09-01, 2e révision (sur demande explicite, "fix the
+         top layout", 3e révision) — remplace la version précédente (prénom
+         + Google + Spotify empilés dans la colonne GAUCHE, à côté du bouton
+         Affichage) : `.theme-toggle-row` est maintenant une colonne (flex)
+         de 3 blocs empilés — .theme-toggle-top (ligne 1 : Affichage / PROFILS
+         / Sauvegardes, display:grid 3 colonnes pour un centrage RÉEL de
+         PROFILS), .profil-details-row (ligne 2 : prénom, alignée à gauche),
+         .profil-details-accounts (ligne 3 : Google + Spotify CÔTE À CÔTE,
+         alignée à gauche). PROFILS reste dans .theme-toggle-top (inchangé
+         depuis la révision précédente) ; seuls prénom/Google/Spotify sortent
+         de la colonne gauche pour devenir des lignes PLEINE LARGEUR sous la
+         ligne 1, au lieu d'être compressés dans une colonne de grille étroite
+         à côté du bouton Affichage.
          Voir config.js (initPersonnaliserSection/initBackupsSection) pour la
-         bascule instantanée + la persistance. -->
+         bascule instantanée + la persistance des boutons Affichage/
+         Sauvegardes, et initGoogleSection/initSpotifySection/
+         initProfileTabs pour le contenu des 2 lignes suivantes. -->
     <div class="theme-toggle-row">
-      <!-- 🎨 Affichage (ex-"Personnaliser", renommé le 2026-08-31 sur demande
-           explicite) — ouvre la popup thème + fond + mode d'affichage +
-           défilement automatique (voir #personnaliserModalOverlay plus bas).
-           id/fonctions JS internes gardent le nom "Personnaliser" (détail
-           d'implémentation invisible), seul le LIBELLÉ affiché change. -->
-      <button type="button" class="google-btn" id="btnPersonnaliser">
-        <span>🎨</span>
-        <span>Affichage</span>
-      </button>
+      <div class="theme-toggle-top">
+        <!-- 🎨 Affichage (ex-"Personnaliser", renommé le 2026-08-31 sur
+             demande explicite) — ouvre la popup thème + fond + mode
+             d'affichage + défilement automatique (voir
+             #personnaliserModalOverlay plus bas). id/fonctions JS internes
+             gardent le nom "Personnaliser" (détail d'implémentation
+             invisible), seul le LIBELLÉ affiché change. -->
+        <button type="button" class="google-btn" id="btnPersonnaliser">
+          <span>🎨</span>
+          <span>Affichage</span>
+        </button>
 
-      <!-- Notch Profil (2026-09-01, sur demande explicite) — prénom +
-           icônes de statut Gmail/Spotify, voir style.css .profil-notch pour
-           le rendu "encoche". `#firstNameInput`/`#accountPillGoogle`/
-           `#btnGoogle`/`#googleLabel`/`#googleStatus` (et équivalents
-           Spotify) gardent EXACTEMENT les mêmes id qu'avant ce déplacement —
-           AUCUN changement dans initProfileSection/initGoogleSection/
-           initSpotifySection (config.js), seule leur POSITION dans le DOM
-           change. `#googleLabel`/`#googleStatus` (texte "Connecter"/
-           "Non connecté"/email) restent à jour via ces fonctions mais sont
-           visuellement masqués ici (`.profil-notch-sr-only`, voir style.css)
-           — le détail complet reste accessible au survol via le `title` posé
-           sur `.profil-notch-pill` par ces mêmes fonctions ; SEULE addition
-           JS (2026-09-01) : un `classList.toggle('profil-notch-connected', …)`
-           dans updateGoogleUI/updateSpotifyUI pour que l'icône elle-même
-           passe au vert une fois connecté, plutôt que de dépendre du seul
-           texte de statut désormais invisible. -->
-      <div class="profil-notch">
-        <input type="text" id="firstNameInput" class="profil-notch-input" placeholder="Prénom" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
-        <div class="profil-notch-accounts">
-          <div class="profil-notch-pill" id="accountPillGoogle">
-            <button type="button" class="profil-notch-account-btn" id="btnGoogle" title="Gmail">G</button>
-            <span id="googleLabel" class="profil-notch-sr-only">Connecter</span>
-            <span id="googleStatus" class="profil-notch-sr-only">Non connecté</span>
+        <!-- PROFILS — sélecteur de profil (1/2), CENTRÉ (2026-09-01, sur
+             demande explicite, "move PROFILS to the CENTER TOP") — bandeau
+             orange, voir .profiles-banner plus bas. Onglets de profil
+             compacts (voir config.js initProfileTabs, main.js profiles:*) —
+             cliquer bascule de profil, ✏️ ouvre le panneau d'édition
+             (renommer + activation automatique par jour), 💾 sauvegarde
+             l'état actuel dans ce profil. -->
+        <div class="theme-toggle-profiles">
+          <div class="profiles-banner">
+            <div class="profiles-banner-label">PROFILS</div>
+            <div class="profile-tabs" id="profileTabs"></div>
           </div>
-          <div class="profil-notch-pill" id="accountPillSpotify">
-            <button type="button" class="profil-notch-account-btn" id="btnSpotify" title="Spotify">🎵</button>
-            <span id="spotifyLabel" class="profil-notch-sr-only">Connecter</span>
-            <span id="spotifyStatus" class="profil-notch-sr-only">Non connecté</span>
+
+          <!-- Panneau d'édition d'un profil (renommer + activation
+               automatique) — masqué par défaut (.open ajoutée par
+               config.js), ouvert par le ✏️ d'un onglet ci-dessus, scopé au
+               profil dont l'id est retenu dans
+               `profileEditPanel.dataset.profileKey`. -->
+          <div class="profile-edit-panel" id="profileEditPanel">
+            <div class="profile-edit-row">
+              <label for="profileEditNameInput">Nom du profil</label>
+              <input type="text" id="profileEditNameInput" maxlength="24" placeholder="Ex : Semaine">
+            </div>
+            <div class="profile-edit-row">
+              <span>Activer automatiquement</span>
+              <label class="toggle">
+                <input type="checkbox" id="profileAutoSwitchToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="profile-days-row" id="profileDaysRow">
+              <button type="button" class="profile-day-btn" data-day="mon">Lun</button>
+              <button type="button" class="profile-day-btn" data-day="tue">Mar</button>
+              <button type="button" class="profile-day-btn" data-day="wed">Mer</button>
+              <button type="button" class="profile-day-btn" data-day="thu">Jeu</button>
+              <button type="button" class="profile-day-btn" data-day="fri">Ven</button>
+              <button type="button" class="profile-day-btn" data-day="sat">Sam</button>
+              <button type="button" class="profile-day-btn" data-day="sun">Dim</button>
+            </div>
+            <div class="profile-days-presets">
+              <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekdays">Lun-Ven</button>
+              <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekend">Sam-Dim</button>
+            </div>
+            <div class="profile-edit-actions">
+              <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="profileEditSave">Enregistrer</button>
+              <button type="button" class="autoarrange-confirm-btn" id="profileEditCancel">Fermer</button>
+            </div>
           </div>
         </div>
+
+        <!-- Sauvegardes — la liste ne reste plus affichée en permanence sur
+             la page, ce bouton ouvre une popup (voir #backupsModalOverlay
+             plus bas) peuplée à la volée par config.js (renderBackupsList). -->
+        <button type="button" class="google-btn" id="btnBackups">
+          <span>💾</span>
+          <span>Sauvegardes</span>
+        </button>
       </div>
 
-      <!-- Sauvegardes — la liste ne reste plus affichée en permanence sur la
-           page, ce bouton ouvre une popup (voir #backupsModalOverlay plus
-           bas) peuplée à la volée par config.js (renderBackupsList). -->
-      <button type="button" class="google-btn" id="btnBackups">
-        <span>💾</span>
-        <span>Sauvegardes</span>
-      </button>
-    </div>
-
-    <!-- Profil — sélecteur de profil (1/2), toujours visible, hors onglets
-         (2026-08-06, sur demande explicite ; redesign complet le
-         2026-08-31 ; prénom + comptes Google/Spotify déménagés dans
-         .profil-notch ci-dessus le 2026-09-01 — voir commentaire détaillé
-         plus haut, ne restait ici QUE le sélecteur de profil, sans rapport
-         avec l'encoche demandée). Onglets de profil compacts (voir config.js
-         initProfileTabs, main.js profiles:*) — cliquer bascule de profil,
-         ✏️ ouvre le panneau d'édition (renommer + activation automatique
-         par jour), 💾 sauvegarde l'état actuel dans ce profil. -->
-    <div class="config-profil">
-      <!-- Bandeau orange (2026-08-31, sur demande explicite) — distingue
-           visuellement la zone Profils du reste de Paramètres. -->
-      <div class="profiles-banner">
-        <div class="profiles-banner-label">PROFILS</div>
-        <div class="profile-tabs" id="profileTabs"></div>
+      <!-- Ligne 2 — prénom (2026-09-01, 3e révision, sur demande explicite,
+           "left aligned, below the top row") : `#firstNameInput` garde le
+           même id qu'avant, AUCUN changement dans initProfileSection
+           (config.js). -->
+      <div class="profil-details-row">
+        <span class="profil-details-label">Votre prénom</span>
+        <input type="text" id="firstNameInput" class="profil-details-input" placeholder="Ex : Sylvain" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
       </div>
 
-      <!-- Panneau d'édition d'un profil (renommer + activation automatique)
-           — masqué par défaut (.open ajoutée par config.js), ouvert par le
-           ✏️ d'un onglet ci-dessus, scopé au profil dont l'id est retenu
-           dans `profileEditPanel.dataset.profileKey`. -->
-      <div class="profile-edit-panel" id="profileEditPanel">
-        <div class="profile-edit-row">
-          <label for="profileEditNameInput">Nom du profil</label>
-          <input type="text" id="profileEditNameInput" maxlength="24" placeholder="Ex : Semaine">
+      <!-- Ligne 3 — Google + Spotify CÔTE À CÔTE (2026-09-01, 3e révision,
+           sur demande explicite, "full text: Google and Spotify written
+           out") : chaque pill = icône + nom du SERVICE (statique, "Google"/
+           "Spotify") + tiret + action/détail DYNAMIQUE (`#googleLabel`/
+           `#spotifyLabel`, mis à jour par updateGoogleUI/updateSpotifyUI —
+           voir config.js, texte réduit à "Connecter"/"Déconnecter (email)",
+           SANS le nom du service désormais porté par le <span> statique
+           juste avant). `#accountPillGoogle`/`#accountPillSpotify` (le
+           conteneur de chaque pill, PAS le bouton) gardent leur rôle
+           inchangé : `.title` + classes `.profil-info-connected`/
+           `.profil-info-pending` posées par ces mêmes fonctions. -->
+      <div class="profil-details-accounts">
+        <div class="profil-account-pill" id="accountPillGoogle">
+          <button type="button" class="profil-info-account-btn" id="btnGoogle">
+            <span class="profil-info-account-icon">G</span>
+            <span class="profil-info-account-name">Google</span>
+            <span class="profil-info-account-sep">—</span>
+            <span id="googleLabel">Connecter</span>
+          </button>
         </div>
-        <div class="profile-edit-row">
-          <span>Activer automatiquement</span>
-          <label class="toggle">
-            <input type="checkbox" id="profileAutoSwitchToggle">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="profile-days-row" id="profileDaysRow">
-          <button type="button" class="profile-day-btn" data-day="mon">Lun</button>
-          <button type="button" class="profile-day-btn" data-day="tue">Mar</button>
-          <button type="button" class="profile-day-btn" data-day="wed">Mer</button>
-          <button type="button" class="profile-day-btn" data-day="thu">Jeu</button>
-          <button type="button" class="profile-day-btn" data-day="fri">Ven</button>
-          <button type="button" class="profile-day-btn" data-day="sat">Sam</button>
-          <button type="button" class="profile-day-btn" data-day="sun">Dim</button>
-        </div>
-        <div class="profile-days-presets">
-          <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekdays">Lun-Ven</button>
-          <button type="button" class="autoarrange-confirm-btn" id="profileDaysWeekend">Sam-Dim</button>
-        </div>
-        <div class="profile-edit-actions">
-          <button type="button" class="autoarrange-confirm-btn autoarrange-confirm-btn-primary" id="profileEditSave">Enregistrer</button>
-          <button type="button" class="autoarrange-confirm-btn" id="profileEditCancel">Fermer</button>
+        <div class="profil-account-pill" id="accountPillSpotify">
+          <button type="button" class="profil-info-account-btn" id="btnSpotify">
+            <span class="profil-info-account-icon">♫</span>
+            <span class="profil-info-account-name">Spotify</span>
+            <span class="profil-info-account-sep">—</span>
+            <span id="spotifyLabel">Connecter</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1693,6 +1720,7 @@
   <datalist id="crypto-symbols-datalist"></datalist>
 
   <script src="modules/sports-sources.js"></script>
+  <script src="modules/fuel-types.js"></script>
   <script src="modules/fdj-games.js"></script>
   <script src="modules/reminders-categories.js"></script>
   <script src="modules/indices-defs.js"></script>
