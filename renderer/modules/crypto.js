@@ -25,6 +25,19 @@
  */
 window.MatinModules = window.MatinModules || {};
 
+// Icône du bouton confidentialité — `PRIVACY_EYE_OFF_SVG`/`privacyIconHtml`
+// ne sont PLUS déclarés ici (2026-09-01, correctif urgent) : etf.js,
+// crypto.js et prets.js sont chargés comme 3 <script> CLASSIQUES séparés
+// dans index.html (pas `type="module"`), qui PARTAGENT UN SEUL scope global
+// de haut niveau — un `const`/`function` de même nom déclaré dans 2 scripts
+// classiques différents sur la même page lève une SyntaxError de
+// redéclaration AU PARSING du 2e script, qui empêche alors TOUT le fichier
+// de s'exécuter (donc `window.MatinModules.crypto` n'était jamais assigné) —
+// exactement le bug qui causait le spinner infini de Crypto/Prêts : rien à
+// voir avec la logique de chargement elle-même, qui ne s'exécutait jamais.
+// etf.js (chargé AVANT crypto.js dans index.html) reste le SEUL à déclarer
+// ces 2 identifiants ; crypto.js les réutilise tels quels via le scope
+// global partagé, sans les redéclarer.
 const CRYPTO_REFRESH_MS = 5 * 60 * 1000;
 const CRYPTO_HISTORY_TTL_MS = 60 * 60 * 1000;
 const cryptoIdCache = new Map(); // SYMBOL -> { id, name } | null
@@ -47,10 +60,43 @@ function cryptoGainClass(n) {
   return n == null ? '' : (n >= 0 ? 'up' : 'down');
 }
 
+// Débogage "spinner infini" (2026-09-01, sur demande explicite, points 1/3) —
+// `fetch()` seul n'a AUCUN délai d'attente par défaut : si CoinGecko accepte
+// la connexion sans jamais répondre (limite de débit atteinte sans renvoyer
+// de 429 propre, coupure réseau silencieuse...), la Promise ne se règle
+// JAMAIS — ni résolue ni rejetée — et `await` reste bloqué indéfiniment. Le
+// try/catch de loadAndRender (voir plus bas) ne peut alors rien attraper,
+// puisqu'aucune exception n'est jamais levée : c'est très probablement LA
+// cause du spinner qui ne disparaît jamais jamais signalé. `AbortController`
+// + `setTimeout` transforme ce blocage silencieux en un vrai rejet après
+// CRYPTO_FETCH_TIMEOUT_MS, que le reste du code (déjà écrit pour gérer des
+// échecs réseau normaux) sait déjà absorber correctement.
+const CRYPTO_FETCH_TIMEOUT_MS = 10000;
+
 async function cryptoFetchJSON(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CRYPTO_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    const text = await res.text();
+    // Log demandé littéralement (2026-09-01, 2e relance sur ce même point) —
+    // format exact "[Crypto] API response: X" en plus du log détaillé
+    // ci-dessous (URL + corps tronqué), qui reste utile pour le débogage réel.
+    console.log(`[Crypto] API response: ${res.status}`);
+    // Point 1 de la demande : log de la réponse BRUTE (avant parsing JSON),
+    // plafonné pour ne pas noyer la console sur une réponse volumineuse
+    // (ex. /coins/markets avec ids=... peut faire plusieurs Ko).
+    console.log(`[Crypto] ${url} → HTTP ${res.status} :`, text.slice(0, 500));
+    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    return JSON.parse(text);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`CoinGecko ne répond pas (délai de ${CRYPTO_FETCH_TIMEOUT_MS / 1000}s dépassé) — ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function cryptoLoadTop100() {
@@ -318,7 +364,7 @@ function cryptoRenderModule(container, groups, privacy) {
           <span class="etf-money etf-header-value etf-gain ${cryptoGainClass(totals.gain)}">${cryptoFmtSigned(totals.gain)}</span>
           <span class="etf-header-sub ${cryptoGainClass(totals.gain)}">${totals.gainPct != null ? cryptoFmtPct(totals.gainPct) : '—'}</span>
         </div>
-        <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacy ? '🔒' : '🔓'}</button>
+        <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacyIconHtml(privacy)}</button>
       </div>
       <div class="etf-groups">
         ${groups.map(g => cryptoGroupHtml(g, cryptoExpandedState.has(g.symbol))).join('')}
@@ -335,30 +381,103 @@ function cryptoRenderModule(container, groups, privacy) {
 let cryptoExpandedState = new Set();
 
 window.MatinModules.crypto = {
+  // Point 4 de la demande de débogage — confirmation explicite : ce module ne
+  // reçoit et n'attend jamais de jeton Google (voir `requiresGoogle: false`
+  // sur l'entrée 'crypto' de MODULE_REGISTRY dans dashboard.js, qui gate
+  // l'appel à `window.matin.google.getValidToken()` AVANT d'invoquer render()).
+  // Le paramètre `_google` ci-dessous est donc toujours `null` ici et n'est
+  // jamais lu — le spinner infini ne peut donc pas venir d'une attente
+  // d'authentification Google pour ce module.
   async render(container, config, _google, setBadge) {
+    // Log demandé explicitement (2026-09-01, 3e relance) — confirme que
+    // render() DÉMARRE bien (donc que le script a été parsé/exécuté sans
+    // erreur, voir le correctif de redéclaration PRIVACY_EYE_OFF_SVG
+    // ci-dessus) avant même de lire la config.
+    console.log('[Crypto] Starting render...');
+    // Point 3 de la demande (2e relance, 2026-09-01) — log explicite de la
+    // config REÇUE (fusion matin-userdata + matin-config faite en amont par
+    // window.matin.modules.getAll(), voir main.js USERDATA_MODULE_KEYS) :
+    // `config` est `undefined`/`{}` si l'entrée "crypto" n'existe pas encore
+    // du tout dans matin-userdata (1er lancement, module jamais configuré),
+    // `config.lines` est un tableau vide si l'entrée existe mais qu'aucune
+    // ligne n'a été ajoutée dans Paramètres — distinction volontairement
+    // loggée pour trancher entre les deux d'un coup d'œil.
+    console.log('[Crypto] render() — pas d\'attente Google (requiresGoogle=false), config reçue :', config,
+      config == null ? '(aucune entrée userdata pour ce module — jamais configuré)' : `(${(config.lines || []).length} ligne(s) en config)`);
     cryptoExpandedState = new Set();
     const lines = (config?.lines || []).filter(l => l.symbol);
 
     if (!lines.length) {
-      container.innerHTML = `<div class="etf-empty">Aucune ligne configurée — ajoutez vos positions dans Paramètres.</div>`;
+      container.innerHTML = `<div class="etf-empty">Aucune crypto configurée — ajoutez vos positions dans Paramètres.</div>`;
       setBadge('—');
       return;
     }
 
     let privacy = localStorage.getItem('matin-crypto-privacy') === '1';
+    // Dernier calcul réussi — permet de forcer un affichage (point 5 de la
+    // demande) même quand un rafraîchissement échoue ou dépasse le délai :
+    // mieux vaut des données un peu périmées qu'un écran bloqué ou une erreur
+    // sèche alors qu'on a déjà quelque chose à montrer.
+    let lastGoodGroups = null;
+    let lastGoodAt = null;
+
+    // Délai maximal GLOBAL de chargement (2026-09-01, 2e relance explicite,
+    // point 3) — DISTINCT du timeout de 10s par requête individuelle
+    // (CRYPTO_FETCH_TIMEOUT_MS ci-dessus) : cryptoComputeGroups() peut
+    // enchaîner PLUSIEURS requêtes (résolution symbole, cours groupés,
+    // historique par groupe) dont les délais individuels s'additionnent —
+    // rien ne garantissait jusqu'ici qu'un total réaliste (ex. 3 groupes ×
+    // 10s d'historique chacun) reste sous une durée raisonnable. Ce
+    // deuxième garde-fou, plus court (8s), force un AFFICHAGE (dernières
+    // données connues, ou message d'erreur) à cette échéance quoi qu'il
+    // arrive, indépendamment de l'état des requêtes réseau sous-jacentes qui
+    // continuent en arrière-plan (si elles aboutissent quand même après
+    // coup, le module se met à jour normalement — pas annulées, juste plus
+    // attendues pour décider quoi afficher).
+    const CRYPTO_MAX_LOADING_MS = 8000;
+
+    function renderFallback(reason) {
+      if (lastGoodGroups) {
+        const staleMin = Math.round((Date.now() - lastGoodAt) / 60000);
+        console.warn(`[Crypto] ${reason} — affichage des données en cache (vieilles de ${staleMin} min).`);
+        cryptoRenderModule(container, lastGoodGroups, privacy);
+        const banner = document.createElement('div');
+        banner.className = 'module-error';
+        banner.style.cssText = 'margin-top:6px;font-size:11px;';
+        banner.textContent = `⚠ ${reason} — données d'il y a ${staleMin} min affichées`;
+        container.querySelector('.etf-module')?.appendChild(banner);
+      } else {
+        console.warn(`[Crypto] ${reason} — aucune donnée en cache, affichage d'une erreur.`);
+        container.innerHTML = `<span class="module-error">⚠ ${reason}</span>`;
+      }
+      setBadge('⚠');
+    }
 
     async function loadAndRender() {
       setBadge('…');
-      console.log('[Crypto] Récupération des cours CoinGecko…');
+      console.log(`[Crypto] Récupération des cours CoinGecko pour ${lines.length} ligne(s)…`);
+      let settled = false;
+      const maxLoadingTimer = setTimeout(() => {
+        if (settled) return;
+        renderFallback(`Délai maximal de ${CRYPTO_MAX_LOADING_MS / 1000}s dépassé`);
+      }, CRYPTO_MAX_LOADING_MS);
+
       try {
         const groups = await cryptoComputeGroups(lines);
+        settled = true;
+        clearTimeout(maxLoadingTimer);
+        lastGoodGroups = groups;
+        lastGoodAt = Date.now();
         cryptoRenderModule(container, groups, privacy);
         const totals = cryptoSumTotals(groups);
         setBadge(totals.gainPct != null ? cryptoFmtPct(totals.gainPct) : `${groups.length} ligne${groups.length > 1 ? 's' : ''}`);
       } catch (err) {
+        settled = true;
+        clearTimeout(maxLoadingTimer);
         console.error('[Crypto] Erreur de rendu', err);
-        container.innerHTML = `<span class="module-error">⚠ Erreur de chargement</span>`;
-        setBadge('⚠');
+        // Point 5 : on affiche quand même les dernières données connues
+        // plutôt que de laisser un état bloqué ou une simple erreur.
+        renderFallback(err.message || String(err));
       }
     }
 

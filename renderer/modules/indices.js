@@ -20,15 +20,45 @@
  * Sélection affichée : config.selected (tableau de symboles) — `null`/absent
  * = tous les indices de IndicesDefs (indices-defs.js, partagé avec
  * config.js), narrowable dans Paramètres (voir indicesField, config.js).
+ *
+ * DÉLAI DE COURS — DIAGNOSTIQUÉ le 2026-09-01, sur demande explicite ("CAC 40
+ * affiche 8366 mais la valeur actuelle du marché est ~8484") : vérifié en
+ * accès réseau direct (curl, hors de l'app) sur ce même endpoint pour ^FCHI —
+ * `regularMarketTime` renvoyé était systématiquement ~15-16 minutes derrière
+ * l'heure réelle. Ce n'est PAS un bug de ce module (le calcul currentPrice/
+ * changePct portait un prix et un timestamp parfaitement cohérents entre
+ * eux) : c'est une caractéristique CONNUE et documentée de l'API Yahoo
+ * Finance publique/non-authentifiée, qui n'offre jamais de cours réellement
+ * temps réel gratuitement (~15-20 min de retard typique, même limite que
+ * bien des widgets boursiers gratuits grand public). Un écart plus grand que
+ * ce délai type au moment précis d'un signalement est plausible si le marché
+ * bouge vite sur ces quelques minutes, mais reste la même cause : latence de
+ * la source, pas un mauvais symbole/une mauvaise formule. Rendu visible à
+ * l'utilisateur via `.indices-delay-note` sous la grille (voir render
+ * plus bas) plutôt que caché — corrige la confusion "je pensais que c'était
+ * en direct", pas le délai lui-même (indépassable sans API payante).
+ *
+ * Rythme de rafraîchissement RÉEL : PAS `INDICES_REFRESH_MS` (ancienne
+ * constante ici, jamais réellement utilisée par ce fichier — retirée le
+ * 2026-09-01 en diagnostiquant ce signalement, code mort trompeur) mais
+ * `MODULE_REGISTRY.indices.refreshMs` dans dashboard.js (5 min, vérifié
+ * inchangé) : `scheduleModuleRefresh` y pose un `setInterval` qui rappelle
+ * `renderModuleOnce` — donc CE module (`render()` ci-dessous) toujours
+ * réexécuté en entier, un fetch RÉSEAU FRAIS à chaque cycle, jamais de cache
+ * interne à ce fichier qui pourrait à lui seul expliquer un chiffre plus
+ * vieux que ~5 min + le délai Yahoo ci-dessus.
  */
 window.MatinModules = window.MatinModules || {};
-
-const INDICES_REFRESH_MS = 5 * 60 * 1000;
 
 async function indicesFetchChart(symbol, range, interval) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`;
   const text = await window.matin.rss.fetchFeed(url);
   const data = JSON.parse(text);
+  // Réponse BRUTE complète loguée (2026-09-01, sur demande explicite,
+  // "log the raw API response") — pas juste le `meta` déjà extrait plus bas,
+  // pour pouvoir inspecter `indicators`/`timestamp` bruts en cas de nouveau
+  // doute sur le calcul currentPrice/changePct.
+  console.log(`[Indices] Réponse brute Yahoo pour ${symbol} (${url}) :`, data);
   const result = data?.chart?.result?.[0];
   if (!result) throw new Error('Pas de données de marché');
   const closes = result.indicators?.quote?.[0]?.close || [];
@@ -54,7 +84,15 @@ async function indicesFetchQuote(symbol) {
 
   const changePct = previousClose ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
 
-  return { currentPrice, changePct };
+  // Diagnostic EXACT demandé (2026-09-01) — âge du cours en minutes calculé
+  // depuis `regularMarketTime` (horodatage Yahoo du dernier prix connu, PAS
+  // l'heure du fetch) : c'est ce nombre, pas un bug de calcul, qui explique
+  // un cours "en retard" sur une valeur vue ailleurs au même instant.
+  const quoteTime = short.meta.regularMarketTime ? new Date(short.meta.regularMarketTime * 1000) : null;
+  const delayMin = quoteTime ? Math.round((now - quoteTime) / 60000) : null;
+  console.log(`[Indices] ${symbol} — prix=${currentPrice}, veille=${previousClose}, variation=${changePct.toFixed(2)}%, horodatage Yahoo=${quoteTime?.toISOString() || '—'}, délai≈${delayMin ?? '?'} min`);
+
+  return { currentPrice, changePct, delayMin };
 }
 
 function indicesFmtValue(n) {
@@ -108,7 +146,20 @@ window.MatinModules.indices = {
         return r.value;
       });
 
-      container.innerHTML = `<div class="indices-grid">${defs.map((d, i) => indicesTileHtml(d, quotes[i])).join('')}</div>`;
+      // Note de délai (2026-09-01, sur demande explicite — rend visible ce
+      // qui était jusqu'ici seulement dans les logs, voir en-tête de
+      // fichier) : le PLUS GRAND délai parmi les tuiles affichées, pas une
+      // moyenne — c'est la pire tuile qui doit fixer l'attente de
+      // l'utilisateur sur la fraîcheur de TOUTE la grille.
+      const delays = quotes.map(q => q?.delayMin).filter(d => d != null);
+      const maxDelay = delays.length ? Math.max(...delays) : null;
+
+      container.innerHTML = `
+        <div class="indices-module">
+          <div class="indices-grid">${defs.map((d, i) => indicesTileHtml(d, quotes[i])).join('')}</div>
+          ${maxDelay != null ? `<div class="indices-delay-note">Cours différés (Yahoo Finance) — dernière donnée il y a ${maxDelay} min</div>` : ''}
+        </div>
+      `;
 
       const failed = quotes.filter(q => !q).length;
       setBadge(failed ? `⚠ ${failed}` : `${defs.length}`);

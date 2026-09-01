@@ -925,8 +925,18 @@ body.ultrawide .module-card { max-width: 500px; }
   padding: 5px 9px;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
+  /* 🔒/🔓 → icône œil (2026-09-01, sur demande explicite, ETF/Crypto/Prêts
+     seulement — voir etf.js/crypto.js/prets.js ; FDJ garde 🔒/🔓, hors
+     périmètre de la demande, réutilise cette même classe pour le reste de
+     son style) : centrage flex ajouté pour le SVG "œil barré" de l'état
+     masqué, qui n'est pas un simple glyphe de texte comme l'émoji 👁️ de
+     l'état visible. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .etf-privacy-btn:hover { border-color: var(--accent); color: var(--accent); }
+.etf-privacy-btn svg { display: block; }
 
 .etf-privacy-on .etf-money { filter: blur(6px); user-select: none; }
 
@@ -1249,29 +1259,13 @@ body.ultrawide .module-card { max-width: 500px; }
 
 /* ─── Module : Mon Équipe (2026-08-15, sur demande explicite) ───────────────
    Réutilise .sports-module/.sports-next/.sports-next-label/-detail/-opp/
-   .sports-no-data tels quels (voir plus haut) pour "Prochain match"/"Dernier
-   résultat" — même langage visuel que Sports/LIVE! (thème 'other-sports'
-   partagé, voir dashboard.js). Seules les 2 listes "Prochains matchs"/
-   "Derniers résultats" ci-dessous sont propres à ce module. */
+   .sports-no-data tels quels (voir plus haut) pour "Dernier résultat" — même
+   langage visuel que Sports/LIVE! (thème 'other-sports' partagé, voir
+   dashboard.js). "Prochain match" a son propre habillage depuis le 2026-09-01
+   (voir .monequipe-next-* plus bas) ; "Prochains matchs"/"Derniers résultats"
+   sont désormais 2 sections REPLIABLES (.monequipe-section-*, même mécanique
+   que .fdj-grids-section — voir fdj-common.js), plus une simple liste fixe. */
 .monequipe-module { gap: 8px; }
-.monequipe-list-label {
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-/* Hauteur plafonnée + défilement propre (demandé explicitement) même si le
-   contenu tient généralement en 3 lignes sans avoir besoin de défiler —
-   redimensionner la carte plus petite (voir MIN_WIDTH/MIN_HEIGHT réduits le
-   2026-08-15, dashboard.js) peut faire déborder ces 3 lignes du panneau. */
-.monequipe-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 90px;
-  overflow-y: auto;
-}
 .monequipe-list-row {
   display: flex;
   align-items: baseline;
@@ -1325,6 +1319,116 @@ body.ultrawide .module-card { max-width: 500px; }
 .monequipe-info-venue-home { color: #fbbf24; }
 .monequipe-info-venue-away { color: #ef4444; }
 .monequipe-info-opponent { color: #e8eaf0; }
+/* Score en tête de ligne "Derniers résultats" (2026-09-01, sur demande
+   explicite — voir mon-equipe.js monEquipeResultRowHtml) — mono/gras pour
+   ressortir, pas de couleur dédiée demandée (contrairement aux 4 ci-dessus). */
+.monequipe-info-score { color: var(--text-primary); font-weight: 700; font-family: var(--font-mono); }
+
+/* "Prochain match" redesign (2026-09-01, sur demande explicite) — carte avec
+   léger dégradé (bleu compétition → vert date/heure, mêmes teintes que les
+   badges qu'elle contient, juste très diluées), badge compétition en pilule,
+   date/heure agrandie, "Équipe vs Adversaire" (au lieu du simple "vs
+   Adversaire" des listes) — voir mon-equipe.js monEquipeNextMatchHtml.
+   `.sports-next` (fond plein, voir plus haut) reste la base commune avec
+   "Dernier résultat" ; cette classe ADDITIONNELLE ne fait que remplacer son
+   fond par le dégradé et souligner le bord. */
+.monequipe-next-card {
+  background: linear-gradient(135deg, rgba(79, 142, 247, 0.10), rgba(52, 211, 153, 0.05));
+  border: 1px solid rgba(79, 142, 247, 0.18);
+}
+.monequipe-next-content { display: flex; flex-direction: column; gap: 6px; }
+.monequipe-next-badge {
+  display: inline-block;
+  width: fit-content;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4f8ef7;
+  background: rgba(79, 142, 247, 0.16);
+  padding: 3px 9px;
+  border-radius: 99px;
+}
+.monequipe-next-datetime {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: #34d399;
+}
+.monequipe-next-teams {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.monequipe-next-team {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+.monequipe-next-vs {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.monequipe-next-venue { width: fit-content; font-size: 11px; font-weight: 700; }
+
+/* Sections repliables "Prochains matchs"/"Derniers résultats" (2026-09-01,
+   sur demande explicite, "comme ETF/FDJ") — mécanique IDENTIQUE à
+   .fdj-grids-section/-toggle/-chevron/-collapse (voir plus haut dans ce
+   fichier et fdj-common.js) : grid-template-rows 0fr → 1fr animé en 300ms,
+   dépliée `flex:1 1 auto` pour utiliser l'espace disponible dans la carte
+   (celle-ci grandit avec elle, voir dashboard.js isAutoHeightKey). Repliquée
+   plutôt que réutilisée telle quelle : classes propres à ce module pour ne
+   jamais coupler son comportement à celui de FDJ (une évolution future de
+   l'un ne doit pas modifier l'autre par accident). */
+.monequipe-section { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.monequipe-section.expanded { flex: 1 1 auto; min-height: 0; }
+.monequipe-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.monequipe-section-toggle:hover { background: var(--bg-hover); }
+.monequipe-section-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.monequipe-section-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 300ms ease;
+}
+.monequipe-section.expanded .monequipe-section-chevron { transform: rotate(90deg); }
+.monequipe-section-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms ease;
+  min-height: 0;
+}
+.monequipe-section.expanded .monequipe-section-collapse {
+  grid-template-rows: 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.monequipe-section-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
 /* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
    Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
@@ -1739,6 +1843,11 @@ body.ultrawide .module-card { max-width: 500px; }
 
 .module-error { color: var(--accent-red); font-size: 12px; }
 .module-empty { color: var(--text-muted); font-size: 12px; }
+/* Petit texte informatif sous le titre de carte (2026-09-01, sur demande
+   explicite — introduit pour Anniversaires, "Basé sur les anniversaires de
+   vos contacts Google") — générique, réutilisable par d'autres modules qui
+   voudraient rappeler la provenance de leurs données. */
+.module-info-hint { font-size: 11px; color: var(--text-muted); font-style: italic; margin-bottom: 6px; }
 
 /* ─── Overlay de démarrage/rafraîchissement — soleil qui se lève ──────────
    Version 2 (2026-08-06, sur demande explicite — révise la version
@@ -1793,10 +1902,10 @@ body.ultrawide .module-card { max-width: 500px; }
    explicite (voir CONTEXT.md) : .brightness-overlay/.brightness-soiree
    n'ont plus d'usage, retirés. */
 
-/* Volet latéral — la bande n'est plus un élément embarqué dans ce document
-   (2026-09-01, réécriture complète, voir main.js) : elle vit désormais dans
-   sa propre fenêtre séparée (strip.html/strip.css), ce document n'a donc
-   plus rien à styler pour ce mode. */
+/* Volet latéral — SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande explicite
+   (voir CONTEXT.md) : `renderer/strip.html` (sa fenêtre séparée) supprimé,
+   ce document n'avait de toute façon plus rien à styler pour ce mode depuis
+   sa réécriture plus tôt le même jour. */
 
 /* ─── Fond personnalisé du dashboard (2026-08-11, sur demande explicite) ────
    Voir "🎨 Personnaliser" dans Paramètres (config.js) + dashboard.js
@@ -2102,6 +2211,21 @@ body.ultrawide .module-card { max-width: 500px; }
   background: var(--bg-panel-alt);
 }
 .layout-slot-btn:disabled:hover { background: var(--bg-panel-alt); }
+
+/* Note d'info sous les emplacements de disposition (2026-09-01, sur demande
+   explicite) — précise que "Réorganiser"/les dispositions sauvegardées ne
+   portent QUE sur le placement, jamais l'activation d'un module. Discrète à
+   dessein (petite, italique, atténuée) : un simple rappel, pas un
+   avertissement. `line-height` un peu plus large que le reste de la modale
+   pour rester lisible sur 2 lignes malgré la petite taille de police. */
+.autoarrange-confirm-info {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+}
 
 /* Nom de la disposition à sauvegarder (2026-08-31) — empilée par-dessus la
    popup "⊞ Réorganiser"/emplacements (z-index supérieur), même overlay plein
@@ -2748,30 +2872,39 @@ body.ultrawide .module-card { max-width: 500px; }
      input[type=date] natif tronque visuellement l'année ("03/07/202" au lieu
      de "03/07/2026") — même bug déjà rencontré et corrigé sur les Rappels le
      même jour, voir plus haut dans ce fichier. */
-  grid-template-columns: 80px 120px 100px 120px 70px 22px;
+  /* Largeurs par colonne portées le 2026-09-01 (sur demande explicite,
+     "increase horizontal width for comfort") : ID (ISIN/ticker) 80→150px,
+     Qté 100→70px, Prix 120→90px, Frais 70→80px ; Date inchangée à 120px
+     (déjà au minimum nécessaire pour ne pas tronquer l'année, voir plus bas). */
+  grid-template-columns: 150px 120px 70px 90px 80px 22px;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
   padding: 0 2px;
 }
-/* ETF (colonne Type en plus) — resserrées le 2026-08-06 sur demande
-   explicite : la somme précédente (100+130+110+60+90+80+30=600px +6×6 de
-   gap=636px) dépassait la largeur utile de la fenêtre Paramètres et
-   masquait le bouton × derrière un scroll horizontal — vérifié en direct.
-   Date demandée à 100px, portée à 120px (même correctif qu'au-dessus pour
-   Crypto — 100px tronquait l'année, vérifié en direct) ; la somme reste bien
-   sous la largeur disponible malgré les +20px (525px + gaps, contre 636px
-   avant correctif), le bouton × reste visible sans scroll. */
-.etf-lines-header.has-type { grid-template-columns: 80px 110px 120px 55px 80px 60px 20px; }
-.etf-lines-list { display: flex; flex-direction: column; gap: 6px; }
+/* ETF (colonne Type en plus) — largeurs portées le 2026-09-01 (même demande
+   que ci-dessus) : Type 80→90px, ID 110→150px, Qté 55→70px, Prix 80→90px,
+   Frais 60→80px ; Date inchangée à 120px, × inchangé. */
+.etf-lines-header.has-type { grid-template-columns: 90px 150px 120px 70px 90px 80px 22px; }
+/* Gap 6px→8px (2026-09-01, sur demande explicite, "increase overall row
+   height slightly for better readability") — un peu plus d'air entre les
+   lignes maintenant que les champs eux-mêmes sont plus grands (voir
+   .etf-line-row input/select plus bas). */
+.etf-lines-list { display: flex; flex-direction: column; gap: 8px; }
 .etf-line-row {
   display: grid;
   gap: 6px;
   align-items: center;
-  grid-template-columns: 80px 120px 100px 120px 70px 22px;
+  /* Mêmes largeurs que .etf-lines-header ci-dessus (2026-09-01) — sinon les
+     colonnes ne s'alignent plus avec leurs en-têtes. */
+  grid-template-columns: 150px 120px 70px 90px 80px 22px;
+  /* Léger padding vertical (2026-09-01, même demande que ci-dessus) — la
+     ligne elle-même respire un peu plus, au-delà de la seule hauteur des
+     champs qu'elle contient. */
+  padding: 2px 0;
 }
-.etf-line-row.has-type { grid-template-columns: 80px 110px 120px 55px 80px 60px 20px; }
+.etf-line-row.has-type { grid-template-columns: 90px 150px 120px 70px 90px 80px 22px; }
 
 /* Prêts — config de CHAQUE prêt d'un groupe (page Paramètres), RECONSTRUIT le
    2026-08-08 pour les paliers de remboursement, puis REDESSINÉ le 2026-08-31
@@ -2798,7 +2931,11 @@ body.ultrawide .module-card { max-width: 500px; }
    .prets-paliers-header pour les paliers. */
 .prets-loan-config-labels {
   display: grid;
-  grid-template-columns: 160px 90px 110px 110px 80px 20px;
+  /* Début/Fin 110→120px, Type 80→90px (2026-09-01, sur demande explicite,
+     mêmes largeurs Date/Type que ETF/Crypto ci-dessus) — Nom/Montant
+     inchangés, hors périmètre de la demande (pas de champ ISIN/ticker ni
+     Qté/Prix/Frais dans Prêts). */
+  grid-template-columns: 160px 90px 120px 120px 90px 20px;
   gap: 6px;
   font-size: 9px;
   text-transform: uppercase;
@@ -2813,7 +2950,7 @@ body.ultrawide .module-card { max-width: 500px; }
      2026-08-31 (déplacé en ligne 2, voir .prets-loan-line2 plus bas) —
      largeurs par ailleurs inchangées depuis leur fixation explicite du
      2026-08-09. */
-  grid-template-columns: 160px 90px 110px 110px 80px 20px;
+  grid-template-columns: 160px 90px 120px 120px 90px 20px;
   align-items: center;
 }
 .prets-loan-config-header input,
@@ -2831,6 +2968,14 @@ body.ultrawide .module-card { max-width: 500px; }
 .prets-loan-config-header input:focus,
 .prets-loan-config-header select:focus { outline: none; border-color: var(--accent); }
 .prets-loan-config-header .row-delete-btn { justify-self: center; }
+/* Teinte verte Prêts (2026-09-01, sur demande explicite) — ces classes ne
+   sont utilisées que par le module Prêts, pas besoin de modificateur par clé
+   comme pour ETF/Crypto ci-dessus (voir .etf-lines-field--etf/--crypto). */
+.prets-loan-config-header input,
+.prets-loan-config-header select {
+  border-color: #34d399;
+  background: rgba(52, 211, 153, 0.08);
+}
 /* Placeholders visibles en couleur atténuée quand le champ est vide
    (2026-08-31, sur demande explicite) — pas garanti par défaut selon le
    moteur de rendu, posé explicitement plutôt que de compter dessus. */
@@ -2859,6 +3004,7 @@ body.ultrawide .module-card { max-width: 500px; }
   font-family: var(--font-ui);
 }
 .prets-loan-line2 input::placeholder { color: var(--text-muted); }
+.prets-loan-line2 input { border-color: #34d399; background: rgba(52, 211, 153, 0.08); }
 /* Largeurs RE-halvées le 2026-08-31 (2e demande explicite, sur la base des
    valeurs déjà réduites une 1re fois) — Jour de prél. à 15px est en dessous
    du seuil "juste pour 2 chiffres" noté précédemment, mais suit la
@@ -2906,15 +3052,22 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .prets-palier-row input:focus { outline: none; border-color: var(--accent); }
 .prets-palier-row .row-delete-btn { justify-self: center; }
+.prets-palier-row input { border-color: #34d399; background: rgba(52, 211, 153, 0.08); }
+/* Champs agrandis (2026-09-01, sur demande explicite, "increase size... for
+   better comfort") — 6px 8px/11px → 6px 10px/13px, hauteur explicite 34px.
+   Ce sélecteur unique (input ET select, sans distinction de `type`) couvre
+   déjà texte/nombre/date/menu déroulant tel qu'écrit — pas besoin de règles
+   séparées par type, ils partagent tous la même apparence ici. */
 .etf-line-row input,
 .etf-line-row select {
   width: 100%;
   min-width: 0;
+  height: 34px;
   background: var(--bg-base);
   border: 1.5px solid var(--text-secondary);
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
-  font-size: 11px;
+  padding: 6px 10px;
+  font-size: 13px;
   /* `color`/`color-scheme` suivent --text-primary/--color-scheme (voir :root
      en tête de fichier) — plus une couleur figée sur le clair depuis que
      Paramètres suit lui aussi le thème choisi (2026-08-08). */
@@ -2924,6 +3077,22 @@ body.ultrawide .module-card { max-width: 500px; }
 .etf-line-row input:focus,
 .etf-line-row select:focus { outline: none; border-color: var(--accent); }
 .etf-line-row .row-delete-btn { justify-self: center; }
+/* Teinte par module (2026-09-01, sur demande explicite) — ETF (or) et
+   Crypto (violet) partagent .etf-line-row/.etf-lines-header : seul le
+   modificateur `etf-lines-field--${key}` posé côté JS (voir config.js)
+   permet de les distinguer visuellement l'un de l'autre sans dupliquer toute
+   la règle de mise en page ci-dessus. Fond très atténué (8% d'opacité) pour
+   rester lisible sur les 2 thèmes clair/sombre sans écraser le texte saisi. */
+.etf-lines-field--etf .etf-line-row input,
+.etf-lines-field--etf .etf-line-row select {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+.etf-lines-field--crypto .etf-line-row input,
+.etf-lines-field--crypto .etf-line-row select {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.08);
+}
 .row-delete-btn {
   width: 22px;
   height: 22px;
@@ -2997,6 +3166,46 @@ body.ultrawide .module-card { max-width: 500px; }
    replié (rien à espacer), présente une fois déplié — évite un espace vide
    avant même le 1er affichage du contenu. */
 .config-collapsible-body.expanded .config-collapsible-body-inner { padding-top: 6px; }
+
+/* Variante compacte ETF/Crypto/Prêts (2026-09-01, sur demande explicite) —
+   "X ... configuré(e)s ▶" doit être SOUDÉ au bloc titre+toggle du module
+   (.module-row) juste au-dessus, sans espace vide entre les deux : même
+   traitement visuel que .module-config-field (fond/bordure assortis, coin
+   haut carré + `margin-top:-1px` pour chevaucher la bordure du dessus, voir
+   config.html). Réservé via le modificateur `config-collapsible--compact`
+   posé côté JS (voir wrapCollapsibleSection dans config.js) — YouTube
+   (seule autre section repliable) n'a PAS ce modificateur et garde son
+   espacement par défaut, comme demandé.
+   Le fond/bordure du header n'est posé que sur le header (jamais sur
+   .config-collapsible-body au repos) : la transition grid-template-rows
+   0fr→1fr écrase la hauteur du body à ~0 mais pas ses bordures, qui
+   laisseraient sinon un filet visible même replié. */
+.config-collapsible--compact { margin-top: -1px; }
+.config-collapsible--compact .config-collapsible-header {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  padding: 8px 12px 8px 38px;
+}
+.config-collapsible--compact .config-collapsible-header.expanded {
+  border-radius: 0;
+  border-bottom: none;
+}
+.config-collapsible--compact .config-collapsible-body.expanded {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+/* Le contenu (.module-config-field.etf-lines-field / .prets-loans-field) a
+   déjà son propre padding complet (10px 12px 12px 38px, voir config.html) —
+   seul le `padding-top: 6px` générique de .config-collapsible-body-inner
+   ci-dessus est annulé ici pour ne pas cumuler un espace vide EN PLUS de ce
+   padding déjà présent juste en dessous. */
+.config-collapsible--compact .config-collapsible-body.expanded .config-collapsible-body-inner {
+  padding-top: 0;
+}
 
 /* Config Hue (page Paramètres) */
 .module-config-field.hue-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
@@ -3634,14 +3843,26 @@ body.ultrawide .module-card { max-width: 500px; }
    Grille compacte, une tuile par indice — largeur minimale par tuile
    (auto-fill) plutôt qu'un nombre de colonnes fixe : s'adapte à la fois au
    nombre d'indices sélectionnés (voir Paramètres) et à la largeur de la
-   carte (redimensionnable comme tous les modules). */
+   carte (redimensionnable comme tous les modules).
+   .indices-module (2026-09-01, sur demande explicite, ajout de la note de
+   délai sous la grille) : `.indices-grid` passe de `height:100%` à
+   `flex:1;min-height:0` dans ce nouveau parent flex-column, pour laisser la
+   place à `.indices-delay-note` en pied de carte sans la faire déborder. */
+.indices-module { display: flex; flex-direction: column; height: 100%; gap: 4px; }
 .indices-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 8px;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   align-content: start;
   overflow-y: auto;
+}
+.indices-delay-note {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
 }
 .indices-tile {
   display: flex;

@@ -34,6 +34,21 @@
  */
 window.MatinModules = window.MatinModules || {};
 
+// Icône du bouton confidentialité (2026-09-01, sur demande explicite,
+// remplace 🔒/🔓 par une icône œil — ETF/Crypto/Prêts seulement, voir
+// style.css .etf-privacy-btn) : 👁️ (emoji, demandé explicitement) quand les
+// montants sont VISIBLES, sinon ce SVG "œil barré" (demandé explicitement,
+// "clean SVG eye icon with a diagonal line through it") — `currentColor`
+// pour suivre color/hover de .etf-privacy-btn comme le ferait un glyphe
+// texte normal. Même constante dupliquée à l'identique dans crypto.js/
+// prets.js (point 5 : cohérence entre les 3 modules) plutôt qu'un import
+// partagé — ces 3 fichiers dupliquent déjà le reste du bouton lui-même de la
+// même façon, pas de nouvelle dépendance inter-fichiers pour si peu.
+const PRIVACY_EYE_OFF_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+function privacyIconHtml(privacy) {
+  return privacy ? PRIVACY_EYE_OFF_SVG : '👁️';
+}
+
 const ETF_REFRESH_MS = 5 * 60 * 1000;
 const etfYahooCache = new Map();       // isin -> { symbol, name } | null (nom/ticker + repli/historique)
 const etfBoursoramaPathCache = new Map(); // isin -> path Boursorama (ex. "1rTESE") | null
@@ -602,7 +617,7 @@ function etfRenderModule(container, groups, privacy) {
           <span class="etf-money etf-header-value etf-gain ${etfGainClass(totals.totalGain)}">${totals.totalGain != null ? etfFmtSigned(totals.totalGain) : '—'}</span>
           <span class="etf-header-sub ${etfGainClass(totals.totalGain)}">${totals.gainPct != null ? etfFmtPct(totals.gainPct) : '—'}</span>
         </div>
-        <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacy ? '🔒' : '🔓'}</button>
+        <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacyIconHtml(privacy)}</button>
       </div>
       <div class="etf-groups">
         ${groups.map(g => etfGroupHtml(g, etfExpandedState.has(g.isin))).join('')}

@@ -31,7 +31,12 @@ const MODULE_REGISTRY = {
   tech:     { label: 'Tech',       icon: '💻',  requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
   bourse:   { label: 'Bourse',     icon: '📊',  requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
   calendar: { label: 'Agenda',     icon: '📅',  requiresGoogle: true,  defaultSize: { w: 320, h: 260 }, refreshMs: 5 * 60 * 1000, theme: 'perso' },
-  etf:      { label: 'ETF',        icon: '📈',  requiresGoogle: false, defaultSize: { w: 700, h: 420 }, theme: 'finance' }, // auto-refresh géré en interne (voir etf.js)
+  // Renommé "ETF" → "Actions / ETF" (2026-09-01, sur demande explicite) —
+  // libellé affiché uniquement (titre de carte, voir resolveModuleTitle plus
+  // bas qui retombe sur meta.label pour cette clé) : la clé interne `etf`
+  // elle-même reste inchangée partout ailleurs (store, USERDATA_MODULE_KEYS,
+  // etf.js...), aucune migration de données nécessaire.
+  etf:      { label: 'Actions / ETF', icon: '📈',  requiresGoogle: false, defaultSize: { w: 700, h: 420 }, theme: 'finance' }, // auto-refresh géré en interne (voir etf.js)
   gmail:    { label: 'Gmail',      icon: '📬',  requiresGoogle: true,  defaultSize: { w: 320, h: 320 }, refreshMs: 3 * 60 * 1000, theme: 'perso' },
   ol:       { label: 'Sports',     icon: '🏆',  requiresGoogle: false, defaultSize: { w: 320, h: 380 }, refreshMs: 10 * 60 * 1000, theme: 'other-sports' },
   // FDJ scindé en 3 modules indépendants (2026-08-04, sur demande explicite)
@@ -101,15 +106,17 @@ const MODULE_REGISTRY = {
   // sans interaction (24h : la variation jour à jour est de toute façon
   // imperceptible pour un prêt qui se mesure en mois).
   prets: { label: 'Prêts', icon: '🏠', requiresGoogle: false, defaultSize: { w: 360, h: 420 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'finance' },
-  // LIVE! (2026-08-11, sur demande explicite) — pas de refreshMs : cadence
-  // 60s/5min auto-ajustée en interne selon qu'un match est en direct ou non
-  // (impossible avec le setInterval fixe de scheduleModuleRefresh), même
-  // principe que ETF/Crypto/Spotify/Podcast/Currency (voir live.js). Thème
-  // 'other-sports' pour rejoindre le regroupement visuel "Sports" du
+  // LIVE FOOT! (2026-08-11, sur demande explicite ; renommé "LIVE!" →
+  // "LIVE FOOT!" le 2026-09-01, 2e demande explicite, libellé affiché
+  // uniquement — la clé interne `live` reste inchangée) — pas de refreshMs :
+  // cadence 60s/5min auto-ajustée en interne selon qu'un match est en direct
+  // ou non (impossible avec le setInterval fixe de scheduleModuleRefresh),
+  // même principe que ETF/Crypto/Spotify/Podcast/Currency (voir live.js).
+  // Thème 'other-sports' pour rejoindre le regroupement visuel "Sports" du
   // Réorganiser automatique (même bordure de catégorie que Sports/ol) —
   // l'accent rouge "en direct" demandé est posé séparément (voir
   // #module-live dans style.css, qui l'emporte sur la couleur de thème).
-  live: { label: 'LIVE!', icon: '🔴', requiresGoogle: false, defaultSize: { w: 340, h: 360 }, theme: 'other-sports' },
+  live: { label: 'LIVE FOOT!', icon: '🔴', requiresGoogle: false, defaultSize: { w: 340, h: 360 }, theme: 'other-sports' },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi manuel (calendrier
   // + résultats saisis à la main, voir main.js/config.js), pas de fetch
   // réseau du tout. refreshMs 24h quand même posé, même raison que Prêts
@@ -204,6 +211,12 @@ function isAutoHeightKey(key) {
   // mes pièces" (voir hue.js), au lieu de rester à taille fixe avec un
   // défilement interne.
   if (key === 'hue') return true;
+  // Mon Équipe (2026-09-01, sur demande explicite, "même comportement
+  // qu'ETF/FDJ") — les sections "Prochains matchs"/"Derniers résultats"
+  // repliables (voir mon-equipe.js) doivent pouvoir faire grandir la carte
+  // une fois dépliées, au lieu de rester à taille fixe avec un défilement
+  // interne.
+  if (key === 'monEquipe') return true;
   return isPretsKey(key);
 }
 function resolveModuleTitle(key, meta, config) {
@@ -1081,17 +1094,13 @@ function initAppBackground() {
   window.matin.background.onUpdated((key) => applyAppBackground(key));
 }
 
-// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
-// demande explicite, voir Paramètres → Personnaliser → "Mode d'affichage" ;
-// volet latéral ENTIÈREMENT réécrit le 2026-09-01, voir main.js pour le
-// détail — "l'ancienne implémentation déplace la fenêtre, ce qui est faux")
-// ────────────────────────────────────────────────────────────────────────────
+// ─── Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite,
+// voir Paramètres → Personnaliser → "Mode d'affichage" ; volet latéral
+// SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande explicite, voir
+// CONTEXT.md) ────────────────────────────────────────────────────────────
 // Tout le déplacement/masquage RÉEL des fenêtres vit côté process main (voir
 // main.js applyDisplayMode et alentours). Ce module ne fait plus QUE :
-// afficher/masquer le bouton "Réduire" et gérer Échap — la bande du volet
-// latéral vit maintenant dans SA PROPRE fenêtre séparée (strip.html, voir
-// main.js showStripWindow), plus un élément `#sidebarStrip` embarqué ici :
-// aucune position/geste souris de bande à relayer depuis ce document.
+// afficher/masquer le bouton "Réduire" et gérer Échap.
 function initDisplayMode() {
   const collapseBtn = document.getElementById('btnCollapseToSun');
 
@@ -1107,16 +1116,12 @@ function initDisplayMode() {
     window.matin.displayMode.collapseToSun().catch(err => console.error('[Matin] Échec réduction en icône flottante', err));
   });
 
-  // Échap réduit en icône flottante (mode "floating") OU replie vers la
-  // bande (mode "sidebar", 2026-09-01 — remplace le clic sur #sidebarStrip
-  // embarqué, qui n'existe plus dans ce document) : les 2 appels sont des
-  // no-op côté main.js hors de leur mode respectif (voir main.js
-  // collapseToSun/hideSidebarToStrip), donc pas besoin de vérifier le mode
-  // courant ici — inoffensif d'appeler les 2 à chaque Échap.
+  // Échap réduit en icône flottante (mode "floating") — no-op côté main.js
+  // hors de ce mode (voir main.js collapseToSun), donc pas besoin de
+  // vérifier le mode courant ici.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     window.matin.displayMode.collapseToSun().catch(() => {});
-    window.matin.displayMode.hideSidebarToStrip().catch(() => {});
   });
 }
 
@@ -1865,7 +1870,7 @@ async function loadModule(key, meta, config) {
 // Générique par construction (cherche n'importe quel ancêtre scrollable,
 // pas une liste de classes à maintenir) : couvre aussi bien le conteneur
 // générique `.module-content` de chaque carte que des listes imbriquées
-// avec leur propre défilement (ex. `.monequipe-list`, `max-height: 90px`).
+// avec leur propre défilement (ex. `.monequipe-section-list`, `.fdj-grids-list`).
 const SCROLL_STEP_FACTOR = 0.4;
 
 function findScrollableAncestor(el) {

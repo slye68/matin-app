@@ -52,29 +52,21 @@ contextBridge.exposeInMainWorld('matin', {
     onUpdated: (cb)   => ipcRenderer.on('background:updated', (_e, key) => cb(key)),
   },
 
-  // ── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, voir
-  // main.js applyDisplayMode et "🎨 Personnaliser" → section "Mode
-  // d'affichage") — `expandFromSun` est appelé depuis sun.html (fenêtre
-  // séparée, mais qui charge ce même preload.js), tous les autres depuis le
-  // dashboard (renderer/dashboard.js, initDisplayMode). ──────────────────────
+  // ── Mode d'affichage — Icône flottante (2026-08-23, voir main.js
+  // applyDisplayMode et "🎨 Personnaliser" → section "Mode d'affichage") —
+  // `expandFromSun` est appelé depuis sun.html (fenêtre séparée, mais qui
+  // charge ce même preload.js), tous les autres depuis le dashboard
+  // (renderer/dashboard.js, initDisplayMode). Volet latéral SUPPRIMÉ
+  // ENTIÈREMENT le 2026-09-01, sur demande explicite (voir CONTEXT.md) :
+  // `setSidebarEdge`/`sidebarStripClick`/`hideSidebarToStrip` retirés. ─────
   displayMode: {
     set:              (mode) => ipcRenderer.invoke('app:setDisplayMode', mode),
-    setSidebarEdge:   (edge) => ipcRenderer.invoke('app:setSidebarEdge', edge),
     collapseToSun:    ()     => ipcRenderer.invoke('dashboard:collapseToSun'),
     expandFromSun:    ()     => ipcRenderer.invoke('sun:expand'),
     forceShowFromSun: ()     => ipcRenderer.invoke('sun:forceShow'),
     showSunContextMenu:()    => ipcRenderer.invoke('sun:contextMenu'),
     getSunPosition:   ()     => ipcRenderer.invoke('sun:getPosition'),
     moveSunWindow:    (x, y) => ipcRenderer.send('sun:move', { x, y }),
-    // Volet latéral — RÉÉCRIT le 2026-09-01 (voir main.js, commentaire
-    // d'en-tête "Volet latéral" pour le détail) : `sidebarStripClick` est
-    // appelé depuis strip.html (fenêtre séparée, comme sunWindow/sun.html —
-    // charge ce même preload.js), `hideSidebarToStrip` depuis le dashboard
-    // (Échap, voir dashboard.js initDisplayMode). Plus de survol
-    // (`sidebarHoverEnter`, supprimé) : ce mode ne réagit plus qu'à des
-    // clics explicites.
-    sidebarStripClick:   () => ipcRenderer.invoke('sidebar:stripClick'),
-    hideSidebarToStrip:  () => ipcRenderer.invoke('dashboard:hideSidebarToStrip'),
     onUpdated:        (cb)   => ipcRenderer.on('displayMode:updated', (_e, mode) => cb(mode)),
   },
 

@@ -320,14 +320,17 @@ const store = new Store({
       // ce bloc) est traité comme 'none' côté renderer (dashboard.js).
       background: 'none',
       // Mode d'affichage (2026-08-23, sur demande explicite — voir
-      // "🎨 Personnaliser" → section "Mode d'affichage") — même limite
-      // d'`defaults` que `background` ci-dessus sur une installation
-      // existante : chaque lecture retombe sur ces mêmes valeurs via `|| ...`
-      // plutôt que de compter sur ce bloc pour les combler. Voir
-      // applyDisplayMode/createSunWindow/enterSidebarMode plus bas.
+      // "🎨 Personnaliser" → section "Mode d'affichage" ; volet latéral
+      // SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande explicite, voir
+      // CONTEXT.md — `sidebarEdge` n'a plus d'usage, retiré des defaults,
+      // orphelin et inoffensif sur une installation existante qui le
+      // porterait encore sur disque) — même limite d'`defaults` que
+      // `background` ci-dessus sur une installation existante : chaque
+      // lecture retombe sur ces mêmes valeurs via `|| ...` plutôt que de
+      // compter sur ce bloc pour les combler. Voir applyDisplayMode/
+      // createSunWindow plus bas.
       displayMode: 'fullscreen',
       floatingSunPosition: null,
-      sidebarEdge: 'right',
       // Défilement automatique du dashboard — SUPPRIMÉ ENTIÈREMENT le
       // 2026-09-01, sur demande explicite (voir CONTEXT.md) : `autoScroll`/
       // `autoScrollSpeed` n'ont plus d'usage, retirés des defaults (une
@@ -1122,35 +1125,21 @@ function titleBarColorsForTheme(theme) {
 let mainWindow;
 let configWindow;
 
-// ─── Modes d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
-// demande explicite, voir "🎨 Personnaliser" → section "Mode d'affichage")
-// ────────────────────────────────────────────────────────────────────────────
+// ─── Modes d'affichage — Icône flottante (2026-08-23, sur demande explicite,
+// voir "🎨 Personnaliser" → section "Mode d'affichage" ; volet latéral
+// supprimé entièrement le 2026-09-01, voir CONTEXT.md) ────────────────────
 // `sunWindow` : 2e BrowserWindow, minuscule/sans cadre/transparente, utilisée
 // UNIQUEMENT en mode "floating" (voir showSunWindow) — n'existe pas tant que
 // ce mode n'a jamais été activé, recréée à la demande plutôt que gardée
 // cachée en permanence.
 let sunWindow = null;
 let currentDisplayMode = 'fullscreen';
-// `stripWindow` : 3e BrowserWindow, minuscule/sans cadre/transparente/
-// toujours au-dessus, utilisée UNIQUEMENT en mode "sidebar" (voir
-// showStripWindow) — même principe que `sunWindow` pour le mode "floating"
-// juste au-dessus. RÉÉCRITURE COMPLÈTE le 2026-09-01 (sur demande explicite,
-// suite au rapport "l'implémentation actuelle déplace la fenêtre, ce qui est
-// faux") : l'ancienne implémentation faisait glisser `mainWindow` elle-même
-// hors de l'écran (`animateSidebarX`/`sidebarSnapToCollapsed`, tout
-// supprimé) — remplacée par CETTE fenêtre séparée, réutilisant exactement le
-// même schéma que le soleil flottant (`sunWindow`) : `mainWindow` ne bouge
-// plus JAMAIS après son dimensionnement initial en mode "sidebar" (voir
-// enterSidebarMode plus bas), elle est simplement montrée/cachée en entier —
-// c'est CETTE fenêtre-bande qui reste ancrée au bord de l'écran et sert de
-// poignée cliquable.
-let stripWindow = null;
-// Bornes de `mainWindow` sauvegardées juste avant d'entrer en mode "sidebar"
-// (voir enterSidebarMode/exitSidebarMode) — permet de les restaurer telles
-// quelles à la sortie, sans dépendre de `app.windowBounds` qui continue par
-// ailleurs de suivre le dernier redimensionnement "normal" de la fenêtre.
-let preSidebarBounds = null;
-const SIDEBAR_STRIP_WIDTH = 20; // 12px→20px (2026-08-23, sur demande explicite — trop étroit pour viser correctement) ; désormais la largeur RÉELLE de stripWindow (voir showStripWindow), plus une largeur "cachée" de mainWindow.
+// Volet latéral ("sidebar") — SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur
+// demande explicite (voir CONTEXT.md) : `stripWindow`/`preSidebarBounds`/
+// `SIDEBAR_STRIP_WIDTH` et toutes les fonctions dédiées (computeStripBounds/
+// showStripWindow/hideStripWindow/hideSidebarToStrip/enterSidebarMode/
+// exitSidebarMode/sidebarStripClick) retirés, ainsi que
+// `renderer/strip.html`/`renderer/strip.js` (fichiers supprimés).
 const SUN_WINDOW_SIZE = 60;
 
 function createMainWindow() {
@@ -1182,10 +1171,10 @@ function createMainWindow() {
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   // Mode d'affichage restauré tout de suite, AVANT le premier `show()`
-  // (2026-08-23) — pose déjà les bornes "sidebar" collapsées ou masque le
-  // dashboard (mode "floating") avant que showOnce ci-dessous ne rende quoi
-  // que ce soit visible, pour éviter un flash de la fenêtre pleine taille au
-  // lancement. Voir applyDisplayMode plus bas.
+  // (2026-08-23) — masque déjà le dashboard (mode "floating") avant que
+  // showOnce ci-dessous ne rende quoi que ce soit visible, pour éviter un
+  // flash de la fenêtre pleine taille au lancement. Voir applyDisplayMode
+  // plus bas.
   applyDisplayMode(store.get('app.displayMode') || 'fullscreen');
 
   // Filet de sécurité : 'ready-to-show' ne se déclenche pas de façon fiable
@@ -1194,17 +1183,12 @@ function createMainWindow() {
   // arrivé, pour ne jamais laisser la fenêtre invisible indéfiniment.
   // `currentDisplayMode` lu au moment du show (pas figé à l'appel) : en mode
   // "floating" c'est le soleil flottant qui doit apparaître à sa place, pas
-  // le dashboard (voir applyDisplayMode/showSunWindow). Idem "sidebar"
-  // (2026-09-01, correctif trouvé en relisant la réécriture — `showOnce`
-  // rappellerait sinon `mainWindow.show()` juste après qu'enterSidebarMode
-  // l'ait cachée en entrant dans ce mode, annulant l'état "replié" voulu au
-  // lancement) : c'est hideSidebarToStrip/showStripWindow, pas ce filet, qui
-  // décide de ce qui doit être visible pour ce mode.
+  // le dashboard (voir applyDisplayMode/showSunWindow).
   let shown = false;
   const showOnce = () => {
     if (shown) return;
     shown = true;
-    if (currentDisplayMode !== 'floating' && currentDisplayMode !== 'sidebar') mainWindow.show();
+    if (currentDisplayMode !== 'floating') mainWindow.show();
   };
   mainWindow.once('ready-to-show', showOnce);
   setTimeout(showOnce, 2000);
@@ -1217,12 +1201,6 @@ function createMainWindow() {
   });
 
   mainWindow.on('resize', () => {
-    // Ignoré en mode "sidebar" (2026-08-23) : enterSidebarMode redimensionne
-    // la fenêtre à la hauteur pleine de l'écran pour le volet — sans cette
-    // garde, cette taille "sidebar" écraserait app.windowBounds (la taille
-    // "normale" restaurée en mode plein écran, voir preSidebarBounds/
-    // exitSidebarMode) au lieu de la préserver.
-    if (currentDisplayMode === 'sidebar') return;
     const [width, height] = mainWindow.getSize();
     safeStoreSet('app.windowBounds', { width, height });
   });
@@ -1252,18 +1230,19 @@ function createConfigWindow(opts = {}) {
   const color = '#1a3040';
   const symbolColor = '#ffffff';
 
-  // Hauteur adaptative (2026-08-23, sur demande explicite) — 900px fixe
-  // dépassait la zone de travail sur un 14" 1920×1080 avec mise à l'échelle
-  // Windows 125-150% (hauteur logique effective ~700-865px) : la fenêtre
-  // s'ouvrait rognée, une partie (souvent le bouton Enregistrer) hors écran.
-  // min(800, 90% de la zone de travail de l'écran où se trouve mainWindow)
-  // — jamais plus que nécessaire, jamais plus que l'espace réellement
-  // disponible. `resizable: true` (inchangé) laisse l'utilisateur agrandir
-  // manuellement au-delà si besoin.
+  // Hauteur adaptative (2026-08-23, sur demande explicite ; revu le
+  // 2026-09-01, 2e demande explicite — "hauteur d'écran disponible MAXIMALE
+  // à l'ouverture", remplace le plafond fixe 800px par 95% de la zone de
+  // travail SANS plafond, pour utiliser tout l'écran disponible plutôt qu'un
+  // maximum arbitraire) — `workAreaSize` (PAS `size`, qui inclut la barre des
+  // tâches Windows) de l'écran où se trouve mainWindow, jamais l'écran
+  // principal si l'utilisateur a déplacé Matin sur un 2e écran.
+  // `resizable: true` (inchangé) laisse l'utilisateur redimensionner
+  // manuellement au-delà ou en-deçà si besoin.
   const workArea = (mainWindow && !mainWindow.isDestroyed()
     ? screen.getDisplayMatching(mainWindow.getBounds())
     : screen.getPrimaryDisplay()).workAreaSize;
-  const configHeight = Math.round(Math.min(800, workArea.height * 0.9));
+  const configHeight = Math.round(workArea.height * 0.95);
 
   configWindow = new BrowserWindow({
     width: 800,
@@ -1300,19 +1279,18 @@ function createConfigWindow(opts = {}) {
   configWindow.on('closed', () => { configWindow = null; });
 }
 
-// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
-// demande explicite) ─────────────────────────────────────────────────────────
+// ─── Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite)
+// ────────────────────────────────────────────────────────────────────────
 // Point d'entrée UNIQUE pour changer de mode (appelé au lancement avec la
 // valeur restaurée du store, ET à chaque changement depuis Personnaliser) —
 // nettoie toujours l'ancien mode avant d'appliquer le nouveau, jamais de
-// chevauchement (ex. fenêtre sidebar encore alwaysOnTop en repassant en
-// plein écran).
+// chevauchement (ex. fenêtre encore alwaysOnTop en repassant en plein
+// écran).
 function applyDisplayMode(mode) {
   const previousMode = currentDisplayMode;
-  const safeMode = ['floating', 'sidebar'].includes(mode) ? mode : 'fullscreen';
+  const safeMode = mode === 'floating' ? mode : 'fullscreen';
   currentDisplayMode = safeMode;
 
-  if (previousMode === 'sidebar' && safeMode !== 'sidebar') exitSidebarMode();
   if (previousMode === 'floating' && safeMode !== 'floating' && sunWindow && !sunWindow.isDestroyed()) {
     sunWindow.hide();
   }
@@ -1330,13 +1308,6 @@ function applyDisplayMode(mode) {
     // reconstruire — voir leurs commentaires plus bas.
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
     showSunWindow();
-  } else if (safeMode === 'sidebar') {
-    if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
-    // `enterSidebarMode` gère maintenant tout le cycle elle-même (dimensionne
-    // mainWindow puis la cache, montre stripWindow) — plus besoin d'un
-    // `.show()` intermédiaire ici avant de la recacher aussitôt (2026-09-01,
-    // voir enterSidebarMode plus bas pour le détail).
-    enterSidebarMode();
   } else {
     if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
     // `previousMode !== safeMode` : ne force PAS `.show()` au tout premier
@@ -1457,7 +1428,6 @@ function forceShowMainWindow() {
     createMainWindow();
   }
   if (sunWindow && !sunWindow.isDestroyed()) sunWindow.hide();
-  if (stripWindow && !stripWindow.isDestroyed()) stripWindow.hide();
 
   const forceShow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1492,144 +1462,6 @@ function collapseToSun() {
   if (currentDisplayMode !== 'floating') return;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   showSunWindow();
-}
-
-// ── Volet latéral — RÉÉCRIT le 2026-09-01 (sur demande explicite) ──────────
-// ANCIENNE approche (supprimée) : faire glisser `mainWindow` elle-même hors
-// de l'écran via `setBounds` en boucle, la laissant "à cheval" sur le bord
-// physique de l'écran (12-20px visibles, le reste hors champ). Fragile par
-// nature (a nécessité de très nombreux correctifs successifs : plein écran
-// OS qui ignore silencieusement `setBounds`, 2 clics nécessaires, la bande
-// qui se referme au survol de la barre des tâches...) ET conceptuellement
-// fausse : la fenêtre principale ne devrait jamais avoir besoin de bouger ou
-// de sortir de l'écran pour ce genre de volet.
-// NOUVELLE approche : `mainWindow` reste TOUJOURS entière et FIXE — elle est
-// seulement dimensionnée UNE FOIS à la zone de travail de l'écran en entrant
-// dans ce mode (jamais retouchée ensuite), puis simplement montrée/cachée en
-// bloc. C'est `stripWindow` — une 3e fenêtre séparée, minuscule, transparente,
-// toujours au-dessus (EXACTEMENT le même principe que `sunWindow` pour le
-// mode "floating" juste au-dessus dans ce fichier) — qui reste ancrée au
-// bord de l'écran et sert de poignée cliquable pendant que `mainWindow` est
-// cachée. Aucun `setFullScreen()` natif OS nulle part ici (contrairement à
-// l'ancienne version) : c'est justement cette API qui causait la plupart des
-// bugs de timing (`ensureWindowNotFullScreen`/`FULLSCREEN_EXIT_SETTLE_MS`,
-// tous deux supprimés) — un simple `setBounds` à la zone de travail de
-// l'écran donne le même résultat visuel sans aucun de ces pièges.
-
-// Bordure de l'écran où placer `stripWindow` — recalculée à CHAQUE appel
-// (jamais mise en cache) à partir de l'écran RÉEL de `mainWindow` au moment
-// de l'appel (`screen.getDisplayMatching`, pas `getPrimaryDisplay`) : c'est
-// ce qui garantit que la bande reste sur le BON écran en configuration
-// multi-écrans (points 5/6 de la demande), y compris si l'utilisateur a
-// déplacé `mainWindow` sur un autre moniteur depuis la dernière fois que ce
-// mode a été actif. Le côté (gauche/droite) reste le réglage utilisateur
-// existant (`app.sidebarEdge`, Paramètres → Personnaliser) — inchangé par
-// cette réécriture, qui ne corrige que l'architecture des fenêtres.
-function computeStripBounds() {
-  const display = mainWindow && !mainWindow.isDestroyed()
-    ? screen.getDisplayMatching(mainWindow.getBounds())
-    : screen.getPrimaryDisplay();
-  const edge = store.get('app.sidebarEdge') || 'right';
-  const x = edge === 'right'
-    ? display.workArea.x + display.workArea.width - SIDEBAR_STRIP_WIDTH
-    : display.workArea.x;
-  return {
-    x: Math.round(x),
-    y: display.workArea.y,
-    width: SIDEBAR_STRIP_WIDTH,
-    height: display.workArea.height,
-  };
-}
-
-// Réutilise la fenêtre existante si déjà créée (repositionnée au cas où
-// l'écran/le bord auraient changé depuis, voir computeStripBounds) — même
-// principe que showSunWindow : recréée à la demande, jamais gardée en
-// permanence si ce mode n'a jamais été activé.
-function showStripWindow() {
-  const bounds = computeStripBounds();
-  if (stripWindow && !stripWindow.isDestroyed()) {
-    stripWindow.setBounds(bounds);
-    stripWindow.show();
-    return;
-  }
-  stripWindow = new BrowserWindow({
-    ...bounds,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-  // Niveau 'screen-saver' (même qu'sunWindow) : reste au-dessus même d'une
-  // autre fenêtre "always-on-top" classique ou d'une appli plein écran.
-  stripWindow.setAlwaysOnTop(true, 'screen-saver');
-  stripWindow.loadFile(path.join(__dirname, '../renderer/strip.html'));
-  stripWindow.once('ready-to-show', () => stripWindow.show());
-  stripWindow.on('closed', () => { stripWindow = null; });
-}
-
-function hideStripWindow() {
-  if (stripWindow && !stripWindow.isDestroyed()) stripWindow.hide();
-}
-
-// État "de base" du mode "sidebar" : `mainWindow` cachée, seule la bande
-// visible — appelée à l'entrée dans ce mode (enterSidebarMode ci-dessous) ET
-// par le raccourci Échap une fois `mainWindow` réaffichée par un clic sur la
-// bande (voir dashboard.js/preload.js, IPC dashboard:hideSidebarToStrip) :
-// un seul chemin partagé pour "revenir à l'état replié", peu importe d'où on
-// vient.
-function hideSidebarToStrip() {
-  if (currentDisplayMode !== 'sidebar') return;
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-  showStripWindow();
-}
-
-function enterSidebarMode() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (!preSidebarBounds) preSidebarBounds = mainWindow.getBounds();
-
-  // Dimensionnée UNE SEULE FOIS à la zone de travail de l'écran courant —
-  // jamais retouchée ensuite tant que ce mode reste actif (voir le
-  // commentaire d'en-tête de section : "mainWindow ne bouge plus jamais").
-  const { workArea } = screen.getDisplayMatching(mainWindow.getBounds());
-  mainWindow.setBounds({ x: workArea.x, y: workArea.y, width: workArea.width, height: workArea.height });
-
-  // État de base = replié (comportement conservé de l'ancienne version : le
-  // volet démarre toujours réduit à l'activation, que ce soit au lancement
-  // ou depuis Personnaliser).
-  hideSidebarToStrip();
-}
-
-function exitSidebarMode() {
-  hideStripWindow();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-    if (preSidebarBounds) mainWindow.setBounds(preSidebarBounds);
-  }
-  preSidebarBounds = null;
-}
-
-// Clic sur la bande (stripWindow) — affiche `mainWindow` EN ENTIER (jamais
-// de repositionnement, voir en-tête de section) et cache la bande, qui
-// n'a plus lieu d'être visible tant que le dashboard occupe déjà tout
-// l'écran par-dessus. Revenir à l'état "replié" se fait via Échap (voir
-// hideSidebarToStrip), pas en recliquant au même endroit : la bande est
-// cachée pendant que `mainWindow` est visible, il n'y a donc rien à
-// recliquer à cet endroit-là dans cet état.
-function sidebarStripClick() {
-  if (currentDisplayMode !== 'sidebar') return;
-  if (!mainWindow || mainWindow.isDestroyed()) { forceShowMainWindow(); return; }
-  hideStripWindow();
-  mainWindow.show();
-  mainWindow.focus();
 }
 
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
@@ -1851,30 +1683,17 @@ ipcMain.handle('app:setBackground', (_e, background) => {
   return true;
 });
 
-// Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur demande
-// explicite, voir "🎨 Personnaliser" → section "Mode d'affichage" et
-// applyDisplayMode/enterSidebarMode/showSunWindow plus haut) — même
-// mécanisme instantané que app:setBackground ci-dessus (store + notification
-// au dashboard), avec en plus l'effet de bord réel (masquer/repositionner
-// des BrowserWindow) que ipcMain.handle('store:set', ...) seul ne ferait pas.
+// Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite, voir
+// "🎨 Personnaliser" → section "Mode d'affichage" et applyDisplayMode/
+// showSunWindow plus haut ; volet latéral SUPPRIMÉ ENTIÈREMENT le 2026-09-01,
+// sur demande explicite, voir CONTEXT.md) — même mécanisme instantané que
+// app:setBackground ci-dessus (store + notification au dashboard), avec en
+// plus l'effet de bord réel (masquer/repositionner des BrowserWindow) que
+// ipcMain.handle('store:set', ...) seul ne ferait pas.
 ipcMain.handle('app:setDisplayMode', (_e, mode) => {
-  const safeMode = ['floating', 'sidebar'].includes(mode) ? mode : 'fullscreen';
+  const safeMode = mode === 'floating' ? mode : 'fullscreen';
   safeStoreSet('app.displayMode', safeMode);
   applyDisplayMode(safeMode);
-  return true;
-});
-
-ipcMain.handle('app:setSidebarEdge', (_e, edge) => {
-  const safeEdge = edge === 'left' ? 'left' : 'right';
-  safeStoreSet('app.sidebarEdge', safeEdge);
-  // Repositionne SEULEMENT stripWindow (2026-09-01 — plus mainWindow, qui ne
-  // bouge plus jamais, voir computeStripBounds) ; sans effet si la bande
-  // n'est pas actuellement affichée (mainWindow visible, voir
-  // sidebarStripClick) — elle sera de toute façon repositionnée au bon bord
-  // au prochain showStripWindow (Échap).
-  if (currentDisplayMode === 'sidebar' && stripWindow && !stripWindow.isDestroyed()) {
-    stripWindow.setBounds(computeStripBounds());
-  }
   return true;
 });
 
@@ -1943,17 +1762,6 @@ ipcMain.handle('sun:forceShow', () => { forceShowMainWindow(); return true; });
 // Clic droit sur le soleil (2026-08-23, sur demande explicite, point 3).
 ipcMain.handle('sun:contextMenu', () => { showSunContextMenu(); return true; });
 ipcMain.handle('dashboard:collapseToSun', () => { collapseToSun(); return true; });
-
-// Volet latéral — RÉÉCRIT le 2026-09-01 (voir le commentaire d'en-tête de
-// section sidebarStripClick/enterSidebarMode plus haut pour le détail de la
-// réécriture). `sidebar:stripClick` vient de la fenêtre-bande SÉPARÉE
-// (strip.html, plus un élément embarqué dans le dashboard) ;
-// `dashboard:hideSidebarToStrip` vient d'Échap dans le dashboard (voir
-// dashboard.js initDisplayMode) — plus aucun événement de survol
-// ('sidebar:hoverEnter', supprimé) : ce mode ne réagit plus qu'à des clics
-// explicites, jamais au survol de la souris.
-ipcMain.handle('sidebar:stripClick', () => { sidebarStripClick(); return true; });
-ipcMain.handle('dashboard:hideSidebarToStrip', () => { hideSidebarToStrip(); return true; });
 
 // Modules
 //

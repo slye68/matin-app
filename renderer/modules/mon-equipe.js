@@ -17,7 +17,10 @@ window.MatinModules = window.MatinModules || {};
 // "D"/"E" (compact, changé fréquemment en saisie), seul l'affichage carte
 // passe au mot complet.
 const MON_EQUIPE_VENUE_LABEL = { home: 'Domicile', away: 'Extérieur' };
-const MON_EQUIPE_LIST_SIZE = 3;
+// 20 (2026-09-01, sur demande explicite — remplacé 3, section désormais
+// repliable comme ETF/FDJ, voir monEquipeSectionHtml/render plus bas) :
+// jusqu'à 20 matchs/résultats affichés une fois la section dépliée.
+const MON_EQUIPE_SECTION_LIMIT = 20;
 
 function monEquipeFormatDate(dateStr) {
   if (!dateStr) return '';
@@ -74,9 +77,29 @@ function monEquipeMatchLineHtml(item) {
   ].filter(Boolean).join(' · ');
 }
 
-function monEquipeNextMatchHtml(item) {
+// "Prochain match" (2026-09-01, redesign sur demande explicite — remplace la
+// simple ligne monEquipeMatchLineHtml partagée avec la liste "Prochains
+// matchs", voir CSS .monequipe-next-* dédiées dans style.css) : compétition
+// en badge (pilule bleue), date+heure en grand texte vert, "Équipe vs
+// Adversaire" plutôt que juste "vs Adversaire" (nécessite `teamName`, connu
+// seulement ici — pas dans monEquipeMatchLineHtml, resté inchangé pour la
+// liste "Prochains matchs"), Domicile/Extérieur toujours coloré (classes
+// existantes monEquipeVenueClass, jaune/rouge). `teamName` déjà garanti non
+// vide par render() (sinon retour anticipé "Configurez votre équipe").
+function monEquipeNextMatchHtml(item, teamName) {
   if (!item) return '<span class="sports-no-data">Aucun match prévu</span>';
-  return `<div class="sports-next-detail monequipe-next-line">${monEquipeMatchLineHtml(item)}</div>`;
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  return `
+    <div class="monequipe-next-content">
+      ${item.competition ? `<span class="monequipe-next-badge">${item.competition}</span>` : ''}
+      ${item.date ? `<div class="monequipe-next-datetime">${monEquipeFormatDateTime(item)}</div>` : ''}
+      <div class="monequipe-next-teams">
+        <span class="monequipe-next-team">${teamName}</span>
+        <span class="monequipe-next-vs">vs</span>
+        <span class="monequipe-next-team">${item.opponent || ''}</span>
+      </div>
+      <span class="${monEquipeVenueClass(item.venue)} monequipe-next-venue">${venue}</span>
+    </div>`;
 }
 
 function monEquipeLastResultHtml(item) {
@@ -90,6 +113,45 @@ function monEquipeLastResultHtml(item) {
 
 function monEquipeUpcomingRowHtml(item) {
   return `<div class="monequipe-list-row monequipe-list-row-line">${monEquipeMatchLineHtml(item)}</div>`;
+}
+
+// Ligne "Derniers résultats" (2026-09-01, sur demande explicite — nouvelle
+// section, aucun équivalent liste n'existait avant, seul un "Dernier
+// résultat" au singulier était affiché) : même gabarit de ligne que
+// monEquipeUpcomingRowHtml (une seule chaîne fluide, couleurs dédiées),
+// score en tête plutôt que le type de compétition (non saisi pour un
+// résultat déjà joué, voir config.js renderMonEquipeConfigSection).
+function monEquipeResultRowHtml(item) {
+  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  const line = [
+    `<span class="monequipe-info-score">${item.score || '—'}</span>`,
+    `<span class="${monEquipeVenueClass(item.venue)}">${venue}</span>`,
+    `<span class="monequipe-info-opponent">vs ${item.opponent || ''}</span>`,
+    item.date ? `<span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>` : '',
+  ].filter(Boolean).join(' · ');
+  return `<div class="monequipe-list-row monequipe-list-row-line">${line}</div>`;
+}
+
+// Section repliable "Prochains matchs"/"Derniers résultats" (2026-09-01, sur
+// demande explicite, "comme ETF/FDJ") — même mécanique que .fdj-grids-section
+// (voir fdj-common.js/style.css) : repliée par défaut, dépliage/repliage via
+// un simple classList.toggle sur le nœud EXISTANT (jamais un re-render du
+// bloc lui-même, voir render() plus bas) pour que la transition CSS
+// grid-template-rows 300ms puisse s'animer — un re-render recréerait la
+// section déjà dans son état final, sans transition possible.
+function monEquipeSectionHtml(sectionKey, label, items, expanded, rowHtmlFn, emptyText) {
+  return `
+    <div class="monequipe-section ${expanded ? 'expanded' : ''}" data-section="${sectionKey}">
+      <div class="monequipe-section-toggle" data-section-toggle="${sectionKey}">
+        <span class="monequipe-section-label">${label}</span>
+        <span class="monequipe-section-chevron">▶</span>
+      </div>
+      <div class="monequipe-section-collapse">
+        <div class="monequipe-section-list">${
+          items.length ? items.map(rowHtmlFn).join('') : `<span class="sports-no-data">${emptyText}</span>`
+        }</div>
+      </div>
+    </div>`;
 }
 
 window.MatinModules.monEquipe = {
@@ -119,25 +181,46 @@ window.MatinModules.monEquipe = {
     const nextMatch = upcoming[0] || null;
     const lastResult = results[0] || null;
 
+    // Repliées par défaut (2026-09-01, sur demande explicite) — état LOCAL à
+    // ce rendu (fermeture, comme fdj-common.js gridsExpanded), donc remis à
+    // zéro à chaque rechargement complet du dashboard, jamais persisté.
+    const sectionExpanded = { upcoming: false, results: false };
+
     container.innerHTML = `
       <div class="sports-module monequipe-module">
-        <div class="sports-next">
+        <div class="sports-next monequipe-next-card">
           <span class="sports-next-label">Prochain match</span>
-          ${monEquipeNextMatchHtml(nextMatch)}
+          ${monEquipeNextMatchHtml(nextMatch, teamName)}
         </div>
         <div class="sports-next">
           <span class="sports-next-label">Dernier résultat</span>
           ${monEquipeLastResultHtml(lastResult)}
         </div>
-        <div class="monequipe-list-label">Prochains matchs</div>
-        <div class="monequipe-list">${
+        ${monEquipeSectionHtml(
+          'upcoming', 'Prochains matchs',
           // slice(1, …) : exclut le match déjà affiché juste au-dessus dans
           // "Prochain match" (upcoming[0]) — sans ce décalage il apparaît
           // deux fois (bug corrigé le 2026-08-16, signalé explicitement).
-          upcoming.slice(1, 1 + MON_EQUIPE_LIST_SIZE).map(monEquipeUpcomingRowHtml).join('')
-          || '<span class="sports-no-data">Aucun autre match à venir</span>'
-        }</div>
+          upcoming.slice(1, 1 + MON_EQUIPE_SECTION_LIMIT), sectionExpanded.upcoming,
+          monEquipeUpcomingRowHtml, 'Aucun autre match à venir'
+        )}
+        ${monEquipeSectionHtml(
+          'results', 'Derniers résultats',
+          results.slice(1, 1 + MON_EQUIPE_SECTION_LIMIT), sectionExpanded.results,
+          monEquipeResultRowHtml, 'Aucun autre résultat'
+        )}
       </div>
     `;
+
+    container.addEventListener('click', (e) => {
+      const toggle = e.target.closest('[data-section-toggle]');
+      if (!toggle) return;
+      const key = toggle.dataset.sectionToggle;
+      sectionExpanded[key] = !sectionExpanded[key];
+      // classList.toggle sur le nœud EXISTANT (voir monEquipeSectionHtml) —
+      // jamais innerHTML ici, qui recréerait la section déjà dans son état
+      // final et empêcherait la transition CSS de s'animer.
+      container.querySelector(`.monequipe-section[data-section="${key}"]`)?.classList.toggle('expanded', sectionExpanded[key]);
+    });
   },
 };

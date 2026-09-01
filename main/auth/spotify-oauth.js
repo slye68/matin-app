@@ -35,6 +35,14 @@ const SCOPES = [
   'user-read-playback-state',
   'user-modify-playback-state',
   'user-read-recently-played',
+  // Ajouté le 2026-09-01 (sur demande explicite — badge nom de playlist,
+  // voir spotify.js/spotifyResolveContextLabel) : GET /playlists/{id}
+  // répond 403 sans ce scope dès que la playlist en cours de lecture est
+  // privée (le cas le plus courant pour une playlist personnelle) — un
+  // compte déjà connecté avant cet ajout devra se déconnecter/reconnecter
+  // (Paramètres → Compte Spotify) pour que ce scope soit proposé au
+  // consentement, même situation que l'ajout du scope Tasks sur Google.
+  'playlist-read-private',
 ].join(' ');
 
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;

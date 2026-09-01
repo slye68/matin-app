@@ -120,10 +120,17 @@ function birthdaysRowHtml(item) {
     </div>`;
 }
 
+// Rappel de la source des données (2026-09-01, sur demande explicite) —
+// affiché dans TOUS les états de la carte (chargement implicite, connexion
+// manquante, liste vide, erreur, liste normale), pas seulement quand des
+// anniversaires sont trouvés : c'est une info permanente sur la provenance
+// des données, pas un détail propre au résultat du fetch.
+const BIRTHDAYS_INFO_HINT_HTML = '<div class="module-info-hint">Basé sur les anniversaires de vos contacts Google</div>';
+
 window.MatinModules.birthdays = {
   async render(container, _config, googleData, setBadge) {
     if (!googleData?.accessToken) {
-      container.innerHTML = `<div class="module-empty">Connectez votre compte Google dans Paramètres.</div>`;
+      container.innerHTML = `${BIRTHDAYS_INFO_HINT_HTML}<div class="module-empty">Connectez votre compte Google dans Paramètres.</div>`;
       setBadge('—');
       return;
     }
@@ -134,15 +141,15 @@ window.MatinModules.birthdays = {
       const items = birthdaysBuildList(connections, new Date());
 
       if (!items.length) {
-        container.innerHTML = `<div class="module-empty">Aucun anniversaire dans les 30 prochains jours.</div>`;
+        container.innerHTML = `${BIRTHDAYS_INFO_HINT_HTML}<div class="module-empty">Aucun anniversaire dans les 30 prochains jours.</div>`;
         setBadge('—');
         return;
       }
 
-      container.innerHTML = `<div class="birthdays-list">${items.map(birthdaysRowHtml).join('')}</div>`;
+      container.innerHTML = `${BIRTHDAYS_INFO_HINT_HTML}<div class="birthdays-list">${items.map(birthdaysRowHtml).join('')}</div>`;
       setBadge(String(items.length));
     } catch (err) {
-      container.innerHTML = `<span class="module-error">${err.message.startsWith('Reconnectez') ? err.message : 'Anniversaires indisponibles'}</span>`;
+      container.innerHTML = `${BIRTHDAYS_INFO_HINT_HTML}<span class="module-error">${err.message.startsWith('Reconnectez') ? err.message : 'Anniversaires indisponibles'}</span>`;
       console.error('[Anniversaires]', err);
       setBadge('⚠');
     }

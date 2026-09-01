@@ -101,6 +101,13 @@
       color: #e8eaf0;
     }
     .theme-toggle-row {
+      /* position:relative (2026-09-01, sur demande explicite) — ancre
+         .profil-notch ci-dessous, positionnée en absolu par rapport à CETTE
+         ligne pour rester CENTRÉE indépendamment de la largeur des 2 boutons
+         qui l'encadrent (un simple `justify-content:space-between` sur 3
+         enfants ne centre PAS vraiment le du milieu si les 2 autres n'ont
+         pas la même largeur — "Affichage" et "Sauvegardes" n'en ont pas). */
+      position: relative;
       flex-shrink: 0;
       display: flex;
       align-items: center;
@@ -121,13 +128,109 @@
       font-size: 12px;
       color: #b8c2d9; /* fixe, voir .app-logo/.app-name ci-dessus */
     }
+
+    /* Notch Profil (2026-09-01, sur demande explicite, "like an iPhone
+       notch") — ancrée en haut de .theme-toggle-row (top:0) et plus HAUTE
+       que celle-ci (calc(100% + 10px)) : déborde donc de ~10px sous son bord
+       inférieur, exactement l'effet "encoche taillée dans le bandeau du
+       haut" — coins du BAS arrondis seulement (le haut reste carré, flush
+       avec le bord supérieur de la fenêtre, comme une encoche physique),
+       fond volontairement PLUS SOMBRE que le dégradé du bandeau (contraste =
+       carte "surélevée", pas juste posée dessus) + ombre portée pour
+       accentuer le relief. `.config-profil` juste en dessous compense ce
+       débordement avec un padding-top augmenté (voir plus bas) pour que la
+       pointe de l'encoche ne recouvre jamais le bandeau PROFILS. */
+    .profil-notch {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      height: calc(100% + 10px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      background: #0a0e18;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-top: none;
+      border-radius: 0 0 20px 20px;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
+      z-index: 2;
+    }
+    .profil-notch-input {
+      width: 110px;
+      background: var(--bg-base);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: var(--radius-sm);
+      padding: 5px 9px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .profil-notch-input::placeholder { color: var(--text-muted); }
+    .profil-notch-input:focus { outline: none; border-color: var(--accent); }
+    .profil-notch-accounts { display: flex; align-items: center; gap: 6px; }
+    /* Icônes de statut Gmail/Spotify (2026-09-01) — remplacent les grosses
+       pills "icône + nom + statut + lien texte" (.account-pill, encore
+       utilisée ailleurs si besoin) par un simple rond cliquable : le DÉTAIL
+       (email connecté / "Non connecté") reste dans le DOM pour le `title` de
+       .profil-notch-pill (posé par updateGoogleUI/updateSpotifyUI, voir
+       config.js) et pour l'accessibilité (.profil-notch-sr-only ci-dessous),
+       juste masqué visuellement — un notch n'a la place que pour l'icône. */
+    .profil-notch-account-btn {
+      width: 26px;
+      height: 26px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--bg-panel-alt);
+      border: 1.5px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, color 0.15s;
+    }
+    .profil-notch-account-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+    /* Vert une fois connecté (2026-09-01) — classe posée par updateGoogleUI/
+       updateSpotifyUI (config.js), même condition (`accessToken` présent)
+       que le texte de statut désormais masqué : l'icône DOIT porter cette
+       information toute seule puisque c'est tout ce qui reste visible. */
+    .profil-notch-pill.profil-notch-connected .profil-notch-account-btn {
+      border-color: var(--accent-green);
+      background: rgba(52, 211, 153, 0.15);
+      color: var(--accent-green);
+    }
+    /* Masqué visuellement mais toujours lu par un lecteur d'écran/toujours
+       présent pour que config.js (textContent) n'ait rien à changer — motif
+       "sr-only" standard (pas display:none, qui retirerait l'élément du
+       flux d'accessibilité). */
+    .profil-notch-sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     /* Padding/marges resserrés (2026-08-23, sur demande explicite — petits
        écrans 14"/mise à l'échelle Windows 125-150%, voir createConfigWindow
        dans main.js pour la hauteur de fenêtre adaptative associée) :
        16px→10px de padding haut, 28px→14px d'espacement entre sections —
        la zone Profil (hors onglets, toujours visible) est celle qui coûtait
-       le plus de hauteur fixe avant même d'atteindre le contenu des onglets. */
-    .config-profil { flex-shrink: 0; padding: 10px 20px 2px; }
+       le plus de hauteur fixe avant même d'atteindre le contenu des onglets.
+       padding-top 10px→18px (2026-09-01, sur demande explicite) — compense
+       le débordement de ~10px de .profil-notch ci-dessus (voir son
+       commentaire), pour que sa pointe arrondie ne recouvre jamais le
+       bandeau PROFILS juste en dessous. */
+    .config-profil { flex-shrink: 0; padding: 18px 20px 2px; }
     .config-section { margin-bottom: 14px; }
     .config-section-title {
       font-size: 10px;
@@ -279,6 +382,11 @@
       border-radius: 0 0 var(--radius-md) var(--radius-md);
       margin-top: -1px;
     }
+    /* Rappel texte sans champ interactif (2026-09-01, sur demande explicite,
+       introduit pour Anniversaires) — .module-config-hint-field réutilise
+       .module-config-field pour le fond/bordure du bloc, seul le texte a
+       besoin d'un style dédié (muet, petit, italique, comme demandé). */
+    .module-config-hint-text { font-size: 11px; color: var(--text-muted); font-style: italic; margin: 0; }
     .module-config-field label {
       font-size: 11px;
       color: var(--text-secondary);
@@ -295,6 +403,24 @@
       font-family: var(--font-ui);
     }
     .module-config-field input:focus { outline: none; border-color: var(--accent); }
+
+    /* Sélecteur manuel de sport (2026-09-01, sur demande explicite) — à côté
+       du champ Équipe (voir config.js, meta.configField + isSportsKey) :
+       largeur FIXE plutôt que `flex:1` comme le champ texte ci-dessus, sinon
+       les 2 se partageraient l'espace à égalité et le champ Équipe (qui a
+       besoin de plus de place pour un nom de club complet) serait écrasé. */
+    .module-config-field select.sports-manual-select {
+      flex: none;
+      width: 168px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .module-config-field select.sports-manual-select:focus { outline: none; border-color: var(--accent); }
 
     /* Lignes de portefeuille ETF (ISIN + date + qté + prix + frais) — nombre libre de lignes */
     .module-config-field.etf-lines-field {
@@ -343,6 +469,18 @@
        ci-dessus tel quel), pas une simple case à cocher (sur demande
        explicite, 2026-08-08). */
     .module-config-field.indices-config-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
+    /* Sources RSS cochables (France/Tech, 2026-09-01, sur demande explicite)
+       — même famille de mise en page que les autres variantes empilées
+       ci-dessus (.indices-config-field...) : la modificatrice manquait
+       jusqu'ici (le module-config-field DE BASE, ligne unique horizontale,
+       ne convient pas à une liste de cases à cocher), trouvé en vérifiant le
+       rendu de la section "Sources" avant de répliquer ce même dispatch pour
+       Tech (voir config.js, meta.franceSourcesField/techSourcesField). Les
+       classes .sports-sources-list/.sports-source-item elles-mêmes (liste +
+       chaque ligne) sont déjà stylées dans style.css — seul le conteneur
+       .module-config-field.sports-sources-field manquait. */
+    .module-config-field.sports-sources-field { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px 12px 38px; }
+    .sports-sources-status { font-size: 11px; color: var(--text-muted); font-style: italic; }
     .indices-toggle-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
     .indices-toggle-row {
       display: flex;
@@ -405,6 +543,23 @@
        .reminders-config-header/-row (style.css) : résumé de colonnes en
        en-tête, une grille de champs par ligne, "+" en dessous. */
     .module-config-field.monequipe-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+    /* Thème teal/cyan dédié (2026-09-01, sur demande explicite, #0d9488) —
+       distingue visuellement "Mon Équipe" des 2 autres modules de l'onglet
+       Sports ('ol'/'live', restés sur les couleurs par défaut) : teinte
+       subtile sur la ligne d'en-tête ET sur le champ déplié ci-dessous (qui
+       forment ensemble UNE seule boîte visuelle, voir .module-config-field
+       plus haut — d'où les 2 sélecteurs), bordure teal sur les 2. `[data-key]`
+       est déjà posé sur `.module-row` par createModuleRow (config.js), aucun
+       changement JS nécessaire pour cibler spécifiquement cette ligne. */
+    .module-row[data-key="monEquipe"] {
+      background: rgba(13, 148, 136, 0.08);
+      border-color: rgba(13, 148, 136, 0.4);
+    }
+    .module-row[data-key="monEquipe"] .module-row-icon { color: #0d9488; }
+    .module-config-field.monequipe-config-field {
+      background: rgba(13, 148, 136, 0.05);
+      border-color: rgba(13, 148, 136, 0.4);
+    }
     /* `calc(60%/40% - 5px)` plutôt que 60%/40% bruts : avec `gap: 10px` entre
        les 2 champs, des pourcentages bruts sommeraient à >100% de la largeur
        disponible (les navigateurs les rétréciraient quand même via flexbox,
@@ -418,7 +573,7 @@
     .monequipe-field-sport select {
       width: 100%;
       background: var(--bg-panel);
-      border: 1px solid var(--border);
+      border: 1px solid #0d9488;
       border-radius: var(--radius-sm);
       padding: 5px 8px;
       font-size: 12px;
@@ -426,7 +581,7 @@
       font-family: var(--font-ui);
     }
     .monequipe-field-name input:focus,
-    .monequipe-field-sport select:focus { outline: none; border-color: var(--accent); }
+    .monequipe-field-sport select:focus { outline: none; border-color: #0d9488; }
     .monequipe-roadmap-note {
       font-size: 11px;
       font-style: italic;
@@ -454,10 +609,20 @@
       align-items: center;
       padding: 0 2px;
     }
+    /* Colonnes réajustées le 2026-09-01 (sur demande explicite) : DATE
+       élargie 88px→110px (date complète visible sans coupure, même besoin
+       que la réduction ADVERSAIRE/COMPÉTITION du tableau "Matchs à venir"
+       ci-dessus, dont "Domicile / Extérieur" a déjà bénéficié) ; ADVERSAIRE
+       réduite de 30% (× 0.7, même technique que ci-dessus — 90px→63px sur la
+       largeur MINIMALE `minmax`, 1fr→0.7fr sur le poids), l'espace ainsi
+       libéré profitant surtout à DATE. 6e colonne "Type de match" ajoutée
+       le même jour (2e demande explicite) — même largeur que la colonne
+       Compétition du tableau "Matchs à venir" ci-dessus
+       (minmax(56px, 0.63fr)), pour un <select> avec les mêmes options. */
     .monequipe-results-header,
     .monequipe-results-row {
       display: grid;
-      grid-template-columns: 88px minmax(90px, 1fr) 84px 90px 20px;
+      grid-template-columns: 110px minmax(63px, 0.7fr) 84px 90px minmax(56px, 0.63fr) 20px;
       gap: 6px;
       align-items: center;
       padding: 0 2px;
@@ -475,13 +640,22 @@
     }
     .monequipe-upcoming-list,
     .monequipe-results-list { display: flex; flex-direction: column; gap: 6px; }
+    /* Teinte jaune (2026-09-01, sur demande explicite — remplace la bordure
+       teal #0d9488 posée la même journée, plus tôt) : "Apply subtle yellow
+       tint to ALL input fields in the Derniers résultats section... Apply
+       same yellow tint to Matchs à venir section inputs too for
+       consistency" — les 2 tableaux de lignes (pas les champs Nom/Sport
+       au-dessus, restés en teal, hors périmètre de cette demande) partagent
+       donc désormais bordure #fbbf24 + fond jaune très atténué (8%
+       d'opacité, cohérent avec le reste de l'app — voir ETF/Crypto/Prêts
+       pour le même principe de teinte de fond légère). */
     .monequipe-upcoming-row input,
     .monequipe-upcoming-row select,
     .monequipe-results-row input,
     .monequipe-results-row select {
       width: 100%;
-      background: var(--bg-base);
-      border: 1.5px solid var(--text-secondary);
+      background: rgba(251, 191, 36, 0.08);
+      border: 1.5px solid #fbbf24;
       border-radius: var(--radius-sm);
       padding: 6px 8px;
       font-size: 11px;
@@ -491,7 +665,7 @@
     .monequipe-upcoming-row input:focus,
     .monequipe-upcoming-row select:focus,
     .monequipe-results-row input:focus,
-    .monequipe-results-row select:focus { outline: none; border-color: var(--accent); }
+    .monequipe-results-row select:focus { outline: none; border-color: #fbbf24; }
     /* Bouton × réduit à 20×20 (au lieu des 22×22 de .row-delete-btn
        génériques, réutilisées partout ailleurs dans Paramètres) — demandé
        explicitement pour ces 2 tableaux uniquement. */
@@ -517,14 +691,14 @@
     .monequipe-upcoming-score-input {
       width: 110px;
       background: var(--bg-base);
-      border: 1.5px solid var(--text-secondary);
+      border: 1.5px solid #0d9488;
       border-radius: var(--radius-sm);
       padding: 5px 7px;
       font-size: 11px;
       color: var(--text-primary);
       font-family: var(--font-ui);
     }
-    .monequipe-upcoming-score-input:focus { outline: none; border-color: var(--accent); }
+    .monequipe-upcoming-score-input:focus { outline: none; border-color: #0d9488; }
     .monequipe-upcoming-score-hint { font-size: 10px; color: var(--text-muted); font-style: italic; }
 
     /* Profil — redesign complet (2026-08-31, sur demande explicite, "for
@@ -951,24 +1125,6 @@
     .display-mode-option.selected { border-color: var(--accent); background: var(--accent-glow); }
     .display-mode-option-icon { font-size: 22px; line-height: 1; }
     .display-mode-option-label { font-size: 11px; }
-    .display-mode-edge-row {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 0 2px;
-    }
-    .display-mode-edge-row label { font-size: 11px; color: var(--text-secondary); }
-    .display-mode-edge-row select {
-      flex: 1;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 6px 8px;
-      font-size: 12px;
-      color: var(--text-primary);
-      font-family: var(--font-ui);
-    }
-    .display-mode-edge-row select:focus { outline: none; border-color: var(--accent); }
 
     /* Miniatures — mêmes recettes CSS que les vrais fonds (voir style.css
        .app-background-layer.bg-*), condensées ici en statique/petit format
@@ -1224,12 +1380,14 @@
     }
     .fdj-grid-special-inputs { padding-left: 10px; border-left: 1px solid var(--border); }
     .fdj-num-input, .fdj-special-input {
-      width: 45px;
-      min-width: 45px;
+      width: 50px;
+      min-width: 50px;
+      height: 36px;
+      box-sizing: border-box;
       background: var(--bg-base);
       border: 1.5px solid var(--text-secondary);
       border-radius: var(--radius-sm);
-      padding: 7px 4px;
+      padding: 4px;
       font-size: 14px;
       font-weight: 600;
       text-align: center;
@@ -1290,16 +1448,28 @@
   </header>
 
   <div class="config-wrap">
-    <!-- Ligne 1 — Affichage (gauche) + Sauvegardes (droite), TOUT en haut,
-         hors onglets, toujours visible (2026-08-10, sur demande explicite —
-         Sauvegardes vivait avant dans une section dédiée sous Profil,
-         remontée ici sur la même ligne pour condenser la fenêtre).
+    <!-- Ligne 1 — Affichage (gauche) + Profil "en encoche" (centre) +
+         Sauvegardes (droite), TOUT en haut, hors onglets, toujours visible
+         (2026-08-10, sur demande explicite — Sauvegardes vivait avant dans
+         une section dédiée sous Profil, remontée ici sur la même ligne pour
+         condenser la fenêtre).
          REDESIGN 2026-08-31 (sur demande explicite) : les toggles Sombre/
          Clair/Mode auto qui vivaient ici sont retirés — Sombre/Clair a migré
          DANS la popup "🎨 Affichage" (ex-"Personnaliser", voir
          #personnaliserModalOverlay plus bas), Mode auto est supprimé
          entièrement (plus de toggle nulle part, voir CONTEXT.md pour le
          détail de ce qui a été retiré côté dashboard.js/main.js/style.css).
+         REDESIGN 2026-09-01 (sur demande explicite, "notch design like an
+         iPhone notch") — prénom + statut Gmail/Spotify (qui vivaient dans
+         .config-profil, "Row 3"/"Row 4" ci-dessous à l'époque) déménagent
+         ICI, dans .profil-notch : positionnée en absolu, CENTRÉE entre les 2
+         boutons, ancrée au bord SUPÉRIEUR de cette ligne et débordant
+         légèrement de son bord inférieur (voir style.css .profil-notch) pour
+         l'effet "encoche taillée dans le bandeau du haut" — coins du bas
+         arrondis, fond plus sombre que le dégradé du bandeau, ombre portée.
+         .config-profil ne garde plus que le bandeau PROFILS (sélecteur de
+         profil 1/2, fonctionnalité DISTINCTE du prénom/comptes ci-dessus,
+         non mentionnée dans la demande d'encoche — reste à sa place).
          Voir config.js (initPersonnaliserSection/initBackupsSection) pour la
          bascule instantanée + la persistance. -->
     <div class="theme-toggle-row">
@@ -1312,6 +1482,39 @@
         <span>🎨</span>
         <span>Affichage</span>
       </button>
+
+      <!-- Notch Profil (2026-09-01, sur demande explicite) — prénom +
+           icônes de statut Gmail/Spotify, voir style.css .profil-notch pour
+           le rendu "encoche". `#firstNameInput`/`#accountPillGoogle`/
+           `#btnGoogle`/`#googleLabel`/`#googleStatus` (et équivalents
+           Spotify) gardent EXACTEMENT les mêmes id qu'avant ce déplacement —
+           AUCUN changement dans initProfileSection/initGoogleSection/
+           initSpotifySection (config.js), seule leur POSITION dans le DOM
+           change. `#googleLabel`/`#googleStatus` (texte "Connecter"/
+           "Non connecté"/email) restent à jour via ces fonctions mais sont
+           visuellement masqués ici (`.profil-notch-sr-only`, voir style.css)
+           — le détail complet reste accessible au survol via le `title` posé
+           sur `.profil-notch-pill` par ces mêmes fonctions ; SEULE addition
+           JS (2026-09-01) : un `classList.toggle('profil-notch-connected', …)`
+           dans updateGoogleUI/updateSpotifyUI pour que l'icône elle-même
+           passe au vert une fois connecté, plutôt que de dépendre du seul
+           texte de statut désormais invisible. -->
+      <div class="profil-notch">
+        <input type="text" id="firstNameInput" class="profil-notch-input" placeholder="Prénom" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
+        <div class="profil-notch-accounts">
+          <div class="profil-notch-pill" id="accountPillGoogle">
+            <button type="button" class="profil-notch-account-btn" id="btnGoogle" title="Gmail">G</button>
+            <span id="googleLabel" class="profil-notch-sr-only">Connecter</span>
+            <span id="googleStatus" class="profil-notch-sr-only">Non connecté</span>
+          </div>
+          <div class="profil-notch-pill" id="accountPillSpotify">
+            <button type="button" class="profil-notch-account-btn" id="btnSpotify" title="Spotify">🎵</button>
+            <span id="spotifyLabel" class="profil-notch-sr-only">Connecter</span>
+            <span id="spotifyStatus" class="profil-notch-sr-only">Non connecté</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Sauvegardes — la liste ne reste plus affichée en permanence sur la
            page, ce bouton ouvre une popup (voir #backupsModalOverlay plus
            bas) peuplée à la volée par config.js (renderBackupsList). -->
@@ -1321,16 +1524,15 @@
       </button>
     </div>
 
-    <!-- Profil — toujours visible, hors onglets (2026-08-06, sur demande
-         explicite ; redesign complet le 2026-08-31, sur demande explicite,
-         "for clarity and compactness"). Row 2 : onglets de profil compacts
-         (voir config.js initProfileTabs, main.js profiles:*) — cliquer bascule
-         de profil, ✏️ ouvre le panneau d'édition (renommer + activation
-         automatique par jour), 💾 sauvegarde l'état actuel dans ce profil.
-         Row 3 : "Bonjour" + prénom + Personnaliser sur UNE seule ligne
-         (remplace l'ancienne section "Profil" empilée sur 3 lignes). Row 4 :
-         comptes Google/Spotify en pills compactes (remplace les 2 gros
-         boutons Connecter/Déconnecter d'avant). -->
+    <!-- Profil — sélecteur de profil (1/2), toujours visible, hors onglets
+         (2026-08-06, sur demande explicite ; redesign complet le
+         2026-08-31 ; prénom + comptes Google/Spotify déménagés dans
+         .profil-notch ci-dessus le 2026-09-01 — voir commentaire détaillé
+         plus haut, ne restait ici QUE le sélecteur de profil, sans rapport
+         avec l'encoche demandée). Onglets de profil compacts (voir config.js
+         initProfileTabs, main.js profiles:*) — cliquer bascule de profil,
+         ✏️ ouvre le panneau d'édition (renommer + activation automatique
+         par jour), 💾 sauvegarde l'état actuel dans ce profil. -->
     <div class="config-profil">
       <!-- Bandeau orange (2026-08-31, sur demande explicite) — distingue
            visuellement la zone Profils du reste de Paramètres. -->
@@ -1373,29 +1575,6 @@
           <button type="button" class="autoarrange-confirm-btn" id="profileEditCancel">Fermer</button>
         </div>
       </div>
-
-      <!-- Le bouton 🎨 Affichage vivait ici (id btnPersonnaliser) — déplacé
-           dans .theme-toggle-row en haut de la fenêtre le 2026-08-31, sur
-           demande explicite ("top left of Paramètres"). -->
-      <div class="config-section profil-row">
-        <span class="profil-row-label">Bonjour</span>
-        <input type="text" id="firstNameInput" class="profil-row-input" placeholder="Ex : Sylvain" maxlength="20" title="Affiché dans la barre de titre (« Bonjour [Prénom] »). Laissez vide pour ne rien afficher.">
-      </div>
-
-      <div class="config-section accounts-row">
-        <div class="account-pill" id="accountPillGoogle">
-          <span class="account-pill-icon">G</span>
-          <span class="account-pill-name">Gmail</span>
-          <span class="account-pill-status" id="googleStatus">Non connecté</span>
-          <button type="button" class="account-pill-link" id="btnGoogle"><span id="googleLabel">Connecter</span></button>
-        </div>
-        <div class="account-pill" id="accountPillSpotify">
-          <span class="account-pill-icon">🎵</span>
-          <span class="account-pill-name">Spotify</span>
-          <span class="account-pill-status" id="spotifyStatus">Non connecté</span>
-          <button type="button" class="account-pill-link" id="btnSpotify"><span id="spotifyLabel">Connecter</span></button>
-        </div>
-      </div>
     </div>
 
     <!-- Barre d'onglets — cliquer change d'onglet, glisser réordonne (voir config.js) -->
@@ -1405,6 +1584,7 @@
     <div class="config-tabpanels">
       <div class="config-tabpanel" data-tab="finance"></div>
       <div class="config-tabpanel" data-tab="actualites"></div>
+      <div class="config-tabpanel" data-tab="sports"></div>
       <div class="config-tabpanel" data-tab="loisirs"></div>
       <div class="config-tabpanel" data-tab="maison"></div>
       <div class="config-tabpanel" data-tab="services"></div>
@@ -1479,19 +1659,12 @@
       </div>
 
       <!-- Mode d'affichage (2026-08-23, sur demande explicite ; redesign en
-           3 "cubes" horizontaux + réordonné AVANT le fond, 2026-09-01, sur
-           demande explicite) — s'applique instantanément au choix (voir
-           config.js renderDisplayModeOptions, window.matin.displayMode.set).
-           Le sélecteur de bord n'apparaît que pour "Volet latéral". -->
+           2 "cubes" horizontaux, 2026-09-01, sur demande explicite —
+           "Volet latéral" retiré le même jour, voir CONTEXT.md) — s'applique
+           instantanément au choix (voir config.js renderDisplayModeOptions,
+           window.matin.displayMode.set). -->
       <div class="personnaliser-section-title">Mode d'affichage</div>
       <div class="display-mode-options" id="displayModeOptions"></div>
-      <div class="display-mode-edge-row" id="sidebarEdgeRow">
-        <label for="sidebarEdgeSelect">Côté</label>
-        <select id="sidebarEdgeSelect">
-          <option value="right">Droite</option>
-          <option value="left">Gauche</option>
-        </select>
-      </div>
 
       <div class="personnaliser-section-title">Fond du dashboard</div>
       <div class="personnaliser-options" id="personnaliserOptions"></div>
@@ -1523,6 +1696,10 @@
   <script src="modules/fdj-games.js"></script>
   <script src="modules/reminders-categories.js"></script>
   <script src="modules/indices-defs.js"></script>
+  <script src="modules/france-sources.js"></script>
+  <script src="modules/tech-sources.js"></script>
+  <script src="modules/bourse-sources.js"></script>
+  <script src="modules/gaming-sources.js"></script>
   <script src="modules/live-championships.js"></script>
   <script src="config.js"></script>
 </body>

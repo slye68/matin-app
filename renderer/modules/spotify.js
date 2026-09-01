@@ -50,6 +50,49 @@ function spotifyBestImage(images) {
   return images[images.length - 1].url || images[0].url || '';
 }
 
+// Nom du contexte de lecture (2026-09-01, sur demande explicite, remplace le
+// nom d'artiste affiché dans .module-badge, en haut à droite de la carte) —
+// playlist ET album se lisent différemment de l'API Spotify :
+// - playlist : `playback.context.uri` (spotify:playlist:ID) seulement, il
+//   faut un 2e appel GET /playlists/{id} pour obtenir le nom ; mis en cache
+//   par ID pour ne pas re-fetcher à chaque tick (10s) tant que la playlist
+//   ne change pas.
+// - album : le nom est DÉJÀ dans `playback.item.album` (même appel que le
+//   morceau en cours), aucun 2e appel nécessaire.
+// - tout le reste (radio par artiste, contexte absent, épisode de podcast
+//   sans album pertinent...) : chaîne vide, rien affiché plutôt qu'une
+//   étiquette trompeuse (cas explicitement demandé : "no context → show
+//   nothing").
+const spotifyPlaylistNameCache = new Map();
+
+async function spotifyResolveContextLabel(playback, accessToken, isEpisode) {
+  const context = playback.context;
+  if (!context) return '';
+
+  if (context.type === 'album') {
+    return isEpisode ? '' : (playback.item.album?.name || '');
+  }
+
+  if (context.type === 'playlist' && context.uri) {
+    const playlistId = context.uri.split(':').pop();
+    if (!playlistId) return '';
+    if (spotifyPlaylistNameCache.has(playlistId)) {
+      return spotifyPlaylistNameCache.get(playlistId);
+    }
+    try {
+      const data = await spotifyApi('GET', `/playlists/${playlistId}`, accessToken, 'fields=name');
+      const name = data?.name || '';
+      spotifyPlaylistNameCache.set(playlistId, name);
+      return name;
+    } catch (err) {
+      console.error('[Spotify] Nom de playlist introuvable', err);
+      return '';
+    }
+  }
+
+  return '';
+}
+
 // Icônes en SVG (traits fins, currentColor) — pas d'emoji, cf. demande de
 // contrôles "clean icon buttons".
 const SPOTIFY_ICONS = {
@@ -166,7 +209,10 @@ window.MatinModules.spotify = {
 
     const updateBadge = (state) => {
       if (!state) { setBadge('—'); return; }
-      setBadge(state.isPlaying ? state.artist || 'lecture' : 'en pause');
+      // Playlist/album en cours (2026-09-01, sur demande explicite) remplace
+      // l'artiste ici — chaîne vide (pas "lecture") si aucun contexte
+      // exploitable, cas explicitement demandé plutôt qu'un texte de repli.
+      setBadge(state.isPlaying ? (state.contextLabel || '') : 'en pause');
     };
 
     async function tick() {
@@ -219,6 +265,7 @@ window.MatinModules.spotify = {
         // Un épisode (podcast) n'a ni `artists` ni `album` — le nom du show
         // fait office d'"artiste" et l'image est directement sur l'item.
         const isEpisode = playback.currently_playing_type === 'episode';
+        const contextLabel = await spotifyResolveContextLabel(playback, accessToken, isEpisode).catch(() => '');
         const state = {
           title: playback.item.name || '',
           artist: isEpisode
@@ -229,6 +276,7 @@ window.MatinModules.spotify = {
           durationMs: playback.item.duration_ms || 0,
           isPlaying: !!playback.is_playing,
           volumePercent: playback.device?.volume_percent,
+          contextLabel,
         };
 
         // Ne pas écraser le curseur de volume pendant que l'utilisateur le fait glisser.

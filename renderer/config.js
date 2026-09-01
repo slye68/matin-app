@@ -14,11 +14,21 @@ const MODULE_META = {
   // seulement en fond de placeholder.
   weather:  { label: 'Météo',        icon: '🌤️',  requiresGoogle: false,
               configField: { key: 'city', label: 'Ville', placeholder: 'Lyon' } },
-  france:   { label: 'France',       icon: '🇫🇷',  requiresGoogle: false },
-  tech:     { label: 'Tech',         icon: '💻',   requiresGoogle: false },
-  bourse:   { label: 'Bourse',       icon: '📊',   requiresGoogle: false },
+  // newsSourcesField (2026-09-01, sur demande explicite) — cases à cocher
+  // pour les sources RSS disponibles de ce module, voir son dispatch générique
+  // plus bas (un seul bloc pour France/Tech/Bourse/Gaming, consolidé le même
+  // jour après duplication France→Tech→Bourse→Gaming). `catalog`/`defaults`
+  // nomment les variables globales exposées par le fichier *-sources.js
+  // correspondant (partagé avec rss-feed.js).
+  france:   { label: 'France',       icon: '🇫🇷',  requiresGoogle: false, newsSourcesField: { catalog: 'FRANCE_NEWS_SOURCES', defaults: 'FRANCE_DEFAULT_SOURCES' } },
+  tech:     { label: 'Tech',         icon: '💻',   requiresGoogle: false, newsSourcesField: { catalog: 'TECH_NEWS_SOURCES', defaults: 'TECH_DEFAULT_SOURCES' } },
+  bourse:   { label: 'Bourse',       icon: '📊',   requiresGoogle: false, newsSourcesField: { catalog: 'BOURSE_NEWS_SOURCES', defaults: 'BOURSE_DEFAULT_SOURCES' } },
   calendar: { label: 'Agenda',       icon: '📅',   requiresGoogle: true  },
-  etf:      { label: 'ETF / Bourse', icon: '📈',   requiresGoogle: false,
+  // Renommé "ETF / Bourse" → "Actions / ETF" (2026-09-01, sur demande
+  // explicite) — libellé affiché uniquement (en-tête de la section de config
+  // + libellé de ligne dans l'onglet Finance de Paramètres) ; la clé interne
+  // `etf` reste inchangée.
+  etf:      { label: 'Actions / ETF', icon: '📈',   requiresGoogle: false,
               linesField: { idKey: 'isin', idLabel: 'ISIN', idPlaceholder: 'FR0011882364', title: 'Lignes du portefeuille (ISIN)', hasType: true } },
   gmail:    { label: 'Gmail',        icon: '📬',   requiresGoogle: true  },
   ol:       { label: 'Sports',       icon: '🏆',   requiresGoogle: false,
@@ -50,10 +60,18 @@ const MODULE_META = {
   currency:    { label: 'Change',        icon: '💱', requiresGoogle: false }, // pas de config : devises/montant en état local du module (comme Maps)
   googleTasks: { label: 'Tâches Google', icon: '✅', requiresGoogle: true  }, // pas de config : nécessite juste le compte Google déjà connecté (scope tasks)
   science:     { label: 'Sciences',      icon: '🔬', requiresGoogle: false }, // pas de config : 3 sources fixes (voir rss-feed.js)
-  gaming:      { label: 'Gaming',        icon: '🎮', requiresGoogle: false }, // pas de config : 2 sources fixes (voir rss-feed.js)
+  // newsSourcesField (2026-09-01, sur demande explicite) — Gaming passe de
+  // sources FIXES à cochables, voir renderer/modules/gaming-sources.js.
+  gaming:      { label: 'Gaming',        icon: '🎮', requiresGoogle: false, newsSourcesField: { catalog: 'GAMING_NEWS_SOURCES', defaults: 'GAMING_DEFAULT_SOURCES' } },
   // 3 modules ajoutés le 2026-08-07 (sur demande explicite)
   sante:     { label: 'Santé',         icon: '⚕️', requiresGoogle: false }, // pas de config : 2 sources fixes (voir rss-feed.js — Pourquoi Docteur retiré, flux mort)
-  birthdays: { label: 'Anniversaires', icon: '🎂', requiresGoogle: true  }, // pas de config : nécessite le compte Google déjà connecté (scope People API contacts.readonly)
+  // Pas de champ de config interactif : nécessite le compte Google déjà
+  // connecté (scope People API contacts.readonly). `hintText` (2026-09-01,
+  // sur demande explicite) affiche un simple rappel texte de la provenance
+  // des données + comment ajouter un anniversaire, voir meta.hintText
+  // plus bas (rendu commun, potentiellement réutilisable par d'autres
+  // modules dans le même cas).
+  birthdays: { label: 'Anniversaires', icon: '🎂', requiresGoogle: true, hintText: 'Les anniversaires affichés proviennent de vos contacts Google. Pour ajouter un anniversaire, rendez-vous sur contacts.google.com → modifier un contact → ajouter une date d\'anniversaire.' },
   indices:   { label: 'Indices',       icon: '📉', requiresGoogle: false, indicesField: true },
   // 2 modules ajoutés le 2026-08-08 (sur demande explicite)
   podcast: { label: 'Podcasts', icon: '🎙️', requiresGoogle: false, podcastField: true },
@@ -75,10 +93,13 @@ const MODULE_META = {
   prets: { label: 'Prêts',   icon: '🏠', requiresGoogle: false,
            configField: { key: 'name', label: 'Nom du groupe', placeholder: 'Résidence principale' },
            pretsLoansField: true },
-  // LIVE! (2026-08-11, sur demande explicite) — voir renderer/modules/live.js.
-  // `liveField` déclenche renderLiveConfigSection (club + championnat +
-  // mode), même mécanisme que `alertsField` pour département/types.
-  live: { label: 'LIVE!', icon: '🔴', requiresGoogle: false, liveField: true },
+  // LIVE FOOT! (2026-08-11, sur demande explicite) — voir renderer/modules/
+  // live.js. `liveField` déclenche renderLiveConfigSection (club +
+  // championnat + mode), même mécanisme que `alertsField` pour
+  // département/types. Renommé "LIVE!" → "LIVE FOOT!" le 2026-09-01 (2e
+  // demande explicite, libellé affiché uniquement — la clé interne `live`
+  // reste inchangée, voir dashboard.js MODULE_REGISTRY.live).
+  live: { label: 'LIVE FOOT!', icon: '🔴', requiresGoogle: false, liveField: true },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi manuel (aucune
   // source externe interrogée, contrairement à Sports/LIVE!) : nom d'équipe +
   // sport, calendrier à venir et résultats passés saisis à la main.
@@ -119,6 +140,7 @@ let startOnBootEnabled = false;
 const TAB_DEFS = [
   { id: 'finance',    icon: '📊', label: 'Finance' },
   { id: 'actualites', icon: '📰', label: 'Actualités' },
+  { id: 'sports',     icon: '🏆', label: 'Sports' },
   { id: 'loisirs',    icon: '🎯', label: 'Loisirs' },
   { id: 'maison',     icon: '🏠', label: 'Maison' },
   { id: 'services',   icon: '📦', label: 'Services' },
@@ -141,10 +163,14 @@ const DEFAULT_TAB_ORDER = TAB_DEFS.map(t => t.id);
 const TAB_MODULE_ORDER = {
   finance:    ['etf', 'crypto', 'currency', 'indices', 'prets'],
   actualites: ['france', 'tech', 'bourse', 'science', 'gaming', 'sante'],
-  loisirs:    ['ol', 'live', 'monEquipe', 'fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast'],
+  // Sports (2026-09-01, sur demande explicite) : 'ol'/'live'/'monEquipe'
+  // sortis de Loisirs, qui ne garde que les modules de détente pure.
+  sports:     ['ol', 'live', 'monEquipe'],
+  loisirs:    ['fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast', 'youtube'],
   maison:     ['hue', 'kasa', 'tradfri'],
-  services:   ['fuelPrices', 'priceTracking', 'maps', 'nasa', 'youtube'],
-  utile:      ['reminders', 'weather', 'airQuality', 'calendar', 'gmail', 'googleTasks', 'birthdays', 'alerts'],
+  // Maps → Utile (2026-09-01, sur demande explicite) — retiré de Services.
+  services:   ['fuelPrices', 'priceTracking', 'nasa'],
+  utile:      ['reminders', 'weather', 'airQuality', 'calendar', 'gmail', 'googleTasks', 'birthdays', 'alerts', 'maps'],
 };
 
 let tabOrder = DEFAULT_TAB_ORDER.slice();
@@ -164,9 +190,14 @@ let tabDragSrc = null;
 // des 4 sections soit sauvegardé et restauré INDÉPENDAMMENT des 3 autres,
 // via le chemin étroit `window.matin.store` (jamais `modules.update`, qui
 // recharge toute la fenêtre à chaque clic sur une flèche).
-function wrapCollapsibleSection(contentEl, { storeKey, labelFor }) {
+function wrapCollapsibleSection(contentEl, { storeKey, labelFor, compact }) {
   const wrap = document.createElement('div');
-  wrap.className = 'config-collapsible';
+  // `compact` (2026-09-01, sur demande explicite) — soude visuellement le
+  // header "X ... configuré(e)s ▶" au bloc titre+toggle du module juste
+  // au-dessus (voir .config-collapsible--compact dans style.css), au lieu de
+  // flotter en dessous avec un espace vide. Réservé à ETF/Crypto/Prêts par
+  // les appelants ci-dessous (PAS YouTube, qui garde ce composant tel quel).
+  wrap.className = 'config-collapsible' + (compact ? ' config-collapsible--compact' : '');
   wrap.innerHTML = `
     <div class="config-collapsible-header">
       <span class="config-collapsible-label"></span>
@@ -838,23 +869,50 @@ function createModuleRow(key, mod, meta) {
 
   wrapper.appendChild(row);
 
+  // Simple rappel texte, sans champ interactif (2026-09-01, sur demande
+  // explicite pour Anniversaires — voir MODULE_META.birthdays) — rendu
+  // générique pour tout module qui en aurait besoin, pas de logique propre
+  // à un module précis.
+  if (meta.hintText) {
+    const hintWrap = document.createElement('div');
+    hintWrap.className = 'module-config-field module-config-hint-field';
+    hintWrap.innerHTML = `<p class="module-config-hint-text">${meta.hintText}</p>`;
+    wrapper.appendChild(hintWrap);
+  }
+
   let teamFieldInput = null;
+  let sportSelectInput = null;
 
   if (meta.configField) {
     const field = meta.configField;
     const currentValue = mod.config?.[field.key] ?? field.placeholder ?? '';
+
+    // Sélecteur manuel de sport (2026-09-01, sur demande explicite, "Fix the
+    // Sports module team detection") — À CÔTÉ du champ Équipe, réservé à
+    // Sports (isSportsKey) : Prêts/Carburants réutilisent aussi
+    // meta.configField pour un champ texte simple (nom de groupe/ville), qui
+    // n'a rien à voir avec une détection de sport. Voir sports-sources.js
+    // MANUAL_SPORT_OPTIONS pour la liste des options et sa justification.
+    const sportSelectHtml = isSportsKey(key) ? `
+      <select class="sports-manual-select" title="Forcer le sport si la détection automatique se trompe">
+        ${window.SportsSources.MANUAL_SPORT_OPTIONS.map(opt =>
+          `<option value="${opt.value}" ${((mod.config?.sport || '') === opt.value) ? 'selected' : ''}>${opt.label}</option>`
+        ).join('')}
+      </select>` : '';
 
     const fieldWrap = document.createElement('div');
     fieldWrap.className = 'module-config-field';
     fieldWrap.innerHTML = `
       <label>${field.label}</label>
       <input type="text" placeholder="${field.placeholder}" value="${currentValue}">
+      ${sportSelectHtml}
     `;
     teamFieldInput = fieldWrap.querySelector('input');
     teamFieldInput.addEventListener('input', (e) => {
       if (!modulesState[key].config) modulesState[key].config = {};
       modulesState[key].config[field.key] = e.target.value;
     });
+    sportSelectInput = fieldWrap.querySelector('.sports-manual-select');
 
     wrapper.appendChild(fieldWrap);
   }
@@ -887,6 +945,10 @@ function createModuleRow(key, mod, meta) {
     async function refreshSources(team) {
       const myToken = ++detectToken;
       const trimmed = (team || '').trim();
+      // Sport choisi manuellement (2026-09-01, sur demande explicite) —
+      // '' (option "🔍 Détection automatique") redevient `undefined`, comme
+      // une config jamais touchée : laisse detectSportSources décider seul.
+      const manualSport = sportSelectInput?.value || undefined;
 
       if (!trimmed) {
         statusEl.textContent = 'Saisissez un nom d\'équipe pour détecter les sources.';
@@ -894,22 +956,33 @@ function createModuleRow(key, mod, meta) {
         return;
       }
 
-      statusEl.textContent = 'Détection du sport…';
+      statusEl.textContent = manualSport ? 'Application du sport choisi manuellement…' : 'Détection du sport…';
       listEl.innerHTML = '';
 
       try {
-        const detection = await window.SportsSources.detectSportSources(trimmed);
+        const detection = await window.SportsSources.detectSportSources(trimmed, manualSport);
         if (myToken !== detectToken) return; // l'équipe a changé entre-temps : résultat périmé
 
         if (!detection.list.length) {
-          statusEl.textContent = detection.sportLabel
-            ? `Sport détecté : ${detection.sportLabel} — aucune source disponible.`
-            : 'Sport non reconnu — aucune source suggérée.';
+          if (manualSport) {
+            statusEl.textContent = `Sport : ${detection.sportLabel} — aucune source dédiée pour ce sport, seul le site officiel du club sera utilisé s'il est trouvé.`;
+          } else if (detection.autoRejected) {
+            // Cas connus (2026-09-01, "Fix specific known cases" — Racing/
+            // Stade/sigles courts) : la détection a été délibérément écartée
+            // plutôt qu'appliquée à tort — le message doit orienter
+            // explicitement vers le sélecteur manuel ci-dessus, pas laisser
+            // croire à un simple manque de données.
+            statusEl.textContent = '⚠ Détection automatique peu fiable pour ce nom (cas connu) — sélectionnez le sport manuellement ci-dessus.';
+          } else {
+            statusEl.textContent = detection.sportLabel
+              ? `Sport détecté : ${detection.sportLabel} — aucune source disponible.`
+              : 'Sport non reconnu — sélectionnez-le manuellement ci-dessus si besoin.';
+          }
           modulesState[key].config.sources = [];
           return;
         }
 
-        statusEl.textContent = `Sport détecté : ${detection.sportLabel}`;
+        statusEl.textContent = manualSport ? `Sport : ${detection.sportLabel}` : `Sport détecté : ${detection.sportLabel}`;
 
         const previouslyEnabled = modulesState[key].config.sources;
         const enabled = new Set(previouslyEnabled ?? detection.list.map(s => s.url));
@@ -943,7 +1016,78 @@ function createModuleRow(key, mod, meta) {
       debounceTimer = setTimeout(() => refreshSources(e.target.value), 600);
     });
 
+    // Sélecteur manuel de sport (2026-09-01, sur demande explicite, points
+    // 2/3 — "the manual dropdown takes priority" / "apply... immediately") —
+    // pas de debounce ici (contrairement au champ texte ci-dessus) : un choix
+    // dans une liste déroulante est un événement ponctuel et délibéré, pas
+    // une frappe en cours. `sources` est réinitialisé à `undefined` (état
+    // "jamais configuré") plutôt que laissé tel quel : les URLs cochées pour
+    // l'ANCIEN sport n'ont aucune raison de correspondre au catalogue du
+    // NOUVEAU, refreshSources retombe alors sur la présélection par défaut
+    // de la nouvelle liste (voir `enabled = new Set(previouslyEnabled ??
+    // detection.list.map(...))` plus haut).
+    sportSelectInput?.addEventListener('change', (e) => {
+      if (!modulesState[key].config) modulesState[key].config = {};
+      modulesState[key].config.sport = e.target.value;
+      delete modulesState[key].config.sources;
+      clearTimeout(debounceTimer);
+      refreshSources(teamFieldInput.value);
+    });
+
     refreshSources(teamFieldInput.value);
+  }
+
+  // Sources d'actualités cochables — France/Tech/Bourse/Gaming (2026-09-01,
+  // sur demande explicite ; CONSOLIDÉ le même jour après duplication
+  // France→Tech en 2 blocs identiques, Bourse/Gaming auraient fait une 3e
+  // et 4e copie) — catalogue STATIQUE par module (contrairement à Sports
+  // ci-dessus, pas de détection automatique), voir renderer/modules/
+  // *-sources.js (partagés avec rss-feed.js) référencés par
+  // meta.newsSourcesField.{catalog,defaults} (noms de variables globales).
+  // `.sports-sources-*`/`.sports-source-*` réutilisées telles quelles, même
+  // besoin visuel qu'une liste de cases à cocher de sources.
+  if (meta.newsSourcesField) {
+    const { catalog, defaults } = meta.newsSourcesField;
+    if (!modulesState[key].config) modulesState[key].config = {};
+    const enabled = new Set(
+      Array.isArray(modulesState[key].config.sources) && modulesState[key].config.sources.length
+        ? modulesState[key].config.sources
+        : (window[defaults] || [])
+    );
+    modulesState[key].config.sources = Array.from(enabled); // fige l'état par défaut dès l'ouverture, même sans y toucher
+
+    const sourcesWrap = document.createElement('div');
+    sourcesWrap.className = 'module-config-field sports-sources-field';
+    sourcesWrap.innerHTML = `
+      <label>Sources</label>
+      <div class="sports-sources-status">Au moins une source doit rester cochée.</div>
+      <div class="sports-sources-list">
+        ${(window[catalog] || []).map(s => `
+          <label class="sports-source-item">
+            <input type="checkbox" class="sports-source-checkbox" value="${s.url}" ${enabled.has(s.url) ? 'checked' : ''}>
+            <span>${s.label}</span>
+          </label>
+        `).join('')}
+      </div>
+    `;
+
+    // Au moins 1 source cochée en permanence (point commun à toutes ces
+    // demandes) — décocher la DERNIÈRE case restante la re-coche
+    // immédiatement plutôt que d'afficher une erreur bloquante : la config
+    // ne peut structurellement jamais finir vide.
+    const checkboxes = sourcesWrap.querySelectorAll('.sports-source-checkbox');
+    checkboxes.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const checked = Array.from(checkboxes).filter((c) => c.checked);
+        if (!checked.length) {
+          cb.checked = true;
+          return;
+        }
+        modulesState[key].config.sources = checked.map((c) => c.value);
+      });
+    });
+
+    wrapper.appendChild(sourcesWrap);
   }
 
   if (meta.linesField) {
@@ -953,7 +1097,12 @@ function createModuleRow(key, mod, meta) {
     const lines = modulesState[key].config.lines;
 
     const linesWrap = document.createElement('div');
-    linesWrap.className = 'module-config-field etf-lines-field';
+    // Modificateur `etf-lines-field--${key}` (2026-09-01, sur demande
+    // explicite) — ETF et Crypto partagent la même classe de base
+    // etf-lines-field (voir en-tête du fichier) : seul ce modificateur permet
+    // de leur donner chacun leur propre teinte (or/violet, voir style.css)
+    // sans dupliquer toute la règle CSS commune.
+    linesWrap.className = `module-config-field etf-lines-field etf-lines-field--${key}`;
     linesWrap.innerHTML = `
       <div class="etf-lines-header ${lf.hasType ? 'has-type' : ''}">
         ${lf.hasType ? '<span>Type</span>' : ''}<span>${lf.idLabel}</span><span>Date</span><span>Qté</span><span>Prix €</span><span>Frais €</span><span></span>
@@ -1027,6 +1176,7 @@ function createModuleRow(key, mod, meta) {
     collapsible = wrapCollapsibleSection(linesWrap, {
       storeKey: `app.configCollapsed.${key}.lines`,
       labelFor: () => `${lines.length} ligne${lines.length !== 1 ? 's' : ''} configurée${lines.length !== 1 ? 's' : ''}`,
+      compact: true,
     });
     wrapper.appendChild(collapsible.wrap);
   }
@@ -1203,7 +1353,7 @@ function renderMonEquipeConfigSection(mod) {
 
     <label class="monequipe-list-label">Derniers résultats (max ${MON_EQUIPE_MAX_MATCHES})</label>
     <div class="monequipe-results-header">
-      <span>Date</span><span>Adversaire</span><span>Score</span><span>Domicile / Extérieur</span><span></span>
+      <span>Date</span><span>Adversaire</span><span>Score</span><span>Domicile / Extérieur</span><span>Type de match</span><span></span>
     </div>
     <div class="monequipe-results-list"></div>
     <button type="button" class="etf-add-line-btn monequipe-add-result-btn">+ Ajouter un résultat</button>
@@ -1270,7 +1420,11 @@ function renderMonEquipeConfigSection(mod) {
         if (!score) return;
         const idx = cfg.upcoming.indexOf(item);
         if (idx !== -1) cfg.upcoming.splice(idx, 1);
-        cfg.results.push({ date: item.date, opponent: item.opponent, score, venue: item.venue });
+        // `competition` reporté tel quel (2026-09-01, sur demande explicite —
+        // "Type de match" ajouté aux Derniers résultats) : le match à venir
+        // avait déjà son type saisi, pas de raison de le redemander/le
+        // réinitialiser à la 1re option lors du transfert automatique.
+        cfg.results.push({ date: item.date, opponent: item.opponent, score, venue: item.venue, competition: item.competition });
         renderUpcoming();
         renderResults();
         syncAddButtons();
@@ -1291,12 +1445,14 @@ function renderMonEquipeConfigSection(mod) {
         <input type="text" class="monequipe-opponent-input" placeholder="Adversaire" value="${item.opponent || ''}">
         <input type="text" class="monequipe-score-input" placeholder="Ex : 78-65" value="${item.score || ''}">
         <select class="monequipe-venue-select">${monEquipeVenueOptionsHtml(item.venue)}</select>
+        <select class="monequipe-competition-select">${monEquipeCompetitionOptionsHtml(item.competition)}</select>
         <button type="button" class="row-delete-btn monequipe-delete-btn" title="Supprimer ce résultat">×</button>
       `;
       row.querySelector('.monequipe-date-input').addEventListener('input', (e) => { item.date = e.target.value; });
       row.querySelector('.monequipe-opponent-input').addEventListener('input', (e) => { item.opponent = e.target.value; });
       row.querySelector('.monequipe-score-input').addEventListener('input', (e) => { item.score = e.target.value; });
       row.querySelector('.monequipe-venue-select').addEventListener('change', (e) => { item.venue = e.target.value; });
+      row.querySelector('.monequipe-competition-select').addEventListener('change', (e) => { item.competition = e.target.value; });
       row.querySelector('.monequipe-delete-btn').addEventListener('click', () => {
         const idx = cfg.results.indexOf(item);
         if (idx !== -1) cfg.results.splice(idx, 1);
@@ -1329,7 +1485,10 @@ function renderMonEquipeConfigSection(mod) {
   });
   addResultBtn.addEventListener('click', () => {
     if (cfg.results.length >= MON_EQUIPE_MAX_MATCHES) return;
-    cfg.results.push({ date: '', opponent: '', score: '', venue: 'home' });
+    // `competition` initialisé à la 1re option (2026-09-01, sur demande
+    // explicite — "Type de match" ajouté aux Derniers résultats), même
+    // principe que addUpcomingBtn ci-dessus.
+    cfg.results.push({ date: '', opponent: '', score: '', venue: 'home', competition: MON_EQUIPE_COMPETITIONS[0] });
     renderResults();
     syncAddButtons();
   });
@@ -2531,6 +2690,7 @@ function renderPretsLoansSection(key, mod) {
   collapsible = wrapCollapsibleSection(wrap, {
     storeKey: `app.configCollapsed.${key}.loans`,
     labelFor: () => `${loans.length} prêt${loans.length !== 1 ? 's' : ''} configuré${loans.length !== 1 ? 's' : ''}`,
+    compact: true,
   });
   return collapsible.wrap;
 }
@@ -2586,6 +2746,11 @@ function updateGoogleUI(googleData, statusOverride) {
     status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
     if (pill) pill.title = 'Nécessaire pour les modules Agenda, Gmail et Tâches Google';
   }
+  // Icône verte une fois connecté (2026-09-01, sur demande explicite, voir
+  // config.html .profil-notch-connected) — le texte de statut ci-dessus
+  // (`status`) est désormais masqué visuellement dans le notch Profil, seule
+  // cette classe porte l'information au premier coup d'œil.
+  pill?.classList.toggle('profil-notch-connected', !!googleData?.accessToken);
 }
 
 // ─── Spotify Auth ────────────────────────────────────────────────────────────
@@ -2891,28 +3056,23 @@ async function renderPersonnaliserOptions() {
   });
 }
 
-// ─── Mode d'affichage — Icône flottante / Volet latéral (2026-08-23, sur
-// demande explicite) — même popup Personnaliser, section distincte sous la
+// ─── Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite ;
+// "Volet latéral" SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande explicite,
+// voir CONTEXT.md) — même popup Personnaliser, section distincte sous la
 // grille de fonds. S'applique instantanément au clic (window.matin.
 // displayMode.set), comme le fond ci-dessus — pas de bouton "Enregistrer"
 // dédié. Voir main.js applyDisplayMode pour l'effet réel (2e fenêtre/
 // repositionnement de mainWindow).
-// Icône Volet latéral : 🎭 → ▐ (2026-09-01, sur demande explicite — "more
-// representative of a sliding panel" que le masque de théâtre d'origine).
 const DISPLAY_MODE_OPTIONS = [
   { key: 'fullscreen', emoji: '🖥️', label: 'Plein écran' },
   { key: 'floating',   emoji: '☀️', label: 'Icône flottante' },
-  { key: 'sidebar',    emoji: '▐',  label: 'Volet latéral' },
 ];
 
 async function renderDisplayModeOptions() {
   const container = document.getElementById('displayModeOptions');
-  const edgeRow = document.getElementById('sidebarEdgeRow');
-  const edgeSelect = document.getElementById('sidebarEdgeSelect');
   if (!container) return;
 
   const current = (await window.matin.store.get('app.displayMode')) || 'fullscreen';
-  const currentEdge = (await window.matin.store.get('app.sidebarEdge')) || 'right';
 
   container.innerHTML = DISPLAY_MODE_OPTIONS.map(opt => `
     <button type="button" class="display-mode-option ${opt.key === current ? 'selected' : ''}" data-key="${opt.key}">
@@ -2920,28 +3080,13 @@ async function renderDisplayModeOptions() {
       <span class="display-mode-option-label">${opt.label}</span>
     </button>`).join('');
 
-  if (edgeSelect) edgeSelect.value = currentEdge;
-  if (edgeRow) edgeRow.style.display = current === 'sidebar' ? 'flex' : 'none';
-
   container.querySelectorAll('.display-mode-option').forEach(btn => {
     btn.addEventListener('click', async () => {
       const key = btn.dataset.key;
       await window.matin.displayMode.set(key);
       container.querySelectorAll('.display-mode-option').forEach(b => b.classList.toggle('selected', b === btn));
-      if (edgeRow) edgeRow.style.display = key === 'sidebar' ? 'flex' : 'none';
     });
   });
-
-  // Écouteur posé une seule fois (dataset.wired) — renderDisplayModeOptions
-  // est appelée à CHAQUE ouverture de la popup (voir openModal ci-dessus),
-  // contrairement à `container` re-généré à chaque fois via innerHTML, ce
-  // <select> statique dans config.html survivrait à un 2e addEventListener.
-  if (edgeSelect && !edgeSelect.dataset.wired) {
-    edgeSelect.dataset.wired = '1';
-    edgeSelect.addEventListener('change', () => {
-      window.matin.displayMode.setSidebarEdge(edgeSelect.value);
-    });
-  }
 }
 
 // Défilement automatique — SUPPRIMÉ ENTIÈREMENT le 2026-09-01, sur demande
@@ -2966,6 +3111,9 @@ function updateSpotifyUI(spotifyData, statusOverride) {
     status.style.color = statusOverride ? 'var(--accent-yellow)' : 'var(--text-muted)';
     if (pill) pill.title = 'Nécessaire pour le module Spotify';
   }
+  // Icône verte une fois connecté (2026-09-01, sur demande explicite — voir
+  // updateGoogleUI ci-dessus, même principe).
+  pill?.classList.toggle('profil-notch-connected', !!spotifyData?.accessToken);
 }
 
 // ─── Sauvegarde ──────────────────────────────────────────────────────────────

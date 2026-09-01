@@ -32,6 +32,14 @@
  */
 window.MatinModules = window.MatinModules || {};
 
+// Icône du bouton confidentialité — `PRIVACY_EYE_OFF_SVG`/`privacyIconHtml`
+// ne sont PLUS déclarés ici (2026-09-01, correctif urgent, voir crypto.js
+// pour l'explication complète) : etf.js/crypto.js/prets.js partagent le même
+// scope global de <script> classiques dans index.html — les redéclarer ici
+// levait une SyntaxError au chargement de CE fichier (2e/3e redéclaration du
+// même identifiant), empêchant tout prets.js de s'exécuter et laissant le
+// spinner initial affiché indéfiniment. Seul etf.js (chargé en premier) les
+// déclare désormais ; prets.js les réutilise via le scope global partagé.
 const PRETS_MAX_LOANS = 5;
 // Plafond de sécurité sur la simulation avant du CRD → fin de prêt : évite une
 // boucle infinie si une mensualité mal saisie ne couvre même pas les intérêts
@@ -304,6 +312,22 @@ function pretsLoanRowHtml(loan, calc) {
     </div>`;
 }
 
+// Ligne de repli (2026-09-01, sur demande explicite, point 5 — "force
+// render... even if data is [partially] unavailable") — affichée à la place
+// de pretsLoanRowHtml pour UN prêt dont le calcul a échoué (voir son
+// try/catch dans render() ci-dessous), pendant que les AUTRES prêts du même
+// groupe continuent de s'afficher normalement. Jamais de valeur chiffrée
+// inventée ici, juste un signal clair + le nom du prêt pour l'identifier.
+function pretsLoanErrorRowHtml(loan) {
+  return `
+    <div class="prets-loan">
+      <div class="prets-loan-header">
+        <span class="prets-loan-name">${loan.name || '(sans nom)'}</span>
+      </div>
+      <span class="module-error">⚠ Données invalides pour ce prêt — voir la console</span>
+    </div>`;
+}
+
 // Replie/déplie un groupe de prêts — PUREMENT CSS/JS local (2026-08-10,
 // CORRIGÉ sur demande explicite : la version précédente rappelait
 // `window.matin.modules.update()` à CHAQUE clic, qui diffuse
@@ -355,65 +379,130 @@ function pretsEnsureFlushOnClose() {
 
 window.MatinModules.prets = {
   async render(container, config, _google, setBadge) {
-    pretsEnsureFlushOnClose();
-    const instanceKey = (container.id || '').replace('content-', '') || 'prets';
-    const privacyStorageKey = `matin-prets-privacy-${instanceKey}`;
-    const privacy = localStorage.getItem(privacyStorageKey) === '1';
-    // Replié par défaut (aucune préférence enregistrée) — seul `false` explicite déplie.
-    const collapsed = config?.collapsed !== false;
-
-    const loans = (Array.isArray(config?.loans) ? config.loans : [])
-      .filter(l => l?.name)
-      .slice(0, PRETS_MAX_LOANS);
-
-    if (!loans.length) {
-      container.innerHTML = `<div class="module-empty">Ajoutez un prêt à ce groupe dans Paramètres.</div>`;
-      setBadge('—');
-      return;
+    // Log demandé explicitement (2026-09-01, 3e relance) — confirme que
+    // render() DÉMARRE bien (donc que le script a été parsé/exécuté sans
+    // erreur, voir le correctif de redéclaration PRIVACY_EYE_OFF_SVG
+    // ci-dessus) avant même de lire la config.
+    console.log('[Prêts] Starting render...');
+    // ─── Débogage "spinner infini" (2026-09-01, sur demande explicite,
+    // relancée une 2e fois le même jour car le symptôme persistait) ────────
+    // Ce module est 100% local (aucun fetch, voir en-tête du fichier) et
+    // AUCUN de ses appels IPC internes ne dépend de Google (`_google` n'est
+    // même jamais lu ci-dessous — point 4 de la 1re demande : ce module n'a
+    // jamais attendu d'auth Google, cette hypothèse est écartée pour Prêts
+    // spécifiquement). `render()` est déjà synchrone de bout en bout — AUCUN
+    // `await` dans tout ce bloc try — ce qui signifie qu'il ne peut
+    // structurellement JAMAIS rester bloqué plus de quelques millisecondes :
+    // soit il se termine (succès ou erreur affichée), soit il lève une
+    // exception AVANT la 1re écriture dans `container.innerHTML`, auquel cas
+    // le spinner posé par createModuleCard (voir dashboard.js) reste affiché
+    // — mais l'erreur est alors forcément dans la console via le catch tout
+    // en bas. Un garde-fou "8 secondes" façon Promise.race (voir crypto.js
+    // pour l'équivalent réseau) n'aurait ICI aucun effet : rien n'est
+    // asynchrone à interrompre. Log ci-dessous : donnée BRUTE lue depuis
+    // matin-userdata (via window.matin.modules.getAll(), fusionnée par le
+    // main process — voir USERDATA_MODULE_KEYS dans main.js) pour CETTE
+    // instance, avant tout calcul — permet de voir d'un coup d'œil si le
+    // problème est en amont (donnée absente/mal formée dans le store) ou
+    // dans le calcul lui-même.
+    console.log(`[Prêts] Donnée brute lue depuis matin-userdata pour ${container.id} :`, config);
+    if (config == null) {
+      console.warn(`[Prêts] Aucune entrée userdata pour ${container.id} — module jamais configuré (1er lancement) ou store vide.`);
     }
+    try {
+      pretsEnsureFlushOnClose();
+      const instanceKey = (container.id || '').replace('content-', '') || 'prets';
+      const privacyStorageKey = `matin-prets-privacy-${instanceKey}`;
+      const privacy = localStorage.getItem(privacyStorageKey) === '1';
+      // Replié par défaut (aucune préférence enregistrée) — seul `false` explicite déplie.
+      const collapsed = config?.collapsed !== false;
 
-    const now = new Date();
-    const calcs = loans.map(loan => ({ loan, calc: pretsSimulateLoan(loan, now) }));
+      const rawLoans = Array.isArray(config?.loans) ? config.loans : [];
+      console.log(`[Prêts] ${rawLoans.length} prêt(s) brut(s) dans la config, ${rawLoans.filter(l => l?.name).length} avec un nom (les autres sont ignorés, voir filtre ci-dessous).`);
+      const loans = rawLoans.filter(l => l?.name).slice(0, PRETS_MAX_LOANS);
 
-    const totalCRD = calcs.reduce((sum, c) => sum + c.calc.crd, 0);
-    // Mensualités ACTUELLES (pas la mensualité "de base" saisie) — pour un
-    // prêt à paliers, c'est le palier en cours qui compte dans le total du
-    // groupe, pas une valeur figée qui pourrait dater d'un palier déjà passé.
-    const totalCurrentMonthly = calcs.reduce((sum, c) => sum + c.calc.currentPayment, 0);
-    const groupName = (config?.name || '').trim() || 'Prêts';
+      if (!loans.length) {
+        container.innerHTML = `<div class="module-empty">Aucun prêt configuré — ajoutez-en un dans Paramètres.</div>`;
+        setBadge('—');
+        return;
+      }
 
-    container.innerHTML = `
-      <div class="prets-module ${privacy ? 'prets-privacy-on' : ''} ${collapsed ? 'prets-collapsed' : ''}">
-        <div class="prets-group-header">
-          <span class="prets-group-chevron">▶</span>
-          <span class="prets-group-name" title="${groupName}">${groupName}</span>
-          <span class="prets-group-total etf-money" title="CRD total / mensualités actuelles">Total : ${pretsFmtEUR(totalCRD)} / Mens. ${pretsFmtEUR(totalCurrentMonthly)}</span>
-          <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacy ? '🔒' : '🔓'}</button>
-        </div>
-        <div class="prets-group-body">
-          <div class="prets-group-body-inner">
-            <div class="prets-loans">${calcs.map(({ loan, calc }) => pretsLoanRowHtml(loan, calc)).join('')}</div>
+      const now = new Date();
+      // Point 5 (demande explicite) : chaque prêt calculé INDÉPENDAMMENT —
+      // avant ce correctif, une seule exception dans pretsSimulateLoan (ex.
+      // date corrompue sur UN prêt) faisait échouer le calcul de TOUT le
+      // groupe (`.map` interrompu), remontée par dashboard.js comme une
+      // erreur générique masquant les AUTRES prêts, pourtant valides. Un
+      // prêt en échec affiche désormais sa propre ligne d'erreur au lieu de
+      // faire disparaître les autres.
+      const calcs = loans.map(loan => {
+        try {
+          return { loan, calc: pretsSimulateLoan(loan, now) };
+        } catch (err) {
+          console.error(`[Prêts] Échec du calcul pour le prêt "${loan.name}" :`, err, loan);
+          return { loan, calc: null };
+        }
+      });
+      const validCalcs = calcs.filter(c => c.calc);
+
+      const totalCRD = validCalcs.reduce((sum, c) => sum + c.calc.crd, 0);
+      // Mensualités ACTUELLES (pas la mensualité "de base" saisie) — pour un
+      // prêt à paliers, c'est le palier en cours qui compte dans le total du
+      // groupe, pas une valeur figée qui pourrait dater d'un palier déjà passé.
+      const totalCurrentMonthly = validCalcs.reduce((sum, c) => sum + c.calc.currentPayment, 0);
+      const groupName = (config?.name || '').trim() || 'Prêts';
+
+      container.innerHTML = `
+        <div class="prets-module ${privacy ? 'prets-privacy-on' : ''} ${collapsed ? 'prets-collapsed' : ''}">
+          <div class="prets-group-header">
+            <span class="prets-group-chevron">▶</span>
+            <span class="prets-group-name" title="${groupName}">${groupName}</span>
+            <span class="prets-group-total etf-money" title="CRD total / mensualités actuelles">Total : ${pretsFmtEUR(totalCRD)} / Mens. ${pretsFmtEUR(totalCurrentMonthly)}</span>
+            <button class="etf-privacy-btn" title="${privacy ? 'Afficher les montants' : 'Masquer les montants'}">${privacyIconHtml(privacy)}</button>
           </div>
-        </div>
-      </div>`;
+          <div class="prets-group-body">
+            <div class="prets-group-body-inner">
+              <div class="prets-loans">${calcs.map(({ loan, calc }) => calc ? pretsLoanRowHtml(loan, calc) : pretsLoanErrorRowHtml(loan)).join('')}</div>
+            </div>
+          </div>
+        </div>`;
 
-    container.querySelector('.etf-privacy-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const next = localStorage.getItem(privacyStorageKey) !== '1';
-      localStorage.setItem(privacyStorageKey, next ? '1' : '0');
-      window.MatinModules.prets.render(container, config, _google, setBadge);
-    });
+      container.querySelector('.etf-privacy-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const next = localStorage.getItem(privacyStorageKey) !== '1';
+        localStorage.setItem(privacyStorageKey, next ? '1' : '0');
+        window.MatinModules.prets.render(container, config, _google, setBadge);
+      });
 
-    const moduleEl = container.querySelector('.prets-module');
-    container.querySelector('.prets-group-header').addEventListener('click', () => {
-      // Bascule locale PURE (classList, voir style.css pour l'animation
-      // grid-template-rows + la rotation du chevron) — aucun re-render,
-      // aucune écriture disque synchrone (voir en-tête de fichier).
-      const nowCollapsed = moduleEl.classList.toggle('prets-collapsed');
-      config.collapsed = nowCollapsed; // reflet mémoire pour un futur re-render (ex. bascule confidentialité)
-      pretsScheduleCollapsedSave(instanceKey, nowCollapsed);
-    });
+      const moduleEl = container.querySelector('.prets-module');
+      container.querySelector('.prets-group-header').addEventListener('click', () => {
+        // Bascule locale PURE (classList, voir style.css pour l'animation
+        // grid-template-rows + la rotation du chevron) — aucun re-render,
+        // aucune écriture disque synchrone (voir en-tête de fichier).
+        const nowCollapsed = moduleEl.classList.toggle('prets-collapsed');
+        config.collapsed = nowCollapsed; // reflet mémoire pour un futur re-render (ex. bascule confidentialité)
+        pretsScheduleCollapsedSave(instanceKey, nowCollapsed);
+      });
 
-    setBadge(`${loans.length}`);
+      setBadge(`${loans.length}`);
+    } catch (err) {
+      // Filet de sécurité PROPRE à ce module (2026-09-01, point 3 de la
+      // demande) — en plus du catch générique de dashboard.js
+      // (renderModuleOnce), qui affiche déjà "⚠ Erreur de chargement" mais
+      // sans contexte spécifique à Prêts dans la console. Logué ICI avec la
+      // config brute en cause, avant de laisser l'exception remonter (pas de
+      // `return`) pour que renderModuleOnce affiche quand même son message
+      // générique — un seul affichage d'erreur, mais un log plus utile.
+      console.error('[Prêts] Échec du rendu — config en cause :', config, err);
+      // Affichage explicite ICI (2026-09-01, 2e relance explicite, "explicit
+      // error display") plutôt que de compter uniquement sur le catch
+      // générique de renderModuleOnce (dashboard.js) — ce module ne doit
+      // JAMAIS laisser le spinner initial de createModuleCard affiché sans
+      // remplacement, même si `container` a pu être partiellement modifié
+      // avant l'exception.
+      container.innerHTML = `<span class="module-error">⚠ Erreur de chargement du module Prêts — voir la console</span>`;
+      setBadge('⚠');
+      throw err;
+    }
   },
 };
