@@ -480,16 +480,26 @@
     .indices-toggle-label { font-size: 12px; color: var(--text-secondary); }
 
     /* Alertes — champ département + réutilise .indices-toggle-list/-row pour
-       les 4 types (voir juste au-dessus). */
+       les 4 types (voir juste au-dessus ; "Rappels produits" retiré et
+       "Trafic routier" ajouté le 2026-09-01, sur demande explicite — 4 types
+       à l'origine. "Perturbations SNCF"/sa clé API ajoutés le même jour,
+       puis retirés ENTIÈREMENT à leur tour le 2026-09-01, 2e demande
+       explicite le même jour — voir .alerts-sncf-key-input, supprimée). */
     .module-config-field.alerts-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
     .alerts-config-dept-row { display: flex; align-items: center; gap: 8px; }
     .alerts-config-dept-row label { flex: none; width: 190px; font-size: 11px; color: var(--text-secondary); }
+    /* Largeur réduite 70px→40px (2026-09-01, sur demande explicite, "reduce
+       width to fit exactly [the] digits") — juste assez pour un code
+       département (2-3 caractères : "01"/"69" pour la métropole, "2A"/"2B"
+       pour la Corse, "971"/"972"... pour l'outre-mer, d'où `maxlength="3"`
+       inchangé côté JS, voir config.js — seule la largeur VISUELLE change
+       ici, pas la contrainte de saisie). */
     .alerts-dept-input {
-      width: 70px;
+      width: 40px;
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 5px 8px;
+      padding: 5px 6px;
       font-size: 12px;
       color: var(--text-primary);
       font-family: var(--font-mono);

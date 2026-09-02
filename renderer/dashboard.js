@@ -238,6 +238,16 @@ function isAutoHeightKey(key) {
   // `overflow-y: auto`/`flex: 1` dans style.css, devenus inutiles une fois
   // la hauteur pilotée par le contenu plutôt que l'inverse).
   if (key === 'youtube') return true;
+  // Anniversaires (2026-09-01, sur demande explicite, "remove the vertical
+  // scrollbar — it appears even with only 1 entry") — même cause/même
+  // correctif que YouTube ci-dessus : à hauteur FIGÉE (defaultSize.h),
+  // `.birthdays-list` déclenchait un défilement interne dès que son contenu
+  // réel (même 1 seule ligne) ne remplissait pas exactement cette hauteur ni
+  // ne la dépassait franchement ; carte pilotée par son contenu désormais,
+  // `overflow-y: hidden` posé côté CSS (voir .birthdays-list, style.css) —
+  // plus rien à faire défiler, la carte grandit/rétrécit avec le nombre
+  // d'anniversaires à afficher.
+  if (key === 'birthdays') return true;
   return isPretsKey(key);
 }
 function resolveModuleTitle(key, meta, config) {
@@ -1159,6 +1169,16 @@ function initDisplayMode() {
 // (variable selon le nombre d'alertes actives et le retour à la ligne du texte).
 const ALERTS_SEVERITY_ICON = { red: '🔴', orange: '🟠' };
 
+// Fermeture du bandeau (2026-09-01, sur demande explicite) — IDs des alertes
+// fermées par l'utilisateur, EN MÉMOIRE SEULEMENT (Set JS, jamais persisté
+// dans electron-store) : remis à zéro à chaque relance de l'app (nouveau
+// contexte JS du renderer), comme demandé ("current session ... until next
+// app launch"). Un id déjà dans cet ensemble reste filtré hors du bandeau
+// tant que la MÊME alerte (même id, voir alertsCheckXxx dans main.js) reste
+// active ; une alerte réellement nouvelle (id différent) n'y est jamais,
+// donc passe le filtre et rouvre le bandeau — voir renderAlertsBanner.
+const alertsDismissedIds = new Set();
+
 // Empile les bandeaux plein écran actifs (Alertes, puis Données manquantes,
 // voir plus bas — 2026-08-30) et repousse #dashboard d'exactement leur
 // hauteur combinée. Les 2 bandeaux sont indépendants (une alerte active et
@@ -1185,28 +1205,54 @@ function renderAlertsBanner(alerts) {
   const banner = document.getElementById('alertsBanner');
   if (!banner) return;
 
-  if (!Array.isArray(alerts) || !alerts.length) {
+  // Alertes déjà fermées par l'utilisateur filtrées AVANT tout le reste
+  // (gravité du bandeau, hauteur...) — voir alertsDismissedIds ci-dessus :
+  // une alerte fermée reste invisible tant qu'elle reste la même, mais une
+  // alerte réellement nouvelle (id absent de cet ensemble) la fait
+  // réapparaître normalement.
+  const visibleAlerts = Array.isArray(alerts) ? alerts.filter(a => !alertsDismissedIds.has(a.id)) : [];
+
+  if (!visibleAlerts.length) {
     banner.classList.remove('visible', 'severity-red', 'severity-orange');
     banner.innerHTML = '';
     repositionBannersAndDashboard();
     return;
   }
 
-  const worstSeverity = alerts.some(a => a.severity === 'red') ? 'red' : 'orange';
+  const worstSeverity = visibleAlerts.some(a => a.severity === 'red') ? 'red' : 'orange';
   banner.classList.add('visible');
   banner.classList.toggle('severity-red', worstSeverity === 'red');
   banner.classList.toggle('severity-orange', worstSeverity === 'orange');
 
-  banner.innerHTML = alerts.map(a => `
-    <div class="alerts-banner-item" data-link="${a.link}">
-      <span class="alerts-banner-icon">${a.icon}</span>
-      <span class="alerts-banner-text">${a.text}</span>
-      <span class="alerts-banner-link">${ALERTS_SEVERITY_ICON[a.severity] || ''} En savoir plus →</span>
+  // `.alerts-banner-items` (colonne, une ligne par alerte) + bouton ✕ à
+  // côté (voir .alerts-banner en row, style.css) — pas superposé en absolu
+  // par-dessus, pour ne jamais chevaucher "En savoir plus →" à droite de
+  // chaque ligne.
+  banner.innerHTML = `
+    <div class="alerts-banner-items">
+      ${visibleAlerts.map(a => `
+        <div class="alerts-banner-item" data-link="${a.link}">
+          <span class="alerts-banner-icon">${a.icon}</span>
+          <span class="alerts-banner-text">${a.text}</span>
+          <span class="alerts-banner-link">${ALERTS_SEVERITY_ICON[a.severity] || ''} En savoir plus →</span>
+        </div>
+      `).join('')}
     </div>
-  `).join('');
+    <button type="button" class="alerts-banner-close" title="Fermer">✕</button>
+  `;
 
   banner.querySelectorAll('.alerts-banner-item').forEach((el) => {
     el.addEventListener('click', () => window.matin.shell.openExternal(el.dataset.link));
+  });
+
+  // Ferme le bandeau (2026-09-01, sur demande explicite) — mémorise les IDs
+  // des alertes ACTUELLEMENT affichées (pas juste celle sous le curseur),
+  // puis redemande un rendu : `visibleAlerts` sera vide au prochain appel
+  // (ou ne contiendra plus qu'une alerte réellement nouvelle), voir le
+  // filtre en tête de fonction.
+  banner.querySelector('.alerts-banner-close').addEventListener('click', () => {
+    visibleAlerts.forEach(a => alertsDismissedIds.add(a.id));
+    renderAlertsBanner(alerts);
   });
 
   // Mesuré APRÈS peuplement (la hauteur dépend du nombre d'alertes/du retour
@@ -1928,20 +1974,22 @@ function initPreciseScrolling() {
 // 'modules:updated', déjà écouté ailleurs dans ce fichier pour un
 // `location.reload()` — la bascule se traduit donc par un simple
 // rechargement, comme tout autre changement structurel de modules). Le
-// libellé du bouton ("🚪 <nom du profil actif>", icône changée de 👤 à 🚪 le
-// 2026-08-31, 2e révision, sur demande explicite) n'a besoin d'être peuplé
-// qu'une fois à l'ouverture : un `location.reload()` survient de toute façon
-// à chaque bascule, qui réexécute cette même fonction et relit le nom à jour.
+// libellé du bouton ("Vers → <nom de l'AUTRE profil>", 🚪 retiré, 2026-09-01,
+// sur demande explicite — annonce désormais la DESTINATION du clic, pas le
+// profil déjà actif) n'a besoin d'être peuplé qu'une fois à l'ouverture : un
+// `location.reload()` survient de toute façon à chaque bascule, qui
+// réexécute cette même fonction et relit le nom à jour (donc la destination
+// suivante, l'ex-profil actif, une fois basculé).
 function initProfileSwitcher() {
   const btn = document.getElementById('btnProfileSwitch');
   if (!btn) return;
 
   window.matin.profiles.getAll().then((profiles) => {
-    const active = profiles?.[profiles.active];
-    btn.textContent = `🚪 ${active?.name || 'Profil'}`;
+    const nextKey = profiles.active === 'profile2' ? 'profile1' : 'profile2';
+    const other = profiles?.[nextKey];
+    btn.textContent = `Vers → ${other?.name || 'Profil'}`;
 
     btn.addEventListener('click', () => {
-      const nextKey = profiles.active === 'profile2' ? 'profile1' : 'profile2';
       btn.disabled = true;
       window.matin.profiles.switch(nextKey)
         .catch(err => {

@@ -1,11 +1,14 @@
 /**
  * Module Qualité de l'air — Open-Meteo Air Quality (gratuit, sans clé)
  *
- * Pas de config propre : réutilise la ville du module Météo
- * (modules.weather.config.city) via window.matin.modules.getAll() plutôt que
- * de redemander la même ville une deuxième fois à l'utilisateur. Repli sur
- * "Lyon" si le module Météo est absent/désactivé — même valeur par défaut que
- * weather.js, pour rester cohérent si aucun des deux n'a jamais été configuré.
+ * Champ "Ville" propre (2026-09-01, sur demande explicite — voir
+ * MODULE_META.airQuality/config.js, même `configField` générique que
+ * Météo) : prioritaire dès qu'il est renseigné. Vide/jamais configuré →
+ * repli sur la ville du module Météo (modules.weather.config.city, via
+ * window.matin.modules.getAll(), comportement d'origine avant ce champ) pour
+ * ne pas redemander la même ville une 2e fois par défaut. Repli final sur
+ * "Lyon" si Météo est lui-même absent/désactivé/jamais configuré — même
+ * valeur par défaut que weather.js, pour rester cohérent en dernier recours.
  *
  * Géocodage (Nominatim, même source que weather.js) mis en cache dans
  * localStorage par ville — évite de re-géocoder à chaque rafraîchissement
@@ -55,7 +58,14 @@ function aqClassify(aqi) {
 
 const AQ_COLOR_EMOJI = { green: '🟢', yellow: '🟡', red: '🔴', unknown: '⚪' };
 
-async function aqGetCity() {
+// `ownCity` (2026-09-01, sur demande explicite — champ "Ville" propre ajouté
+// à ce module, voir MODULE_META.airQuality/config.js) : prioritaire dès qu'il
+// est renseigné ; vide/absent → repli sur la ville de Météo comme avant
+// (comportement d'origine préservé pour toute config existante qui n'a
+// jamais touché ce nouveau champ).
+async function aqGetCity(ownCity) {
+  const trimmed = (ownCity || '').trim();
+  if (trimmed) return trimmed;
   try {
     const modules = await window.matin.modules.getAll();
     const city = modules?.weather?.config?.city;
@@ -66,9 +76,9 @@ async function aqGetCity() {
 }
 
 window.MatinModules.airQuality = {
-  async render(container, _config, _google, setBadge) {
+  async render(container, config, _google, setBadge) {
     try {
-      const city = await aqGetCity();
+      const city = await aqGetCity(config?.city);
       const { lat, lon } = await aqGeocodeCity(city);
 
       const res = await fetch(
@@ -84,7 +94,11 @@ window.MatinModules.airQuality = {
       const status = aqClassify(aqi);
       const emoji = AQ_COLOR_EMOJI[status.color];
 
-      setBadge(aqi != null ? `${emoji} ${Math.round(aqi)}` : '—');
+      // Badge = nom de la ville (2026-09-01, sur demande explicite — le
+      // niveau (Bon/Moyen/Mauvais...) reste affiché dans le contenu de la
+      // carte, voir .aq-index-label plus bas : doublon inutile en en-tête).
+      // Couleur jaune posée en CSS (#badge-airQuality).
+      setBadge(city);
 
       container.innerHTML = `
         <div class="aq-module">
@@ -92,7 +106,6 @@ window.MatinModules.airQuality = {
             <span class="aq-index-value aq-${status.color}">${aqi != null ? Math.round(aqi) : '—'}</span>
             <div class="aq-index-meta">
               <span class="aq-index-label aq-${status.color}">${emoji} ${status.label}</span>
-              <span class="aq-index-city">${city}</span>
             </div>
           </div>
           <div class="aq-pollutants">

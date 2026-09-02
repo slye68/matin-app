@@ -223,14 +223,19 @@ const DEFAULT_MODULES = {
   // les autres (voir dashboard.js, contourne délibérément MODULE_REGISTRY/
   // createModuleCard) : un bandeau plein écran au-dessus de tout, visible
   // seulement s'il y a au moins une alerte active. `department` vide = la
-  // vigilance météo (seule source dépendant d'un département) reste
-  // silencieuse tant qu'il n'est pas renseigné dans Paramètres.
+  // vigilance météo/le trafic routier (sources dépendant d'un département,
+  // voir alertsCheckMeteo/alertsCheckTrafic) restent silencieuses tant qu'il
+  // n'est pas renseigné dans Paramètres.
   alerts: {
     enabled: true,
     position: 21,
     config: {
       department: '',
-      types: { enlevement: true, meteo: true, vigipirate: true, rappels: true },
+      // "Rappels produits" retiré entièrement (2026-09-01, sur demande
+      // explicite) — voir alertsCheckRappelConso, supprimée. "Perturbations
+      // SNCF" (`sncf`/`sncfApiKey`) retiré entièrement à son tour le même
+      // jour (2e demande explicite) — voir alertsCheckSncf, supprimée.
+      types: { enlevement: true, meteo: true, vigipirate: true, trafic: true },
     },
   },
   // Prêts immobiliers (2026-08-08, sur demande explicite) — instances
@@ -1715,15 +1720,47 @@ ipcMain.handle('app:setDisplayMode', (_e, mode) => {
 // (ex. après une réinstallation, un déplacement du dossier projet, ou un
 // changement du binaire lancé — voir CONTEXT.md "raccourci de lancement
 // corrigé" pour un exemple concret de ce genre de dérive).
+//
+// BUG CORRIGÉ le 2026-09-01 (sur demande explicite, "launching Electron but
+// not the Matin app — it shows the default Electron welcome page instead")
+// — cause racine : l'appel d'origine ne passait QUE `{ openAtLogin }`, sans
+// jamais préciser `path`/`args`. Sans ces 2 champs, Windows lance le binaire
+// par défaut associé (`process.execPath`) SANS AUCUN ARGUMENT lui indiquant
+// quel dossier d'app charger — en dev (`npm run dev`/`electron .`),
+// `process.execPath` pointe vers le electron.exe GÉNÉRIQUE du package
+// `electron`, qui, lancé nu, retombe sur sa page d'accueil par défaut au
+// lieu de Matin : exactement le symptôme rapporté. `computeLoginItemSettings`
+// ci-dessous corrige ça en 2 temps selon le contexte :
+//  - PACKAGÉ (`app.isPackaged === true`, vrai build electron-builder) :
+//    `process.execPath` pointe déjà directement vers l'exécutable Matin.exe
+//    lui-même — AUCUN argument supplémentaire nécessaire (`process.argv[1]`
+//    n'y désigne plus un script à charger comme en dev, le passer quand même
+//    risquerait de casser le lancement packagé pour rien).
+//  - DEV : `args: [path.resolve(process.argv[1])]` (chemin absolu du point
+//    d'entrée) indique explicitement à electron.exe générique QUEL dossier
+//    d'app charger, exactement comme `electron /chemin/vers/matin-app` en
+//    ligne de commande.
 // NON VÉRIFIÉ EN CONDITIONS RÉELLES (pas de redémarrage Windows possible
-// dans cet environnement) : l'appel est fait selon la documentation
-// officielle Electron, mais l'inscription effective au registre reste à
-// confirmer au premier usage réel (Paramètres → Utile → activer, puis
-// vérifier Gestionnaire des tâches → Démarrage).
+// dans cet environnement) : le correctif suit le mécanisme Electron/Windows
+// documenté (et le comportement par défaut sans `path`/`args` reproduit
+// exactement le symptôme rapporté), mais l'inscription effective au
+// registre ET le lancement au redémarrage restent à confirmer au premier
+// usage réel (Paramètres → Utile → activer, relancer Windows, vérifier
+// Gestionnaire des tâches → Démarrage).
+function computeLoginItemSettings(enabled) {
+  const settings = {
+    openAtLogin: enabled,
+    path: process.execPath,
+    args: app.isPackaged ? [] : [path.resolve(process.argv[1])],
+  };
+  console.log('[Démarrage auto] app.setLoginItemSettings appelé avec :', settings, `(app.isPackaged=${app.isPackaged})`);
+  return settings;
+}
+
 ipcMain.handle('app:setStartOnBoot', (_e, enabled) => {
   const safeEnabled = enabled === true;
   safeStoreSet('app.startOnBoot', safeEnabled);
-  app.setLoginItemSettings({ openAtLogin: safeEnabled });
+  app.setLoginItemSettings(computeLoginItemSettings(safeEnabled));
   return true;
 });
 
@@ -4040,8 +4077,10 @@ async function performDriveLaunchSync() {
 //
 // Copie minimale des emojis de reminders-categories.js (window global côté
 // renderer, pas un module CommonJS require()-able ici) — à garder synchronisée
-// si la liste de catégories change.
-const REMINDER_ICONS = { health: '💊', call: '📞', task: '🔧', birthday: '🎂', other: '⏰' };
+// si la liste de catégories change. Mise à jour le 2026-09-01 (sur demande
+// explicite, catégories remplacées : health/call/task/birthday/other →
+// health/call/event/admin/home/work).
+const REMINDER_ICONS = { health: '💊', call: '📞', event: '🎂', admin: '💰', home: '🏠', work: '💼' };
 
 function remindersPad2(n) { return String(n).padStart(2, '0'); }
 function remindersDateStr(d) { return `${d.getFullYear()}-${remindersPad2(d.getMonth() + 1)}-${remindersPad2(d.getDate())}`; }
@@ -4121,7 +4160,11 @@ function checkReminders() {
 // c'est donc une vérification AU MOINS chaque minute, en plus fiable.
 const REMINDERS_CHECK_MS = 30 * 1000;
 
-// ─── Alertes — bandeau plein écran (enlèvement, météo, Vigipirate, rappels) ────
+// ─── Alertes — bandeau plein écran (enlèvement, météo, Vigipirate) ─────────
+// "Rappels produits" (RappelConso) retiré ENTIÈREMENT le 2026-09-01, sur
+// demande explicite — voir alertsCheckRappelConso, ALERTS_RAPPELCONSO_URL/
+// _WINDOW_H, supprimées (plus aucune trace, y compris dans le type par
+// défaut de la config, voir MODULE_DEFAULTS.alerts plus haut).
 // Même principe que les rappels ci-dessus : tourne côté process main (fetch
 // direct, notifications natives jamais throttlées même fenêtre minimisée),
 // pousse l'état calculé au renderer plutôt que de le laisser fetcher lui-même
@@ -4145,16 +4188,6 @@ const REMINDERS_CHECK_MS = 30 * 1000;
 //    structurée, mais la page contient la phrase "Positionnée au [nouveau]
 //    stade «X»" qui donne le niveau RÉELLEMENT en vigueur (vérifié en
 //    direct : "vigilance renforcée" au moment du test) — extrait par regex.
-//  - Rappel Conso : l'URL demandée (rappel.conso.gouv.fr/api/v1/recall) est
-//    un vrai 404. Les données réelles sont publiées sur le catalogue
-//    OpenDataSoft data.economie.gouv.fr (même plateforme déjà utilisée pour
-//    les prix carburants, voir FUEL_API_URL) sous le jeu
-//    "rappelconso-v2-gtin-espaces" — trouvé via son catalogue de recherche,
-//    vérifié en direct (18000+ fiches, champs confirmés : date_publication/
-//    libelle/categorie_produit/risques_encourus/lien_vers_la_fiche_rappel).
-//    Ce jeu n'a PAS de champ de gravité structuré : "rappels récents"
-//    interprété comme les 7 derniers jours plutôt qu'un vrai filtre de
-//    criticité (qui n'existe simplement pas dans la donnée disponible).
 //  - Vigilance météo : l'URL demandée renvoie bien 401 "you must provide a
 //    token" — nécessite une clé API Météo France gratuite
 //    (portail-api.meteofrance.fr), même schéma que NASA_API_KEY (.env).
@@ -4167,10 +4200,6 @@ const ALERTS_CHECK_MS = 15 * 60 * 1000;
 
 const ALERTS_VIGIPIRATE_URL = 'https://www.sgdsn.gouv.fr/vigipirate';
 const ALERTS_ENLEVEMENT_URL = 'https://www.alerte-enlevement.justice.gouv.fr/';
-// limit=50 : marge de sécurité au-delà des ~17 fiches/48h mesurées en direct
-// (voir ALERTS_RAPPELCONSO_WINDOW_H) pour ne jamais tronquer la fenêtre un
-// jour de volume plus élevé que la normale.
-const ALERTS_RAPPELCONSO_URL = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/rappelconso-v2-gtin-espaces/records?limit=50&order_by=date_publication%20desc';
 const ALERTS_METEO_URL = 'https://webservice.meteofrance.com/vigilance/v3/vigicarteDept';
 const ALERTS_ENLEVEMENT_BASELINE_TITLE = 'Le dispositif Alerte enlèvement';
 
@@ -4210,36 +4239,6 @@ async function alertsCheckEnlevement() {
   };
 }
 
-// RappelConso publie très fréquemment (58 fiches en 7 jours mesuré en
-// direct, ~6-17/jour) : lister une ligne de bandeau par fiche noierait
-// complètement l'alerte sous le volume. Le jeu n'a par ailleurs AUCUN champ
-// de gravité structuré à filtrer dessus (voir avertissement en-tête de
-// section). Compromis retenu : UNE seule ligne agrégée ("N rappels récents"),
-// fenêtre resserrée à 48h (17 fiches mesuré, déjà beaucoup mais restant
-// lisible en une ligne) plutôt que 7 jours, lien vers le site officiel pour
-// le détail. `id` basé sur la fiche la PLUS RÉCENTE (pas sur le compte) :
-// une nouvelle fiche fait toujours changer cet id même si le total reste
-// coïncidemment identique, donc redéclenche bien une notification.
-const ALERTS_RAPPELCONSO_WINDOW_H = 48;
-
-async function alertsCheckRappelConso() {
-  const text = await alertsFetchText(ALERTS_RAPPELCONSO_URL);
-  const data = JSON.parse(text);
-  const cutoff = Date.now() - ALERTS_RAPPELCONSO_WINDOW_H * 3600000;
-  const recent = (data.results || []).filter(r => r.date_publication && new Date(r.date_publication).getTime() >= cutoff);
-  if (!recent.length) return [];
-
-  const mostRecent = recent[0]; // déjà trié desc par date_publication (order_by de la requête)
-  const count = recent.length;
-  return [{
-    id: `rappel:${mostRecent.id ?? mostRecent.numero_fiche}`,
-    severity: 'orange',
-    icon: '🏥',
-    text: `${count} rappel${count > 1 ? 's' : ''} produit${count > 1 ? 's' : ''} récent${count > 1 ? 's' : ''} (48h) — dernier : ${mostRecent.libelle || 'voir détail'}`,
-    link: 'https://rappel.conso.gouv.fr/',
-  }];
-}
-
 async function alertsCheckMeteo() {
   const apiKey = process.env.METEOFRANCE_API_KEY;
   const department = store.get('modules.alerts.config.department');
@@ -4268,8 +4267,61 @@ async function alertsCheckMeteo() {
   }];
 }
 
+// ─── Trafic routier — DATEX II (2026-09-01, sur demande explicite) ─────────
+// PAS IMPLÉMENTÉ CONTRE UN VRAI ENDPOINT — délibérément, contrairement à
+// toutes les autres sources de ce fichier (même les moins vérifiées, ex.
+// Météo France ci-dessus, appellent au moins une URL précise avec un schéma
+// d'auth documenté). DATEX II est un FORMAT d'échange XML normalisé
+// européen, pas une API REST unique : les 2 URLs données
+// (diffusion.datex2.fr, bison-fute.gouv.fr) ne sont pas, à connaissance
+// vérifiable ici, des endpoints JSON/XML publics interrogeables sans
+// inscription — `diffusion.datex2.fr` ressemble à un nœud de diffusion
+// professionnel (accès généralement soumis à convention/abonnement entre
+// gestionnaires de voirie), et bison-fute.gouv.fr est le site web grand
+// public (pages HTML), pas une API. Aucune requête n'est donc tentée contre
+// ces URLs telles quelles : le risque était d'implémenter un appel qui
+// échoue silencieusement à chaque cycle (401/403/page HTML au lieu de
+// XML) et de faire croire la fonctionnalité opérationnelle alors qu'elle ne
+// le serait jamais. Le toggle "Trafic routier" existe déjà dans Paramètres
+// (voir config.js) et ce garde-fou explicite ci-dessous — reste à brancher
+// une VRAIE source (URL + identifiants confirmés, ou un jeu de données
+// data.gouv.fr équivalent) une fois connue.
+async function alertsCheckTrafic() {
+  const department = store.get('modules.alerts.config.department');
+  if (!department) return [];
+  console.warn('[Alertes] Trafic routier (DATEX II) : aucun endpoint confirmé pour l\'instant — voir le commentaire au-dessus d\'alertsCheckTrafic dans main.js. Fonctionnalité désactivée en pratique tant qu\'une source réelle n\'est pas branchée ici.');
+  return [];
+}
+
 let alertsKnownIds = new Set(store.get('alertsCache.knownIds') || []);
 let alertsCurrent = [];
+
+// SNCF retiré entièrement le 2026-09-01 (sur demande explicite) — c'était le
+// seul type d'alerte sur un cycle séparé (10 min contre 15 min pour le
+// reste), d'où l'ancien découpage alertsNonSncfCurrent/alertsSncfCurrent +
+// alertsMergeAndNotify pour les recombiner sans qu'un cycle écrase la
+// mémoire "déjà notifié" de l'autre. Plus qu'UN SEUL cycle désormais
+// (checkAlerts, ALERTS_CHECK_MS) : notification simplifiée en une fonction
+// unique, plus de fusion nécessaire.
+function alertsNotify(alerts) {
+  const currentIds = new Set(alerts.map(a => a.id));
+  for (const alert of alerts) {
+    if (alertsKnownIds.has(alert.id)) continue;
+    if (Notification.isSupported()) {
+      try {
+        new Notification({ title: `${alert.icon} Nouvelle alerte`, body: alert.text }).show();
+      } catch (err) {
+        console.error('[Alertes] Échec notification', err);
+      }
+    }
+  }
+  alertsKnownIds = currentIds;
+  safeStoreSet('alertsCache.knownIds', Array.from(currentIds));
+
+  alertsCurrent = alerts;
+  if (mainWindow) mainWindow.webContents.send('alerts:updated', alerts);
+  return alertsCurrent;
+}
 
 async function checkAlerts() {
   const mod = store.get('modules.alerts');
@@ -4289,35 +4341,17 @@ async function checkAlerts() {
     checks.push(alertsCheckEnlevement().then(a => a ? [a] : [])
       .catch(err => { console.warn('[Alertes] Alerte enlèvement indisponible', err.message); return []; }));
   }
-  if (types.rappels !== false) {
-    checks.push(alertsCheckRappelConso()
-      .catch(err => { console.warn('[Alertes] RappelConso indisponible', err.message); return []; }));
-  }
   if (types.meteo !== false) {
     checks.push(alertsCheckMeteo()
       .catch(err => { console.warn('[Alertes] Vigilance météo indisponible', err.message); return []; }));
   }
+  if (types.trafic !== false) {
+    checks.push(alertsCheckTrafic()
+      .catch(err => { console.warn('[Alertes] Trafic routier indisponible', err.message); return []; }));
+  }
 
   const results = await Promise.all(checks);
-  const alerts = results.flat();
-
-  const currentIds = new Set(alerts.map(a => a.id));
-  for (const alert of alerts) {
-    if (alertsKnownIds.has(alert.id)) continue;
-    if (Notification.isSupported()) {
-      try {
-        new Notification({ title: `${alert.icon} Nouvelle alerte`, body: alert.text }).show();
-      } catch (err) {
-        console.error('[Alertes] Échec notification', err);
-      }
-    }
-  }
-  alertsKnownIds = currentIds;
-  safeStoreSet('alertsCache.knownIds', Array.from(currentIds));
-
-  alertsCurrent = alerts;
-  if (mainWindow) mainWindow.webContents.send('alerts:updated', alerts);
-  return alerts;
+  return alertsNotify(results.flat());
 }
 
 ipcMain.handle('alerts:getCurrent', () => alertsCurrent);
@@ -4326,10 +4360,11 @@ ipcMain.handle('alerts:getCurrent', () => alertsCurrent);
 app.whenReady().then(() => {
   createMainWindow();
   // Réapplique l'inscription registre à CHAQUE lancement (voir
-  // app:setStartOnBoot plus haut) — pas juste au moment du clic dans
-  // Paramètres, pour rester cohérent même si le binaire/raccourci lancé a
-  // changé entre-temps (ex. déplacement du dossier projet, voir CONTEXT.md).
-  app.setLoginItemSettings({ openAtLogin: store.get('app.startOnBoot') === true });
+  // app:setStartOnBoot/computeLoginItemSettings plus haut) — pas juste au
+  // moment du clic dans Paramètres, pour rester cohérent même si le
+  // binaire/raccourci lancé a changé entre-temps (ex. déplacement du
+  // dossier projet, voir CONTEXT.md).
+  app.setLoginItemSettings(computeLoginItemSettings(store.get('app.startOnBoot') === true));
   performDriveLaunchSync().catch(err => console.error('[Drive Sync] Échec inattendu de la synchronisation au lancement', err));
   checkReminders();
   setInterval(checkReminders, REMINDERS_CHECK_MS);

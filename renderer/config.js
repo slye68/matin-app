@@ -45,7 +45,13 @@ const MODULE_META = {
               linesField: { idKey: 'symbol', idLabel: 'Crypto', idPlaceholder: 'BTC', title: 'Lignes du portefeuille (crypto)', datalist: 'crypto-symbols-datalist' } },
   spotify:  { label: 'Spotify',      icon: '🎵',   requiresGoogle: false },
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
-  airQuality: { label: 'Qualité air', icon: '🌡️', requiresGoogle: false }, // pas de config : réutilise la ville de Météo
+  // Champ "Ville" ajouté le 2026-09-01 (sur demande explicite, même
+  // `configField` générique que Météo ci-dessus) — vide = réutilise la ville
+  // de Météo (voir air-quality.js, aqGetCity), comportement d'origine
+  // conservé pour toute config existante qui ne touche jamais ce champ.
+  airQuality: { label: 'Qualité air', icon: '🌡️', requiresGoogle: false,
+                hintText: 'Laissez ce champ vide pour utiliser la même ville que le module Météo.',
+                configField: { key: 'city', label: 'Ville', placeholder: '' } },
   // `fuelTypesField` (2026-09-01, sur demande explicite) — cases à cocher
   // "quels carburants afficher", voir renderFuelTypesConfigSection plus bas
   // et modules/fuel-types.js (catalogue partagé avec fuel-prices.js).
@@ -173,8 +179,11 @@ const TAB_MODULE_ORDER = {
   loisirs:    ['fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast', 'youtube'],
   maison:     ['hue', 'kasa', 'tradfri'],
   // Maps → Utile (2026-09-01, sur demande explicite) — retiré de Services.
-  services:   ['fuelPrices', 'priceTracking', 'nasa'],
-  utile:      ['reminders', 'weather', 'airQuality', 'calendar', 'gmail', 'googleTasks', 'birthdays', 'alerts', 'maps'],
+  // Gmail/Agenda → Services (2026-09-01, 2e demande explicite le même jour)
+  // — retirés d'Utile, qui garde Rappels/Météo/Qualité de l'air/Tâches
+  // Google/Anniversaires/Alertes/Maps.
+  services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'gmail'],
+  utile:      ['reminders', 'weather', 'airQuality', 'googleTasks', 'birthdays', 'alerts', 'maps'],
 };
 
 let tabOrder = DEFAULT_TAB_ORDER.slice();
@@ -2416,7 +2425,7 @@ function renderTradfriConfigSection(mod) {
 }
 
 // ─── Rappels (titre + date/heure + récurrence + catégorie) ─────────────────
-const MAX_REMINDERS = 30;
+const MAX_REMINDERS = 15; // 30→15 (2026-09-01, sur demande explicite)
 const REMINDERS_RECUR_PREVIEW_LABEL = { daily: 'quotidien', weekly: 'hebdo', monthly: 'mensuel' };
 
 function remindersCategoryOptionsHtml(selected) {
@@ -2476,7 +2485,7 @@ function renderRemindersConfigSection(mod) {
         <select class="reminders-recur-select">
           <option value="once" ${!item.recurrence || item.recurrence === 'once' ? 'selected' : ''}>Une fois</option>
           <option value="daily" ${item.recurrence === 'daily' ? 'selected' : ''}>Quotidien</option>
-          <option value="weekly" ${item.recurrence === 'weekly' ? 'selected' : ''}>Hebdomadaire</option>
+          <option value="weekly" ${item.recurrence === 'weekly' ? 'selected' : ''}>Hebdo.</option>
           <option value="monthly" ${item.recurrence === 'monthly' ? 'selected' : ''}>Mensuel</option>
         </select>
         <button type="button" class="row-delete-btn reminders-delete-btn" title="Supprimer ce rappel">×</button>
@@ -2515,7 +2524,10 @@ function renderRemindersConfigSection(mod) {
     // (contexte Chromium sécurisé) ; sert uniquement à distinguer les rappels
     // entre eux côté main.js (marquage lastFired par item), pas d'exigence
     // cryptographique réelle ici.
-    items.push({ id: crypto.randomUUID(), title: '', date: '', time: '', recurrence: 'once', icon: 'other' });
+    // `icon` par défaut = 1re catégorie du catalogue (2026-09-01 — l'ancienne
+    // clé 'other' n'existe plus, voir reminders-categories.js) plutôt qu'une
+    // clé en dur, pour ne pas se désynchroniser si la liste est réordonnée.
+    items.push({ id: crypto.randomUUID(), title: '', date: '', time: '', recurrence: 'once', icon: window.ReminderCategories.list[0].key });
     renderItems();
     syncAddBtn();
   });
@@ -2571,11 +2583,24 @@ function renderIndicesConfigSection(mod) {
 // français — resterait correct pour la Corse "2A"/"2B" et les DOM sans
 // logique spéciale) + un .toggle par type d'alerte (même composant que la
 // sélection d'indices juste au-dessus).
+// "Rappels produits" retiré entièrement (2026-09-01, sur demande explicite)
+// — voir main.js, alertsCheckRappelConso supprimée (plus aucune trace, y
+// compris dans le type par défaut de la config). "Trafic routier" ajouté le
+// même jour (2e demande explicite) — voir main.js alertsCheckTrafic.
+// Fonctionne en pratique à "—" en permanence pour l'instant : aucun endpoint
+// DATEX II confirmé n'a pu être branché (voir le commentaire détaillé
+// d'alertsCheckTrafic dans main.js) — le réglage reste affiché pour ne pas
+// bloquer le reste de cette demande, mais ne remontera aucune alerte tant
+// qu'une vraie source n'est pas connue. "Perturbations SNCF" (ajouté le
+// même jour que Trafic routier) retiré ENTIÈREMENT à son tour le 2026-09-01
+// (2e demande explicite le même jour) — voir main.js, alertsCheckSncf/
+// ALERTS_SNCF_URL/alertsResolveSncfApiKey/ALERTS_SNCF_EFFECT_LABELS/
+// ALERTS_DEPARTMENT_NAMES, toutes supprimées (plus aucune trace).
 const ALERTS_TYPE_DEFS = [
   { key: 'enlevement', icon: '🚸', label: 'Alerte enlèvement' },
   { key: 'meteo',      icon: '🌪️', label: 'Vigilance météo' },
   { key: 'vigipirate', icon: '🔴', label: 'Vigipirate' },
-  { key: 'rappels',    icon: '🏥', label: 'Rappels produits' },
+  { key: 'trafic',     icon: '🚗', label: 'Trafic routier' },
 ];
 
 function renderAlertsConfigSection(mod) {
@@ -2587,7 +2612,7 @@ function renderAlertsConfigSection(mod) {
   wrap.className = 'module-config-field alerts-config-field';
   wrap.innerHTML = `
     <div class="alerts-config-dept-row">
-      <label>Département (vigilance météo)</label>
+      <label>Département (météo / trafic)</label>
       <input type="text" class="alerts-dept-input" placeholder="Ex : 69" maxlength="3" value="${mod.config.department}">
     </div>
     <div class="indices-toggle-list"></div>

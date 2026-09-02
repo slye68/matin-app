@@ -74,10 +74,16 @@
       <span class="app-logo">☀️</span>
       <span class="app-name">Matin</span>
       <span class="app-date" id="headerDate"></span>
-      <!-- Déplacée depuis .titlebar-center (2026-08-10, sur demande explicite,
-           2e révision) : juste après la date, à gauche, PAS centrée entre la
-           date et la barre de recherche — voir .app-greeting dans style.css
-           pour le petit espace supplémentaire (16px) qui la sépare de la date. -->
+      <!-- REVENUE dans .titlebar-left le 2026-09-01 (sur demande explicite —
+           la tentative de centrage flexbox entre la date et la recherche,
+           voir .titlebar-greeting-zone, faisait disparaître la salutation
+           DERRIÈRE la barre de recherche : .titlebar-center vient après dans
+           le DOM et n'a pas de z-index, donc peint PAR-DESSUS toute zone
+           avec laquelle elle chevauche, et la largeur de recherche estimée
+           par calc() n'était pas fiable). Juste après la date, à gauche, PAS
+           centrée entre la date et la barre de recherche — voir
+           .app-greeting dans style.css pour le petit espace supplémentaire
+           qui la sépare de la date. -->
       <span class="app-greeting" id="headerGreeting"></span>
       <!-- Sync Google Drive (2026-08-21, voir main.js performDriveLaunchSync,
            dashboard.js initDriveSyncIndicator) — vide/invisible par défaut,
@@ -106,10 +112,13 @@
            👤→🚪, 2e révision, même jour, sur demande explicite) — bascule
            INSTANTANÉMENT entre Profil 1/2 (voir dashboard.js
            initProfileSwitcher, main.js profiles:switch). Libellé peuplé au
-           chargement avec le nom du profil ACTIF (ex. "🚪 Semaine") — jamais
+           chargement avec le nom de l'AUTRE profil, celui vers lequel le
+           clic bascule (2026-09-01, sur demande explicite, "Vers → Tests" si
+           actif = "Principal" — remplace l'ancien libellé qui montrait le
+           profil ACTIF, ex. "🚪 Semaine", icône 🚪 retirée) — jamais
            "Profil 1"/"Profil 2" en dur, ces clés ne sont que des identifiants
            internes. -->
-      <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">🚪 …</button>
+      <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">Vers → …</button>
       <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
     </div>
   </header>

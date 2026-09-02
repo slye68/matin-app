@@ -35,7 +35,10 @@ window.MatinModules.weather = {
       const wind    = Math.round(w.current.wind_speed_10m);
       const unitSym = unit === 'celsius' ? '°C' : '°F';
 
-      setBadge(`${temp}${unitSym}`);
+      // Badge = nom de la ville (2026-09-01, sur demande explicite — la
+      // température reste visible dans le contenu de la carte, voir
+      // .weather-temp ci-dessous) ; couleur jaune posée en CSS (#badge-weather).
+      setBadge(city);
 
       // Prévisions J+1 à J+3
       const forecastHtml = w.daily.time.slice(1, 4).map((date, i) => {
@@ -59,7 +62,7 @@ window.MatinModules.weather = {
               <span class="weather-temp">${temp}</span>
               <span class="weather-unit">${unitSym}</span>
             </div>
-            <div class="weather-desc">${desc} · Vent ${wind} km/h · ${city}</div>
+            <div class="weather-desc">${desc} · Vent ${wind} km/h</div>
           </div>
         </div>
         <div class="weather-forecast">${forecastHtml}</div>

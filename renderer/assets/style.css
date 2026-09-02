@@ -185,15 +185,20 @@ html, body {
 }
 
 .app-greeting {
-  /* Déplacée dans .titlebar-left, juste après la date (2026-08-10, sur
-     demande explicite, 2e révision — voir index.html) : PAS centrée entre la
-     date et la barre de recherche. margin-left ajoute à ce qui reste du
-     gap:10px déjà posé par .titlebar-left, sans changer l'espacement des
-     autres éléments du groupe (logo/nom/date, qui restent à 10px entre
-     eux) — modifier UNIQUEMENT ce margin-left, jamais le gap partagé.
-     Porté de 6px à 30px (2026-08-11, sur demande explicite) : le gap:10px
-     du conteneur s'ajoute toujours, donnant un espacement total DATE↔GREETING
-     de 10+30 = 40px (contre 16px avant, demandé explicitement). */
+  /* RÉTABLIE dans .titlebar-left le 2026-09-01 (sur demande explicite —
+     annule la tentative de centrage flexbox entre la date et la recherche
+     via .titlebar-greeting-zone, qui faisait disparaître la salutation
+     DERRIÈRE la barre de recherche : .titlebar-center vient après dans le
+     DOM et n'a pas de z-index, donc peint PAR-DESSUS toute zone avec
+     laquelle elle chevauche, et l'estimation par calc() de la largeur de
+     recherche n'était pas fiable). Retour à la position d'origine
+     (2026-08-10, 2e révision) : juste après la date, à gauche, PAS centrée
+     entre la date et la barre de recherche. margin-left ajoute à ce qui
+     reste du gap:10px déjà posé par .titlebar-left, sans changer
+     l'espacement des autres éléments du groupe (logo/nom/date, qui restent
+     à 10px entre eux) — modifier UNIQUEMENT ce margin-left, jamais le gap
+     partagé. 30px donne un espacement total DATE↔GREETING de 10+30 = 40px
+     (le gap:10px du conteneur s'ajoute toujours). */
   margin-left: 30px;
   /* Police manuscrite (2026-08-10, sur demande explicite) — Caveat (voir
      index.html, import Google Fonts), SEULEMENT ici : le reste du titlebar
@@ -793,6 +798,14 @@ body.ultrawide .module-card { max-width: 500px; }
    bord bas du redimensionnement est désactivé, seule la largeur reste
    modifiable à la souris — curseur ↔ plutôt que ↘ pour refléter ça. */
 .module-card.auto-height .resize-handle { cursor: ew-resize; }
+
+/* Badge d'en-tête = nom de la ville, en jaune (2026-09-01, sur demande
+   explicite) — Météo affichait la température, Qualité de l'air le niveau
+   (déjà visible dans le contenu de la carte, doublon inutile) : les 2
+   affichent maintenant la ville (voir weather.js/air-quality.js, setBadge),
+   avec cette couleur dédiée qui l'emporte sur le muet par défaut de
+   `.module-badge` (sélecteur par id, plus spécifique que la classe seule). */
+#badge-weather, #badge-airQuality { color: #fbbf24; }
 
 /* ─── Module : Météo ─────────────────────────────────────────── */
 .weather-main {
@@ -2268,12 +2281,33 @@ body.ultrawide .module-card { max-width: 500px; }
   left: 0; right: 0;
   z-index: 1000;
   display: none;
-  flex-direction: column;
-  gap: 4px;
+  /* Ligne (2026-09-01, sur demande explicite — bouton fermer "✕" ajouté à
+     droite) : la colonne d'alertes (.alerts-banner-items ci-dessous) et le
+     bouton sont maintenant 2 enfants côte à côte, plutôt qu'une seule
+     colonne comme avant — évite tout chevauchement avec "En savoir plus →"
+     à droite de chaque ligne d'alerte qu'un bouton posé en absolu aurait
+     causé. */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
   padding: 8px 16px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
 }
 .alerts-banner.visible { display: flex; }
+.alerts-banner-items { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.alerts-banner-close {
+  flex-shrink: 0;
+  align-self: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ffffff;
+  opacity: 0.7;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px;
+}
+.alerts-banner-close:hover { opacity: 1; }
 /* Couleur du bandeau = gravité la PIRE parmi les alertes actives (voir
    renderAlertsBanner) — rouge pour enlèvement/vigilance rouge, orange/or
    pour le reste, comme demandé explicitement ("Gold/red border theme"). */
@@ -2584,7 +2618,6 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .aq-index-meta { display: flex; flex-direction: column; gap: 3px; }
 .aq-index-label { font-size: 15px; font-weight: 600; }
-.aq-index-city { font-size: 12px; color: var(--text-muted); }
 .aq-green  { color: var(--accent-green); }
 .aq-yellow { color: var(--accent-yellow); }
 .aq-red    { color: var(--accent-red); }
@@ -3341,7 +3374,14 @@ body.ultrawide .module-card { max-width: 500px; }
    vraie valeur en mémoire — bug purement visuel, trompeur à l'usage. */
 .reminders-config-header {
   display: grid;
-  grid-template-columns: 90px minmax(100px, 1.2fr) minmax(120px, 0.9fr) minmax(95px, 0.75fr) minmax(110px, 0.95fr) 22px;
+  /* Colonnes réajustées le 2026-09-01 (sur demande explicite) : Type de
+     rappel (icône/catégorie) doublée 90px→180px ; Date/Heure réduites
+     LÉGÈREMENT via leur poids `fr` uniquement (0.9→0.6 / 0.75→0.5) — leur
+     largeur MINIMALE `minmax` (120px/95px) reste inchangée, documentée
+     juste au-dessus comme non-compressible sans tronquer visuellement
+     l'année/l'heure (bug déjà rencontré et corrigé) : "reduce slightly" ne
+     doit pas réintroduire ce bug précis. */
+  grid-template-columns: 180px minmax(100px, 1.2fr) minmax(120px, 0.6fr) minmax(95px, 0.5fr) minmax(110px, 0.95fr) 22px;
   gap: 6px;
   padding: 0 2px;
 }
@@ -3355,7 +3395,14 @@ body.ultrawide .module-card { max-width: 500px; }
 .reminders-config-item { display: flex; flex-direction: column; gap: 4px; }
 .reminders-config-row {
   display: grid;
-  grid-template-columns: 90px minmax(100px, 1.2fr) minmax(120px, 0.9fr) minmax(95px, 0.75fr) minmax(110px, 0.95fr) 22px;
+  /* Colonnes réajustées le 2026-09-01 (sur demande explicite) : Type de
+     rappel (icône/catégorie) doublée 90px→180px ; Date/Heure réduites
+     LÉGÈREMENT via leur poids `fr` uniquement (0.9→0.6 / 0.75→0.5) — leur
+     largeur MINIMALE `minmax` (120px/95px) reste inchangée, documentée
+     juste au-dessus comme non-compressible sans tronquer visuellement
+     l'année/l'heure (bug déjà rencontré et corrigé) : "reduce slightly" ne
+     doit pas réintroduire ce bug précis. */
+  grid-template-columns: 180px minmax(100px, 1.2fr) minmax(120px, 0.6fr) minmax(95px, 0.5fr) minmax(110px, 0.95fr) 22px;
   gap: 6px;
   align-items: center;
 }
@@ -3819,7 +3866,19 @@ body.ultrawide .module-card { max-width: 500px; }
 .reminders-row-meta { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 
 /* ─── Module : Anniversaires ─────────────────────────────────── */
-.birthdays-list { display: flex; flex-direction: column; gap: 6px; height: 100%; overflow-y: auto; }
+/* Défilement interne retiré (2026-09-01, sur demande explicite, "il apparaît
+   même avec une seule entrée") — `height:100%` forçait cette liste à
+   remplir toute la hauteur FIGÉE de la carte (defaultSize.h), déclenchant
+   `overflow-y:auto` dès que le contenu réel ne correspondait pas pile à
+   cette hauteur. Carte marquée auto-height (voir dashboard.js,
+   isAutoHeightKey) : elle suit désormais son contenu, `overflow-y:hidden`
+   ici n'a donc plus rien à cacher. */
+.birthdays-list { display: flex; flex-direction: column; gap: 6px; overflow-y: hidden; }
+/* `.module-content` générique reste à `overflow-y: auto` (voir plus haut
+   dans ce fichier, règle commune à tous les modules) — forcé à `hidden` ici
+   spécifiquement, même correctif que YouTube (voir #module-youtube plus
+   bas) : plus rien à faire défiler une fois la carte auto-height. */
+#module-birthdays .module-content { overflow-y: hidden; }
 .birthdays-row {
   display: flex;
   align-items: center;
