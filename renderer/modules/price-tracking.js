@@ -31,14 +31,22 @@
  * résultat, une seule source de vérité pour la comparaison "prix précédent"
  * plutôt que de la dupliquer ici.
  *
- * AVERTISSEMENT : seul Amazon.fr a pu être testé en conditions réelles
- * jusqu'ici (succès confirmé via "fetch direct" + motif générique "XX,XX €",
- * voir CONTEXT.md) — les motifs JSON-LD/meta/CSS/CDiscount ajoutés le
- * 2026-08-31 sont des best-effort non encore vérifiés sur un vrai produit
- * CDiscount. À vérifier en priorité au premier usage réel sur un autre site
- * marchand : les logs `[Suivi de prix]` du process main (terminal
+ * AVERTISSEMENT : seul Amazon.fr a pu être testé en conditions réelles pour
+ * un cycle fetch → prix affiché de bout en bout (succès confirmé via
+ * "fetch direct" + motif générique "XX,XX €", voir CONTEXT.md). Pour
+ * CDiscount, débuggé le 2026-09-03 (voir main.js, longue note sur
+ * PRICE_PROXIES) : CDiscount sert un challenge anti-bot JS ("Baleen") à tout
+ * fetch serveur-à-serveur (confirmé en direct — "fetch direct" ne reçoit
+ * QUE la page de challenge, jamais le produit), seul jina.ai passe ce
+ * challenge (confirmé), mais sa conversion en markdown supprime
+ * structurellement `<script>`/`<meta>`/classes CSS — sur CDiscount via
+ * jina.ai, seul le motif générique "XX,XX €" visible dans le texte a une
+ * chance réelle de matcher, les motifs JSON-LD/meta/CSS restent surtout
+ * utiles aux AUTRES sites marchands (Amazon, FNAC...). Les logs
+ * `[Suivi de prix]`/`[Suivi de prix][CDiscount]` du process main (terminal
  * `npm run dev`) indiquent quel PROXY et quel MOTIF ont réussi ou échoué
- * pour chaque tentative (point 6 de la demande).
+ * pour chaque tentative (point 6 de la demande initiale, point 5 du debug
+ * CDiscount du 2026-09-03).
  */
 window.MatinModules = window.MatinModules || {};
 
@@ -85,8 +93,18 @@ function priceRowHtml(item) {
   const priceLabel = priceFmt(item.price)
     || (item.lastKnownPrice != null ? `${priceFmt(item.lastKnownPrice)} (non mis à jour)` : (item.error || '—'));
 
+  // `data-url` encodé (2026-09-03, sur demande explicite, correctif clic →
+  // Explorateur Windows) — une URL brute contenant `&`/`=`/espaces non
+  // encodés casse la valeur de l'attribut HTML au premier caractère
+  // problématique (ex. un `&` non échappé y est lu comme le début d'une
+  // entité HTML), tronquant silencieusement l'URL stockée dans le DOM ; le
+  // fragment tronqué qui en résulte n'a plus de schéma/forme valide, ce
+  // qu'Electron interprète alors comme un CHEMIN DE FICHIER LOCAL plutôt
+  // qu'une URL web, d'où l'ouverture de l'Explorateur au lieu du navigateur.
+  // `encodeURIComponent` ici + `decodeURIComponent` au clic (voir plus bas)
+  // évite ce risque quel que soit le contenu de l'URL saisie.
   return `
-    <div class="price-tracking-row" data-url="${item.url}">
+    <div class="price-tracking-row" data-url="${encodeURIComponent(item.url)}">
       <div class="price-tracking-main">
         <span class="price-tracking-label">${item.label || 'Produit'}</span>
         ${merchant ? `<span class="price-tracking-merchant">(${merchant})</span>` : ''}
@@ -132,8 +150,44 @@ window.MatinModules.priceTracking = {
       }
 
       container.innerHTML = `<div class="price-tracking-module"><div class="price-tracking-list">${merged.map(priceRowHtml).join('')}</div></div>`;
+      // Correctif "clic → Explorateur Windows au lieu du navigateur"
+      // (2026-09-03, sur demande explicite) — 3 garde-fous avant tout appel
+      // à `openExternal` : 1) décoder `data-url` (voir priceRowHtml, encodé
+      // avec encodeURIComponent) ; 2) `new URL(...)` dans un try/catch — une
+      // URL mal formée (sans schéma, tronquée...) lève une exception ici
+      // plutôt que d'être passée telle quelle à Electron, qui la
+      // réinterprète alors comme un chemin de fichier local ; 3) le schéma
+      // DOIT être http/https — jamais `file:`/`javascript:`/autre, même si
+      // techniquement "valide" au sens de `new URL`. Rien n'est ouvert et un
+      // warning explicite est loggué si l'un de ces 3 contrôles échoue.
       container.querySelectorAll('.price-tracking-row').forEach((row) => {
-        row.addEventListener('click', () => window.matin.shell.openExternal(row.dataset.url));
+        row.addEventListener('click', () => {
+          const rawUrl = row.dataset.url;
+          if (!rawUrl) return;
+
+          let decodedUrl;
+          try {
+            decodedUrl = decodeURIComponent(rawUrl);
+          } catch (err) {
+            console.warn(`[Suivi de prix] URL invalide, impossible d'ouvrir : ${rawUrl}`);
+            return;
+          }
+
+          let parsedUrl;
+          try {
+            parsedUrl = new URL(decodedUrl);
+          } catch (err) {
+            console.warn(`[Suivi de prix] URL invalide, impossible d'ouvrir : ${decodedUrl}`);
+            return;
+          }
+          if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+            console.warn(`[Suivi de prix] URL invalide, impossible d'ouvrir : ${decodedUrl}`);
+            return;
+          }
+
+          console.log(`[Suivi de prix] Ouverture URL : ${decodedUrl}`);
+          window.matin.shell.openExternal(decodedUrl);
+        });
       });
 
       const alerts = merged.filter(m => m.targetPrice != null && m.price != null && m.price <= m.targetPrice).length;

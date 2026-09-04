@@ -324,6 +324,20 @@ body.ultrawide .titlebar-search { width: 40vw; }
   background: var(--bg-hover);
 }
 
+/* Icônes seules Actualiser/Réorganiser/Paramètres (2026-09-03, sur demande
+   explicite) — même composant que .titlebar-btn (fond/hover/no-drag hérités),
+   juste recentré en carré 28×28 pour un glyphe/SVG au lieu de texte + padding
+   horizontal. */
+.titlebar-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
 /* Réduire en icône flottante (2026-08-23, déplacée le même jour à gauche de
    la barre de recherche sur demande explicite, voir index.html) — largeur
    mini 60px pour rester lisible ("☀️→🔆" tient large), marge de 40px avant
@@ -486,6 +500,18 @@ body.ultrawide .module-card { max-width: 500px; }
    mais reste conceptuellement une "bordure colorée de catégorie". */
 :root[data-color-scheme="light"] #module-live { border-color: rgba(239, 68, 68, 0.7); }
 
+/* RÉÉCRITES le 2026-09-04 (sur demande explicite, réécriture complète de
+   live.js/config.js) — noms de classes `.live-match-*` CONSERVÉS pour les
+   éléments dont le rôle est inchangé (liste, ligne, équipes, score, point
+   "en direct") ; nouvelles classes pour les éléments qui n'existaient pas
+   dans l'ancien gabarit à 2 lignes (statut à droite du nom de compétition,
+   sous-ligne date/heure, séparateur de date, en-tête de journée) ;
+   supprimées : couleur par résultat domicile/extérieur (`.live-score-*`,
+   plus jamais posée par live.js — seul le badge module, coloré par emoji
+   faute de pouvoir poser une classe CSS dessus, reflète encore un résultat,
+   voir live.js liveCompetitionBadge) et toute l'animation "But !"
+   (`.live-goal-*`/`.live-goal-shake`/keyframes associés, mécanisme entier
+   retiré avec le reste de l'ancienne implémentation, plus aucun appelant). */
 .live-match-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 .live-match-row {
   display: flex;
@@ -500,21 +526,21 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .live-match-row:hover { border-color: #ef4444; background: var(--bg-hover); }
 .live-match-row-live { border-color: rgba(239, 68, 68, 0.4); }
-/* Heure/mi-temps SEULE sur sa ligne (2026-09-01, sur demande explicite —
-   avant ce correctif, elle partageait la même ligne flex que la compétition
-   ci-dessous, `.live-match-league`) : `.live-match-meta` renommée
-   `.live-match-time-row`, ne contient plus QUE le point rouge + l'heure. */
-.live-match-time-row { display: flex; align-items: center; gap: 6px; }
-.live-match-time { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-/* Compétition sur SA PROPRE ligne désormais (plus de `margin-left:auto`,
-   qui n'avait de sens que pour se pousser à droite d'un voisin sur la même
-   ligne — ici seule sur la sienne, entre l'heure et le score). */
-.live-match-league { font-size: 11px; color: var(--text-muted); }
-/* [Nom][Score][Nom] — 3 colonnes (2026-09-01, sur demande explicite : logos/
-   initiales d'équipe retirés, redondants avec les noms complets déjà
-   affichés ici) — les 2 noms convergent toujours vers le score au centre
-   (texte aligné vers l'intérieur de chaque côté) pour une lecture
-   symétrique façon tableau de scores. */
+/* Terminé — style discret (mode Compétition, liste de journée) : contraste
+   avec les lignes en direct/à venir sans disparaître complètement. */
+.live-match-row-post { opacity: 0.7; }
+/* Ligne d'en-tête d'une ligne de match — juste le statut/heure à gauche (une
+   ligne par match, voir liveMatchCompetitionRowHtml — pas de nom de
+   compétition répété par ligne, déjà annoncé une fois dans
+   `.live-comp-header`). `.live-match-header-row-split`/`.live-match-league`/
+   `.live-match-subtime` (mode Équipe) SUPPRIMÉES le 2026-09-05, sur demande
+   explicite — mode retiré entièrement, plus aucun appelant. */
+.live-match-header-row { display: flex; align-items: center; gap: 6px; }
+.live-match-status { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+/* [Nom][Score][Nom] — 3 colonnes (logos/initiales d'équipe volontairement
+   absents, redondants avec les noms complets déjà affichés ici) — les 2 noms
+   convergent toujours vers le score au centre (texte aligné vers l'intérieur
+   de chaque côté) pour une lecture symétrique façon tableau de scores. */
 .live-match-teams {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -538,22 +564,8 @@ body.ultrawide .module-card { max-width: 500px; }
   color: var(--text-primary);
   white-space: nowrap;
   text-align: center;
-  /* Adoucit le retour à la couleur normale après le flash "but" ci-dessous
-     (l'animation elle-même s'arrête net à 3s, cette transition permanente
-     lisse juste la reprise de la cascade normale — voir .live-goal-score). */
-  transition: color 0.4s ease;
 }
 .live-match-score-live { color: #ef4444; }
-/* Couleur par résultat (2026-09-01, sur demande explicite) — déclarées APRÈS
-   .live-match-score-live ci-dessus pour l'emporter en cas d'égalité de
-   spécificité (1 seule classe chacune) : un match EN DIRECT dont le score
-   est déjà connu doit refléter QUI mène, pas juste "c'est en cours" en
-   rouge fixe. Positionnel (domicile/extérieur), pas "mon équipe" — voir
-   liveResultColorClass dans live.js, seul point qui décide laquelle de ces
-   3 classes s'applique. */
-.live-score-home-win { color: #34d399; }
-.live-score-away-win { color: #ef4444; }
-.live-score-draw     { color: #fbbf24; }
 
 /* Point rouge pulsant — même principe d'animation que d'autres indicateurs
    "en direct" déjà présents ailleurs dans l'app (opacity/scale en boucle),
@@ -572,78 +584,26 @@ body.ultrawide .module-card { max-width: 500px; }
   50%      { opacity: 0.35; transform: scale(0.7); }
 }
 
-/* ─── Animation "But !" (2026-09-01, sur demande explicite, voir live.js
-   liveDetectGoals/liveTriggerGoalAnimation) — 3 effets enchaînés déclenchés
-   quand le score d'un match suivi change entre 2 rafraîchissements :
-   1) le score marqué "live-goal-score" ci-dessous flashe en vert vif 3s
-      (posé directement dans le HTML généré, voir live.js liveRenderModule —
-      PAS de fill-mode:forwards volontairement : l'animation doit rendre la
-      main à la cascade normale une fois finie, sinon .live-match-score-live
-      (rouge, match toujours en cours) resterait bloqué à la couleur de fin
-      de l'animation au lieu de reprendre sa couleur "en direct" normale) ;
-   2) la carte ENTIÈRE (.module-card, pas juste la ligne du match) secoue
-      0.5s (voir .live-goal-shake, classe posée/retirée par JS) ;
-   3) un ⚽ traverse la carte de gauche à droite en 1.5s (voir
-      .live-goal-ball-track/.live-goal-ball, ajoutés/retirés par JS). */
-@keyframes liveGoalScoreFlash {
-  0%   { color: #34d399; }
-  90%  { color: #34d399; }
-  100% { color: inherit; }
+/* En-tête de journée — mode Compétition uniquement (voir
+   liveCompetitionModeHtml) : "[compétition] — Journée N" (N omis si
+   indisponible). */
+.live-comp-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
 }
-.live-goal-score { animation: liveGoalScoreFlash 3s ease-out; }
-
-@keyframes liveGoalShake {
-  0%, 100% { transform: translateX(0); }
-  10%      { transform: translateX(-5px); }
-  20%      { transform: translateX(5px); }
-  30%      { transform: translateX(-5px); }
-  40%      { transform: translateX(5px); }
-  50%      { transform: translateX(-5px); }
-  60%      { transform: translateX(5px); }
-  70%      { transform: translateX(-5px); }
-  80%      { transform: translateX(5px); }
-  90%      { transform: translateX(-5px); }
+/* Séparateur inséré entre 2 matchs consécutifs dont le jour diffère — mode
+   Compétition uniquement, une journée peut s'étaler sur plusieurs jours. */
+.live-date-separator {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 6px 0 2px;
 }
-.module-card.live-goal-shake { animation: liveGoalShake 0.5s ease; }
-
-/* Conteneur dédié au ballon (inset:0 + overflow:hidden) plutôt qu'un enfant
-   direct de .module-card — celle-ci n'a par ailleurs aucun overflow:hidden
-   (nécessaire à son propre contenu), un ballon animé directement dedans
-   déborderait donc visuellement sur les cartes voisines au lieu de
-   disparaître aux bords du module comme demandé. pointer-events:none pour ne
-   jamais intercepter un clic/glisser-déposer pendant les 1.5s de traversée. */
-.live-goal-ball-track {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 5;
-}
-/* `left` n'a que 2 arrêts (0%/100%) → interpolation strictement linéaire
-   malgré `ease` sur les autres propriétés de ce même @keyframes (chaque
-   propriété interpole indépendamment entre SES propres arrêts) ; `transform`
-   a 9 arrêts réguliers en onde sinusoïdale (amplitude 6px) pour le léger
-   rebond demandé, sans dépendre d'un timing-function distinct. */
-@keyframes liveGoalBallCross {
-  0%    { left: -32px; transform: translateY(0); }
-  12.5% { transform: translateY(-6px); }
-  25%   { transform: translateY(0); }
-  37.5% { transform: translateY(6px); }
-  50%   { transform: translateY(0); }
-  62.5% { transform: translateY(-6px); }
-  75%   { transform: translateY(0); }
-  87.5% { transform: translateY(6px); }
-  100%  { left: calc(100% + 32px); transform: translateY(0); }
-}
-.live-goal-ball {
-  position: absolute;
-  top: 50%;
-  left: -32px;
-  margin-top: -12px; /* recentre verticalement : moitié de font-size */
-  font-size: 24px;
-  line-height: 1;
-  animation: liveGoalBallCross 1.5s linear;
-}
+.live-date-separator:first-child { margin-top: 0; }
 
 .module-header {
   display: flex;
@@ -1265,9 +1225,11 @@ body.ultrawide .module-card { max-width: 500px; }
    .sports-no-data tels quels (voir plus haut) pour "Dernier résultat" — même
    langage visuel que Sports/LIVE! (thème 'other-sports' partagé, voir
    dashboard.js). "Prochain match" a son propre habillage depuis le 2026-09-01
-   (voir .monequipe-next-* plus bas) ; "Prochains matchs"/"Derniers résultats"
-   sont désormais 2 sections REPLIABLES (.monequipe-section-*, même mécanique
-   que .fdj-grids-section — voir fdj-common.js), plus une simple liste fixe. */
+   (voir .monequipe-next-* plus bas) ; "Prochains matchs"/"Matchs passés"
+   (renommée depuis "Derniers résultats" le 2026-09-03, sur demande explicite
+   — voir mon-equipe.js) sont désormais 2 sections REPLIABLES
+   (.monequipe-section-*, même mécanique que .fdj-grids-section — voir
+   fdj-common.js), plus une simple liste fixe. */
 .monequipe-module { gap: 8px; }
 .monequipe-list-row {
   display: flex;
@@ -1308,24 +1270,51 @@ body.ultrawide .module-card { max-width: 500px; }
    demande explicite ; heure alignée sur la couleur de la date le 2026-08-31,
    2e demande explicite — "date/heure en bleu" comme un seul groupe plutôt
    que l'heure grise d'origine) — appliquées via des <span> imbriqués dans
-   les blocs "Prochain match"/"Prochains matchs" (voir mon-equipe.js). Même
-   spécificité (une seule classe) que les règles ci-dessus qu'elles
-   remplacent (date/type) ou complètent (venue/heure) : venant après dans ce
-   fichier, elles l'emportent en cas d'égalité — ordre de déclaration
-   important, ne pas déplacer avant .monequipe-list-date/-meta. */
+   le bloc "Prochains matchs" (voir mon-equipe.js). Même spécificité (une
+   seule classe) que les règles ci-dessus qu'elles remplacent (date/type) ou
+   complètent : venant après dans ce fichier, elles l'emportent en cas
+   d'égalité — ordre de déclaration important, ne pas déplacer avant
+   .monequipe-list-date/-meta.
+   .monequipe-info-venue-home/-away et .monequipe-info-opponent SUPPRIMÉES
+   (2026-09-03, sur demande explicite) — l'ordre "Notre équipe vs
+   Adversaire"/"Adversaire vs Notre équipe" (voir .monequipe-team-us/
+   -opponent plus bas) remplace le badge Domicile/Extérieur + le "vs
+   Adversaire" neutre qu'elles habillaient, plus aucun appelant ne les
+   référence (monEquipeMatchLineHtml/monEquipeResultRowHtml réécrites). */
 .monequipe-info-date  { color: #4f8ef7; }
-/* Type en bleu, date+heure fusionnées en vert, Domicile/Extérieur en 2
-   couleurs distinctes (2026-08-31, sur demande explicite — voir
-   mon-equipe.js). */
+/* Type en bleu, date+heure fusionnées en vert (2026-08-31, sur demande
+   explicite — voir mon-equipe.js). */
 .monequipe-info-type  { color: #4f8ef7; }
 .monequipe-info-datetime { color: #34d399; }
-.monequipe-info-venue-home { color: #fbbf24; }
-.monequipe-info-venue-away { color: #ef4444; }
-.monequipe-info-opponent { color: #e8eaf0; }
-/* Score en tête de ligne "Derniers résultats" (2026-09-01, sur demande
-   explicite — voir mon-equipe.js monEquipeResultRowHtml) — mono/gras pour
-   ressortir, pas de couleur dédiée demandée (contrairement aux 4 ci-dessus). */
-.monequipe-info-score { color: var(--text-primary); font-weight: 700; font-family: var(--font-mono); }
+/* Score en tête de ligne "Matchs passés" — SUPPRIMÉE (2026-09-03, sur
+   demande explicite) : remplacée par .monequipe-result-score plus bas, même
+   format que "Dernier résultat" désormais (uniformisation demandée), plus
+   aucun appelant ne référence .monequipe-info-score. */
+
+/* "Dernier résultat" (2026-09-03, sur demande explicite — remplace "<score>
+   · Domicile/Extérieur <adversaire>" par "<notre équipe> <score>
+   <adversaire>", voir mon-equipe.js monEquipeLastResultHtml) : noms d'équipe
+   en police UI (pas mono, contrairement à .sports-next-detail qui les
+   englobe — cohérent avec .monequipe-next-team ci-dessus, pas monospace non
+   plus), score en mono/gras, coloré selon le résultat (vert victoire/rouge
+   défaite/couleur héritée par défaut pour une égalité).
+   RÉUTILISÉES pour "Matchs passés" (2026-09-03, même jour, sur demande
+   explicite "même présentation que Dernier résultat" — voir mon-equipe.js
+   monEquipeResultRowHtml) : `.monequipe-result-line` n'y est PAS posée (les
+   lignes de cette liste restent `.monequipe-list-row-line`, format fluide
+   `display:block` à la `.monequipe-list-row-line`, pas flex — seules
+   -team/-score/-win/-loss sont partagées, la mise en page du conteneur
+   diffère). */
+.monequipe-result-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.monequipe-result-team { font-family: var(--font-ui); font-weight: 600; }
+.monequipe-result-score { font-family: var(--font-mono); font-weight: 700; }
+.monequipe-score-win  { color: var(--accent-green); }
+.monequipe-score-loss { color: #ef4444; }
 
 /* "Prochain match" redesign (2026-09-01, sur demande explicite) — carte avec
    léger dégradé (bleu compétition → vert date/heure, mêmes teintes que les
@@ -1352,11 +1341,13 @@ body.ultrawide .module-card { max-width: 500px; }
   padding: 3px 9px;
   border-radius: 99px;
 }
+/* Jaune + sans gras (2026-09-03, sur demande explicite — remplace le vert
+   #34d399/gras d'origine). */
 .monequipe-next-datetime {
   font-family: var(--font-mono);
   font-size: 18px;
-  font-weight: 700;
-  color: #34d399;
+  font-weight: 400;
+  color: var(--accent-yellow);
 }
 .monequipe-next-teams {
   display: flex;
@@ -1373,16 +1364,33 @@ body.ultrawide .module-card { max-width: 500px; }
   white-space: nowrap;
   max-width: 45%;
 }
+/* Notre équipe en orange, l'adversaire en rose très clair (2026-09-03, sur
+   demande explicite ; rouge #ef4444 d'origine remplacé par #fca5a5 le même
+   jour, 2e demande explicite — "rose très clair", choisi plutôt que
+   #fbcfe8 : même famille que le rouge d'origine (juste une teinte plus
+   claire), cohérent avec le reste des couleurs fixes de ce module, alors que
+   #fbcfe8 aurait introduit une teinte magenta inédite ailleurs dans le
+   projet) — PARTAGÉES entre "Prochain match" (avec .monequipe-next-team
+   pour la mise en page, voir monEquipeNextMatchHtml) ET "Prochains matchs"
+   (voir monEquipeMatchLineHtml, même jour, 2e demande explicite — même
+   ordre/couleurs qu'au-dessus, badge Domicile/Extérieur supprimé là aussi).
+   L'ORDRE des 2 spans (posé côté JS selon Domicile/Extérieur) indique
+   désormais le lieu, remplaçant toute mention textuelle "Domicile"/
+   "Extérieur". Pas de variable --accent-orange dans ce projet (voir
+   #f59e0b utilisé tel quel ailleurs, ex. thème Finance) donc hex brut ici
+   aussi, pour les 2 couleurs. */
+.monequipe-team-us       { color: #f59e0b; }
+.monequipe-team-opponent { color: #fca5a5; }
 .monequipe-next-vs {
   font-size: 11px;
   font-weight: 400;
   color: var(--text-muted);
   flex-shrink: 0;
 }
-.monequipe-next-venue { width: fit-content; font-size: 11px; font-weight: 700; }
 
-/* Sections repliables "Prochains matchs"/"Derniers résultats" (2026-09-01,
-   sur demande explicite, "comme ETF/FDJ") — mécanique IDENTIQUE à
+/* Sections repliables "Prochains matchs"/"Matchs passés" (2026-09-01,
+   sur demande explicite, "comme ETF/FDJ" ; 2e section renommée depuis
+   "Derniers résultats" le 2026-09-03) — mécanique IDENTIQUE à
    .fdj-grids-section/-toggle/-chevron/-collapse (voir plus haut dans ce
    fichier et fdj-common.js) : grid-template-rows 0fr → 1fr animé en 300ms,
    dépliée `flex:1 1 auto` pour utiliser l'espace disponible dans la carte

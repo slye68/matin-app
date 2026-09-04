@@ -104,11 +104,11 @@ const MODULE_META = {
            configField: { key: 'name', label: 'Nom du groupe', placeholder: 'Résidence principale' },
            pretsLoansField: true },
   // LIVE FOOT! (2026-08-11, sur demande explicite) — voir renderer/modules/
-  // live.js. `liveField` déclenche renderLiveConfigSection (club +
-  // championnat + mode), même mécanisme que `alertsField` pour
-  // département/types. Renommé "LIVE!" → "LIVE FOOT!" le 2026-09-01 (2e
-  // demande explicite, libellé affiché uniquement — la clé interne `live`
-  // reste inchangée, voir dashboard.js MODULE_REGISTRY.live).
+  // live.js. `liveField` déclenche renderLiveConfigSection (mode Équipe/
+  // Compétition, réécrit le 2026-09-04 — voir live.js), même mécanisme que
+  // `alertsField` pour département/types. Renommé "LIVE!" → "LIVE FOOT!" le
+  // 2026-09-01 (2e demande explicite, libellé affiché uniquement — la clé
+  // interne `live` reste inchangée, voir dashboard.js MODULE_REGISTRY.live).
   live: { label: 'LIVE FOOT!', icon: '🔴', requiresGoogle: false, liveField: true },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi manuel (aucune
   // source externe interrogée, contrairement à Sports/LIVE!) : nom d'équipe +
@@ -135,6 +135,14 @@ let modulesState = {};
 // (voir plus bas, createStartOnBootRow) pour que le switch reflète l'état
 // réel dès l'ouverture de Paramètres, pas seulement après un 1er rendu à vide.
 let startOnBootEnabled = false;
+
+// Moteur de recherche du titlebar (2026-09-03, sur demande explicite) — même
+// principe que startOnBootEnabled ci-dessus : pas un module, réglage système
+// unique (`app.searchEngine`, voir main.js MODULE_DEFAULTS.app et
+// dashboard.js initTitlebarSearch), chargé une fois dans initConfig AVANT le
+// 1er renderTabPanels pour que le <select> reflète la valeur réelle dès
+// l'ouverture (voir createSearchEngineRow plus bas).
+let searchEngineValue = window.SearchEngines.DEFAULT;
 
 // ─── Onglets (2026-08-06, sur demande explicite) ───────────────────────────
 // Réorganisation complète de Paramètres : Profil reste hors onglets (voir
@@ -288,6 +296,169 @@ function removeSportsInstance(key) {
   renderTabPanels();
 }
 
+// ─── Menu déroulant Équipe : ligue → équipe (2026-09-05, sur demande
+// explicite, remplace la saisie en texte libre) ────────────────────────────
+// Liste des ligues connues (KNOWN_LEAGUES) définie dans ol.js — exposée via
+// `window.MatinModules.olKnownLeagues` (ol.js chargé avant ce fichier, voir
+// config.html) plutôt que dupliquée ici : ol.js a besoin de la même liste
+// pour son thème de carte (olThemeForCategory), une seule source de vérité
+// pour les 2 fichiers.
+function sportsLeagueOptionsHtml(selectedValue) {
+  const leagues = window.MatinModules?.olKnownLeagues || [];
+  const bySport = new Map();
+  for (const l of leagues) {
+    if (!bySport.has(l.sport)) bySport.set(l.sport, []);
+    bySport.get(l.sport).push(l);
+  }
+  const groupsHtml = Array.from(bySport.entries()).map(([sport, list]) => `
+    <optgroup label="${window.SportsSources.CATEGORY_LABELS[sport] || sport}">
+      ${list.map(l => `<option value="${l.value}" ${l.value === selectedValue ? 'selected' : ''}>${l.label}</option>`).join('')}
+    </optgroup>
+  `).join('');
+  return `
+    ${groupsHtml}
+    <option disabled>──────────</option>
+    <option value="__custom__" ${selectedValue === '__custom__' ? 'selected' : ''}>✏️ Autre équipe (texte libre)</option>
+  `;
+}
+
+// Liste des équipes d'une ligue — ESPN `.../teams` (2026-09-06, sur demande
+// explicite, BUG 1 — remplace TheSportsDB `search_all_teams.php`, dont la clé
+// démo gratuite ("3") PLAFONNE SILENCIEUSEMENT à 10 équipes par championnat,
+// quel que soit son effectif réel : vérifié en direct, Ligue 1 (18 clubs) et
+// Ligue 2 (20 clubs) n'affichaient jamais que les 10 premières par ordre
+// alphabétique. `site.api.espn.com/apis/site/v2/sports/{sportPath}/{slug}/teams`
+// N'A PAS cette limite (confirmé en direct : liste complète pour fra.1/fra.2/
+// fra.lnb/nba, voir `espnSportPath`/`espnSlug` dans KNOWN_LEAGUES/ol.js).
+// Passe par `rss:fetchFeed` (comme tous les autres appels ESPN de ce module,
+// voir ol.js espnFindTeam/fetchEspnSchedule) — site.api.espn.com n'envoie
+// aucun en-tête CORS, un fetch direct échouerait silencieusement dans ce
+// renderer. Mise en cache 7 jours dans localStorage — cette liste ne change
+// quasiment jamais d'un jour à l'autre (mercato mis à part), pas de raison de
+// la re-télécharger à chaque ouverture de Paramètres. Clé de cache RENOMMÉE
+// (`matin-espn-teams-` au lieu de `matin-teams-`) délibérément : un ancien
+// cache écrit par TheSportsDB (plafonné à 10, voir ci-dessus) resterait
+// servi jusqu'à 7 jours sans ce changement de clé, reproduisant le bug que
+// ce correctif est censé éliminer immédiatement.
+//
+// Résultat SANS idTeam TheSportsDB (contrairement à l'ancienne version) —
+// ESPN a son propre espace d'identifiants, sans rapport avec celui de
+// TheSportsDB (eventslast.php/eventsnext.php/lookupteam.php, voir ol.js,
+// tous keyés par idTeam TheSportsDB) : stocker l'id ESPN directement dans
+// `config.idTeam` casserait ces 3 appels pour CHAQUE équipe choisie dans ce
+// menu. Voir resolveTheSportsDbIdTeam ci-dessous, qui résout le VRAI idTeam
+// TheSportsDB par nom UNE SEULE FOIS, au moment où l'utilisateur choisit une
+// équipe précise (pas ici, à la construction de la liste) — le nom ESPN
+// (exact, jamais tronqué par un plafond) sert alors de requête fiable,
+// contrairement à un nom tapé à la main.
+const SPORTS_TEAMS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Betclic Élite (LNB) — liste statique en dur (2026-09-04, sur demande
+// explicite) : AUCUNE API fiable ne couvre ce championnat en pratique —
+// TheSportsDB "French LNB" (voir KNOWN_LEAGUES/ol.js) et le slug ESPN
+// `fra.lnb` renseigné pour ce championnat retombent tous les deux sur une
+// liste vide, laissant le menu "Équipe" vide malgré une ligue bien
+// sélectionnée. Vérifié en LISANT le code plutôt qu'en relançant l'app
+// (aucune instance Electron disponible dans cet environnement) : la valeur
+// exacte de l'option <select> pour cette ligue est CONFIRMÉE `'betclic.
+// elite'`, littéralement `value: 'betclic.elite'` dans KNOWN_LEAGUES
+// (ol.js) — utilisée directement comme `option.value` par
+// sportsLeagueOptionsHtml plus haut, donc fiable sans avoir besoin d'un
+// log temporaire à l'exécution pour la confirmer une 2e fois.
+const BETCLIC_ELITE_TEAMS = [
+  'ASVEL Villeurbanne', 'Cholet Basket', 'JDA Dijon', 'Fos Provence Basket',
+  'BCM Gravelines-Dunkerque', 'JL Bourg-en-Bresse', 'Le Mans Sarthe Basket',
+  'Limoges CSP', 'Metropolitans 92', 'Monaco Basket', 'SLUC Nancy',
+  'Nanterre 92', 'Paris Basketball', 'Élan Béarnais Pau-Lacq-Orthez',
+  'Chorale de Roanne', 'SIG Strasbourg',
+].sort((a, b) => a.localeCompare(b, 'fr'));
+
+async function fetchLeagueTeams(league) {
+  // Branche AU TOUT DÉBUT, avant le cache/tout appel réseau — même forme
+  // `{ strTeam }` que le résultat ESPN normal plus bas (voir
+  // sportsTeamOptionsHtml, seul appelant : aucun changement nécessaire côté
+  // consommateur pour ce cas particulier). Pas de mise en cache
+  // localStorage ici : c'est déjà une liste statique instantanée, la cacher
+  // n'apporterait rien et risquerait de figer une future correction de
+  // cette même liste derrière un TTL de 7 jours pour rien.
+  if (league.value === 'betclic.elite') {
+    console.log(`[Config] Équipes ${league.value} — liste statique en dur (${BETCLIC_ELITE_TEAMS.length}), aucune API fiable pour ce championnat`);
+    return BETCLIC_ELITE_TEAMS.map(strTeam => ({ strTeam }));
+  }
+
+  const cacheKey = `matin-espn-teams-${league.value}`;
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (cached && (Date.now() - cached.fetchedAt) < SPORTS_TEAMS_CACHE_TTL_MS) {
+      console.log(`[Config] Équipes ${league.value} servies depuis le cache (${Math.round((Date.now() - cached.fetchedAt) / 3600000)} h)`);
+      return cached.teams;
+    }
+  } catch (err) {
+    console.warn(`[Config] Cache équipes ${league.value} illisible, re-téléchargement`, err);
+  }
+
+  const url = `http://site.api.espn.com/apis/site/v2/sports/${league.espnSportPath}/${league.espnSlug}/teams`;
+  const raw = await window.matin.rss.fetchFeed(url);
+  const data = JSON.parse(raw);
+  console.log(`[Config] ${url} →`, data);
+  const teams = (data.sports?.[0]?.leagues?.[0]?.teams || [])
+    .map(t => ({ strTeam: t.team?.displayName || '' }))
+    .filter(t => t.strTeam)
+    .sort((a, b) => a.strTeam.localeCompare(b.strTeam, 'fr'));
+
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ fetchedAt: Date.now(), teams }));
+  } catch (err) {
+    console.warn(`[Config] Échec mise en cache des équipes ${league.value}`, err);
+  }
+  return teams;
+}
+
+// Résout l'idTeam TheSportsDB d'une équipe PAR SON NOM EXACT (2026-09-06, sur
+// demande explicite, BUG 1) — appelée UNE SEULE FOIS, au moment où
+// l'utilisateur choisit une équipe précise dans le menu déroulant (voir
+// teamSelect plus bas), jamais à la construction de la liste elle-même (voir
+// fetchLeagueTeams ci-dessus, désormais purement ESPN). `searchteams.php`
+// (recherche PAR NOM, pas une liste complète) n'a pas le même plafond de 10
+// que `search_all_teams.php` — safe à réutiliser ici. Override PSG (voir
+// CLUB_ID_OVERRIDES/olResolveClubIdOverride, ol.js, BUG 3) appliqué EN
+// PREMIER, avant tout appel réseau : le nom ESPN d'un club ne garantit pas à
+// lui seul que TheSportsDB renvoie le bon idTeam pour ce même club (PSG en
+// est la preuve directe) — une seule source de vérité pour cet override,
+// partagée avec la saisie en texte libre (voir ol.js fetchTeamId).
+async function resolveTheSportsDbIdTeam(name) {
+  const override = window.MatinModules?.olResolveClubIdOverride?.(name);
+  if (override) {
+    console.log(`[Config] idTeam forcé (override connu) pour "${name}" : ${override.idTeam} — recherche TheSportsDB par nom ignorée`);
+    return override.idTeam;
+  }
+  const res = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error(`Recherche équipe KO (${res.status})`);
+  const data = await res.json();
+  console.log(`[Config] searchteams.php?t=${encodeURIComponent(name)} →`, data);
+  const found = data.teams?.[0];
+  if (!found) throw new Error(`Équipe "${name}" introuvable sur TheSportsDB`);
+  return found.idTeam;
+}
+
+// `selectedName` (2026-09-06) remplace `selectedIdTeam` — la liste elle-même
+// ne porte plus d'idTeam TheSportsDB (voir fetchLeagueTeams ci-dessus), donc
+// plus rien à comparer par id ; le NOM (déjà persisté dans `cfg.team` depuis
+// la dernière sélection) reste un identifiant stable d'une réouverture de
+// Paramètres à l'autre pour ré-présélectionner la bonne option.
+function sportsTeamOptionsHtml(teams, league, selectedName) {
+  const options = teams.map(t => `
+    <option value="${t.strTeam}" data-name="${t.strTeam}" data-sport="${league.sport}" ${t.strTeam === selectedName ? 'selected' : ''}>${t.strTeam}</option>
+  `).join('');
+  // Placeholder désactivé en tête (2026-09-05) — sélectionné par défaut tant
+  // qu'aucune équipe de CETTE liste ne correspond à `selectedName` (ex.
+  // ligue tout juste changée) : un <select> natif sans `selected` explicite
+  // retombe sur sa 1re option, qui serait sinon une VRAIE équipe choisie à
+  // tort en silence plutôt que de forcer un choix explicite de l'utilisateur.
+  const hasSelection = teams.some(t => t.strTeam === selectedName);
+  return `<option value="" ${hasSelection ? '' : 'selected'} disabled>— Choisir une équipe —</option>${options}`;
+}
+
 // ─── Instances multiples (module Prêts) ─────────────────────────────────────
 // Même principe exact que Sports ci-dessus : "prets" garde la clé de base,
 // jusqu'à 4 groupes supplémentaires ("prets_2".."prets_5") via "+ Ajouter un
@@ -320,12 +491,43 @@ function removePretsInstance(key) {
   renderTabPanels();
 }
 
+// ─── Instances multiples (module LIVE FOOT!) ────────────────────────────────
+// Même principe que Sports/Prêts ci-dessus, plafonné à 2 (voir
+// dashboard.js isLiveKey/MAX_LIVE_INSTANCES) : "live" garde la clé de base,
+// "live_2" est la seule instance supplémentaire possible — chaque carte
+// suit sa propre compétition (config.competitionSlug/competitionLabel, voir
+// renderLiveConfigSection), aucun état partagé entre les 2.
+const MAX_LIVE_INSTANCES = 2;
+
+function isLiveKey(key) {
+  return key === 'live' || key === 'live_2';
+}
+
+function addLiveInstance() {
+  const count = Object.keys(modulesState).filter(isLiveKey).length;
+  if (count >= MAX_LIVE_INSTANCES) return;
+
+  const positions = Object.values(modulesState).map(m => m.position);
+  const nextPosition = positions.length ? Math.max(...positions) + 1 : 0;
+
+  modulesState.live_2 = { enabled: true, position: nextPosition, config: { competitionSlug: 'fra.1', competitionLabel: 'Ligue 1' } };
+  renderTabPanels();
+}
+
+function removeLiveInstance(key) {
+  delete modulesState[key];
+  renderTabPanels();
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 async function initConfig() {
   modulesState = await window.matin.modules.getAll();
   // Lu AVANT le 1er renderTabPanels (voir createStartOnBootRow) pour que le
   // switch reflète l'état réel dès l'ouverture de Paramètres.
   startOnBootEnabled = (await window.matin.store.get('app.startOnBoot')) === true;
+  // Lu AVANT le 1er renderTabPanels (voir createSearchEngineRow) pour la même
+  // raison que startOnBootEnabled ci-dessus.
+  searchEngineValue = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
 
   // Ordre des onglets persisté indépendamment de modulesState (pas un
   // module, pas soumis au bouton "Enregistrer" — sauvegarde immédiate au
@@ -465,6 +667,44 @@ async function initProfileTabs() {
 
   initProfileEditPanel();
   initProfileSaveConfirm();
+
+  // ℹ️ "Utilisation sur plusieurs PC" (2026-09-03, sur demande explicite) —
+  // bouton statique (pas régénéré par refreshProfileTabs), écouteur posé une
+  // seule fois ici comme le reste de l'init de cette section.
+  document.getElementById('profilesInfoBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showProfilesInfoPopup(e.currentTarget);
+  });
+}
+
+// Réutilise le même popover que showPriceTrackingInfoPopup ci-dessus (.price-
+// tracking-info-popup/-title/-warning, seul autre point d'info de ce
+// fichier) plutôt que d'en dupliquer un — voir .profiles-info-btn dans
+// config.html.
+function showProfilesInfoPopup(anchorEl) {
+  document.getElementById('priceTrackingInfoPopup')?.remove();
+  document.getElementById('profilesInfoPopup')?.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'profilesInfoPopup';
+  popup.className = 'price-tracking-info-popup';
+  popup.innerHTML = `
+    <div class="price-tracking-info-title">💡 Utilisation sur plusieurs PC</div>
+    <div class="price-tracking-info-warning">Si vous utilisez Matin sur plusieurs PC, nous vous recommandons d'utiliser 1 profil par appareil (ex. « Bureau » sur votre PC fixe, « Portable » sur votre laptop). Chaque profil conserve sa propre disposition adaptée à son écran.</div>
+  `;
+  document.body.appendChild(popup);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  popup.style.top = `${rect.bottom + 6}px`;
+  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popupRect.width - 8))}px`;
+
+  const closeOnOutsideClick = (e) => {
+    if (popup.contains(e.target)) return;
+    popup.remove();
+    document.removeEventListener('click', closeOnOutsideClick, true);
+  };
+  setTimeout(() => document.addEventListener('click', closeOnOutsideClick, true), 0);
 }
 
 async function refreshProfileTabs() {
@@ -700,6 +940,12 @@ function renderTabPanels() {
     if (tab.id === 'utile') {
       panel.appendChild(createStartOnBootRow());
     }
+    // Moteur de recherche (2026-09-03, sur demande explicite) — même
+    // principe : pas une entrée TAB_MODULE_ORDER, reconstruit en tête de
+    // l'onglet Services à chaque appel (voir createSearchEngineRow).
+    if (tab.id === 'services') {
+      panel.appendChild(createSearchEngineRow());
+    }
 
     (TAB_MODULE_ORDER[tab.id] || []).forEach((entry) => {
       if (entry === 'fdj') {
@@ -723,6 +969,16 @@ function renderTabPanels() {
           .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0))
           .forEach((key) => {
             const meta = MODULE_META[key] ?? MODULE_META.prets;
+            panel.appendChild(createModuleRow(key, modulesState[key], meta));
+          });
+        return;
+      }
+      if (entry === 'live') {
+        Object.keys(modulesState)
+          .filter(isLiveKey)
+          .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0))
+          .forEach((key) => {
+            const meta = MODULE_META[key] ?? MODULE_META.live;
             panel.appendChild(createModuleRow(key, modulesState[key], meta));
           });
         return;
@@ -760,6 +1016,36 @@ function createStartOnBootRow() {
   row.querySelector('#startOnBootToggle').addEventListener('change', (e) => {
     startOnBootEnabled = e.target.checked;
     window.matin.app.setStartOnBoot(startOnBootEnabled);
+  });
+
+  wrapper.appendChild(row);
+  return wrapper;
+}
+
+// ─── Moteur de recherche (2026-09-03, sur demande explicite) ───────────────
+// Même principe que createStartOnBootRow ci-dessus (pas un module, appliqué
+// immédiatement au changement — pas de bouton "Enregistrer" dédié) mais un
+// <select> plutôt qu'un toggle. Catalogue partagé avec le titlebar via
+// window.SearchEngines (voir modules/search-engines.js et dashboard.js
+// initTitlebarSearch, qui lit `app.searchEngine` à chaque recherche).
+function createSearchEngineRow() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'module-row-wrap';
+
+  const optionsHtml = window.SearchEngines.OPTIONS
+    .map(opt => `<option value="${opt.id}" ${opt.id === searchEngineValue ? 'selected' : ''}>${opt.emoji} ${opt.label}</option>`)
+    .join('');
+
+  const row = document.createElement('div');
+  row.className = 'module-row';
+  row.innerHTML = `
+    <span class="module-row-icon">🔍</span>
+    <span class="module-row-name">Moteur de recherche</span>
+    <select class="search-engine-select">${optionsHtml}</select>
+  `;
+  row.querySelector('.search-engine-select').addEventListener('change', (e) => {
+    searchEngineValue = e.target.value;
+    window.matin.store.set('app.searchEngine', searchEngineValue);
   });
 
   wrapper.appendChild(row);
@@ -829,18 +1115,22 @@ function createModuleRow(key, mod, meta) {
   row.className = 'module-row';
   row.dataset.key = key;
 
-  // Boutons +/× d'instance — généralisés à Sports ET Prêts (2026-08-08),
-  // même principe pour les deux : le bouton "+" ne vit que sur la clé de
-  // base ('ol'/'prets'), le "×" sur les instances ajoutées uniquement.
-  const showAddInstance = key === 'ol' || key === 'prets';
-  const showDelete = (isSportsKey(key) && key !== 'ol') || (isPretsKey(key) && key !== 'prets');
+  // Boutons +/× d'instance — généralisés à Sports, Prêts ET LIVE FOOT!
+  // (2026-08-08, étendu 2026-09-05), même principe pour les trois : le
+  // bouton "+" ne vit que sur la clé de base ('ol'/'prets'/'live'), le "×"
+  // sur les instances ajoutées uniquement.
+  const showAddInstance = key === 'ol' || key === 'prets' || key === 'live';
+  const showDelete = (isSportsKey(key) && key !== 'ol') || (isPretsKey(key) && key !== 'prets') || (isLiveKey(key) && key !== 'live');
   const sportsMaxed = Object.keys(modulesState).filter(isSportsKey).length >= MAX_SPORTS_INSTANCES;
   const pretsMaxed = Object.keys(modulesState).filter(isPretsKey).length >= MAX_PRETS_INSTANCES;
-  const maxedOut = key === 'prets' ? pretsMaxed : sportsMaxed;
+  const liveMaxed = Object.keys(modulesState).filter(isLiveKey).length >= MAX_LIVE_INSTANCES;
+  const maxedOut = key === 'prets' ? pretsMaxed : key === 'live' ? liveMaxed : sportsMaxed;
   const addTitle = key === 'prets'
     ? (pretsMaxed ? 'Maximum de 5 groupes atteint' : 'Ajouter un groupe')
-    : (sportsMaxed ? 'Maximum de 5 équipes atteint' : 'Ajouter une équipe');
-  const deleteTitle = isPretsKey(key) ? 'Supprimer ce groupe' : 'Supprimer cette équipe';
+    : key === 'live'
+      ? (liveMaxed ? 'Maximum de 2 directs atteint' : 'Ajouter un direct')
+      : (sportsMaxed ? 'Maximum de 5 équipes atteint' : 'Ajouter une équipe');
+  const deleteTitle = isPretsKey(key) ? 'Supprimer ce groupe' : isLiveKey(key) ? 'Supprimer ce direct' : 'Supprimer cette équipe';
 
   row.innerHTML = `
     <span class="module-row-icon">${meta.icon}</span>
@@ -871,10 +1161,11 @@ function createModuleRow(key, mod, meta) {
   });
 
   // Ajouter une instance (bouton inline sur la ligne principale — équipe
-  // Sport ou groupe de prêts selon la clé)
+  // Sport, groupe de prêts ou direct LIVE FOOT! selon la clé)
   row.querySelector('.row-add-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (key === 'prets') addPretsInstance();
+    else if (key === 'live') addLiveInstance();
     else addSportsInstance();
   });
 
@@ -882,6 +1173,7 @@ function createModuleRow(key, mod, meta) {
   row.querySelector('.row-delete-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (isPretsKey(key)) removePretsInstance(key);
+    else if (isLiveKey(key)) removeLiveInstance(key);
     else removeSportsInstance(key);
   });
 
@@ -900,6 +1192,36 @@ function createModuleRow(key, mod, meta) {
 
   let teamFieldInput = null;
   let sportSelectInput = null;
+  // Sélecteur de ligue (Sports uniquement, voir isSportsKey ci-dessous) et
+  // fonction de (re)chargement de sa liste d'équipes — déclarés ICI (portée
+  // de toute la fonction) car lus depuis le bloc "Sources" plus bas (2 blocs
+  // `if` séparés mais même portée), qui doit savoir si l'instance est en
+  // mode "ligue connue" (charge les équipes) ou "Autre équipe" (texte libre,
+  // comportement d'origine) pour déclencher le bon chargement initial.
+  let leagueSelect = null;
+  let activateLeagueMode = () => {};
+  // `statusEl`/`listEl` (bloc "Sources" plus bas) déclarés ICI aussi
+  // (`let`, pas `const`) — `activateLeagueMode` ci-dessus est DÉFINIE dans
+  // le bloc configField (plus haut) mais seulement APPELÉE depuis le bloc
+  // "Sources", qui crée `statusEl`/`listEl` : une closure ne voit que les
+  // variables de sa propre chaîne de portées lexicales, pas celles d'un
+  // bloc `{ }` frère déclarées APRÈS coup avec `const` — sans cette
+  // remontée à la portée de toute la fonction, `activateLeagueMode` lèverait
+  // `statusEl is not defined` dès son 1er appel malgré l'ordre d'exécution
+  // correct (le bloc Sources tourne bien avant, mais ça ne suffit pas : seule
+  // la PORTÉE compte pour une closure, pas l'ordre d'exécution).
+  let statusEl = null;
+  let listEl = null;
+  // `refreshSources` (bloc "Sources" plus bas) — même remontée de portée que
+  // `statusEl`/`listEl` ci-dessus, pour la même raison : appelée depuis les
+  // écouteurs `leagueSelect`/`teamSelect` (bloc configField, plus haut) qui
+  // ont besoin de la fonction RÉELLE, pas seulement de sa déclaration
+  // `function` (contrairement à `statusEl`/`listEl`, une déclaration
+  // `function` DANS un bloc remonte parfois automatiquement à la portée
+  // englobante en mode non strict — vérifié empiriquement ICI que ce n'est
+  // PAS le cas dans ce script, `refreshSources` reste bien invisible hors de
+  // son bloc sans cette remontée explicite).
+  let refreshSources = async () => {};
   // Badge "Bêta" (à côté du sélecteur) + note Basketball (sous le champ) —
   // 2026-09-01, sur demande explicite : réassignée plus bas (voir
   // meta.configField), appelée aussi depuis le listener `change` du
@@ -911,65 +1233,198 @@ function createModuleRow(key, mod, meta) {
     const field = meta.configField;
     const currentValue = mod.config?.[field.key] ?? field.placeholder ?? '';
 
-    // Sélecteur manuel de sport (2026-09-01, sur demande explicite, "Fix the
-    // Sports module team detection") — À CÔTÉ du champ Équipe, réservé à
-    // Sports (isSportsKey) : Prêts/Carburants réutilisent aussi
-    // meta.configField pour un champ texte simple (nom de groupe/ville), qui
-    // n'a rien à voir avec une détection de sport. Voir sports-sources.js
-    // MANUAL_SPORT_OPTIONS pour la liste des options et sa justification.
-    const sportSelectHtml = isSportsKey(key) ? `
-      <select class="sports-manual-select" title="Forcer le sport si la détection automatique se trompe">
-        ${window.SportsSources.MANUAL_SPORT_OPTIONS.map(opt =>
-          `<option value="${opt.value}" ${((mod.config?.sport || '') === opt.value) ? 'selected' : ''}>${opt.label}</option>`
-        ).join('')}
-      </select>
-      <span class="sports-sport-beta-badge"></span>` : '';
-
-    const fieldWrap = document.createElement('div');
-    fieldWrap.className = 'module-config-field';
-    fieldWrap.innerHTML = `
-      <label>${field.label}</label>
-      <input type="text" placeholder="${field.placeholder}" value="${currentValue}">
-      ${sportSelectHtml}
-    `;
-    teamFieldInput = fieldWrap.querySelector('input');
-    teamFieldInput.addEventListener('input', (e) => {
-      if (!modulesState[key].config) modulesState[key].config = {};
-      modulesState[key].config[field.key] = e.target.value;
-    });
-    sportSelectInput = fieldWrap.querySelector('.sports-manual-select');
-    const sportBetaBadge = fieldWrap.querySelector('.sports-sport-beta-badge');
-
-    wrapper.appendChild(fieldWrap);
-
-    // Note Basketball + badge "Bêta" (2026-09-01, sur demande explicite) —
-    // bloc SÉPARÉ (comme le rappel Anniversaires, voir meta.hintText plus
-    // haut) plutôt que casé dans la même ligne flex que le champ Équipe/le
-    // sélecteur : c'est le seul moyen d'obtenir une VRAIE 2e ligne sous le
-    // champ (`.module-config-field` ci-dessus est une rangée flex qui ne
-    // wrap pas), réutilise `.module-config-hint-text` telle quelle (muet,
-    // 11px, italique, exactement le style déjà demandé pour Anniversaires).
-    // Le badge Bêta, lui, reste DANS la rangée du sélecteur (juste à côté,
-    // comme demandé) — un <option> de <select> ne peut afficher que du texte
-    // brut (voir sports-sources.js/MANUAL_SPORT_OPTIONS), ce badge est donc
-    // le seul endroit où "Bêta" peut être réellement stylé (italique/muet/
-    // 10px, voir .sports-sport-beta-badge, config.html) plutôt que du texte
-    // plat comme dans le menu déroulant lui-même.
-    let basketHintWrap = null;
     if (isSportsKey(key)) {
-      basketHintWrap = document.createElement('div');
+      // ── Sports : menu déroulant ligue → équipe (2026-09-05, sur demande
+      // explicite, remplace la saisie en texte libre par un choix guidé) —
+      // voir KNOWN_LEAGUES (ol.js)/sportsLeagueOptionsHtml/fetchLeagueTeams
+      // plus haut dans ce fichier. Repli "Autre équipe" (texte libre + le
+      // même sélecteur de sport manuel qu'avant, comportement D'ORIGINE
+      // inchangé dans ce mode) quand la ligue choisie n'est pas dans
+      // KNOWN_LEAGUES — couvre à la fois le choix explicite "✏️ Autre
+      // équipe" ET toute config déjà enregistrée AVANT ce menu déroulant
+      // (`manualLeague` absent/inconnu), qui continue de fonctionner
+      // exactement comme avant, sans migration forcée.
+      if (!modulesState[key].config) modulesState[key].config = {};
+      const cfg = modulesState[key].config;
+      const knownLeagues = window.MatinModules?.olKnownLeagues || [];
+      const initialLeague = knownLeagues.find(l => l.value === cfg.manualLeague) || null;
+      const initialCustom = !initialLeague;
+
+      const fieldWrap = document.createElement('div');
+      fieldWrap.className = 'module-config-field sports-team-field';
+      fieldWrap.innerHTML = `
+        <label>${field.label}</label>
+        <select class="sports-league-select">${sportsLeagueOptionsHtml(initialLeague ? initialLeague.value : '__custom__')}</select>
+        <select class="sports-team-select" disabled ${initialCustom ? 'style="display:none"' : ''}></select>
+        <input type="text" class="sports-team-custom-input" placeholder="${field.placeholder}" value="${currentValue}" ${initialCustom ? '' : 'style="display:none"'}>
+        <select class="sports-manual-select" title="Forcer le sport si la détection automatique se trompe" ${initialCustom ? '' : 'style="display:none"'}>
+          ${window.SportsSources.MANUAL_SPORT_OPTIONS.map(opt =>
+            `<option value="${opt.value}" ${((cfg.sport || '') === opt.value) ? 'selected' : ''}>${opt.label}</option>`
+          ).join('')}
+        </select>
+        <span class="sports-sport-beta-badge" ${initialCustom ? '' : 'style="display:none"'}></span>
+      `;
+      wrapper.appendChild(fieldWrap);
+
+      leagueSelect = fieldWrap.querySelector('.sports-league-select');
+      const teamSelect = fieldWrap.querySelector('.sports-team-select');
+      const customInput = fieldWrap.querySelector('.sports-team-custom-input');
+      const manualSelect = fieldWrap.querySelector('.sports-manual-select');
+      const sportBetaBadge = fieldWrap.querySelector('.sports-sport-beta-badge');
+
+      teamFieldInput = customInput;
+      sportSelectInput = manualSelect;
+
+      // Note Basketball + badge "Bêta" (2026-09-01, sur demande explicite) —
+      // bloc SÉPARÉ (comme le rappel Anniversaires, voir meta.hintText plus
+      // haut) plutôt que casé dans la même ligne flex : réutilise
+      // `.module-config-hint-text` telle quelle (muet, 11px, italique).
+      // Visible seulement en mode "Autre équipe" (voir setMode ci-dessous) —
+      // en mode ligue connue le sport vient de la ligue, jamais du nom tapé.
+      const basketHintWrap = document.createElement('div');
       basketHintWrap.className = 'module-config-field module-config-hint-field sports-basket-hint';
       basketHintWrap.innerHTML = `<p class="module-config-hint-text">ℹ️ Si votre équipe est aussi connue comme club de football, ajoutez 'Basket' au nom pour éviter toute confusion. Ex: 'Monaco Basket' au lieu de 'Monaco'</p>`;
       wrapper.appendChild(basketHintWrap);
-    }
 
-    updateSportExtras = () => {
-      if (!sportSelectInput) return;
-      const val = sportSelectInput.value;
-      if (sportBetaBadge) sportBetaBadge.textContent = (val === 'basketball' || val === 'rugby') ? 'β Bêta' : '';
-      if (basketHintWrap) basketHintWrap.style.display = val === 'basketball' ? 'flex' : 'none';
-    };
-    updateSportExtras();
+      // Bascule l'affichage entre les 2 modes — équipe (menu déroulant
+      // ligue+équipe) et "Autre équipe" (texte libre + sport manuel, comme
+      // avant ce correctif).
+      function setMode(custom) {
+        teamSelect.style.display = custom ? 'none' : '';
+        customInput.style.display = custom ? '' : 'none';
+        manualSelect.style.display = custom ? '' : 'none';
+        sportBetaBadge.style.display = custom ? '' : 'none';
+      }
+
+      updateSportExtras = () => {
+        const val = manualSelect.value;
+        sportBetaBadge.textContent = (val === 'basketball' || val === 'rugby') ? 'β Bêta' : '';
+        basketHintWrap.style.display = (leagueSelect.value === '__custom__' && val === 'basketball') ? 'flex' : 'none';
+      };
+      updateSportExtras();
+
+      // Équipe choisie dans le menu déroulant — idTeam/team/sport persistés
+      // TELS QUELS (forme demandée explicitement : { idTeam, team, sport,
+      // manualLeague }), `customInput.value` gardé synchronisé même caché
+      // (lu par le bloc "Sources" plus bas, voir teamFieldInput).
+      function applyTeamSelection(idTeam, name, sport) {
+        cfg.idTeam = idTeam;
+        cfg.team = name;
+        cfg.sport = sport;
+        customInput.value = name;
+      }
+
+      // Charge la liste d'équipes de la ligue actuellement sélectionnée
+      // (cache 7 jours, voir fetchLeagueTeams) et pré-sélectionne l'idTeam
+      // déjà enregistré s'il fait partie de cette ligue (réouverture de
+      // Paramètres sur une équipe déjà choisie) — sinon impose un choix
+      // explicite (placeholder désactivé, voir sportsTeamOptionsHtml)
+      // plutôt que de deviner. Assignée à la variable de portée fonction
+      // `activateLeagueMode` (déclarée en haut de createModuleRow) : le
+      // bloc "Sources" plus bas l'appelle pour le chargement INITIAL.
+      activateLeagueMode = async function () {
+        const league = knownLeagues.find(l => l.value === leagueSelect.value);
+        if (!league) return;
+        setMode(false);
+        teamSelect.disabled = true;
+        teamSelect.innerHTML = '<option>Chargement…</option>';
+        try {
+          const teams = await fetchLeagueTeams(league);
+          // Présélection par NOM (2026-09-06 — voir sportsTeamOptionsHtml
+          // ci-dessus, BUG 1) : `cfg.team` déjà persisté depuis la dernière
+          // sélection, pas `cfg.idTeam` (ESPN/TheSportsDB, 2 espaces d'id
+          // différents, voir fetchLeagueTeams).
+          teamSelect.innerHTML = sportsTeamOptionsHtml(teams, league, cfg.team);
+          teamSelect.disabled = false;
+          const selectedOpt = teamSelect.selectedOptions[0];
+          if (selectedOpt && selectedOpt.value) {
+            // Équipe déjà choisie ET toujours présente dans cette ligue
+            // (réouverture de Paramètres) — `cfg.idTeam` (TheSportsDB) est
+            // déjà correct depuis la sélection précédente, PAS de nouvelle
+            // résolution réseau ici (voir teamSelect 'change' plus bas pour
+            // le SEUL endroit qui en déclenche une, sur un choix explicite).
+            refreshSources(selectedOpt.dataset.name, { knownCategory: selectedOpt.dataset.sport });
+          } else {
+            // `config.sources` volontairement INTOUCHÉ ici (pas remis à `[]`)
+            // — aucune équipe n'est encore choisie, donc rien à filtrer :
+            // vider `sources` ferait passer TOUTES les sources de la
+            // PROCHAINE sélection à "décochées" par défaut au lieu de suivre
+            // la présélection normale (voir `enabled = new Set(previouslyEnabled
+            // ?? detection.list.map(...))` plus bas — `[]` n'est pas `undefined`,
+            // `??` ne serait alors plus jamais déclenché).
+            statusEl.textContent = 'Choisissez une équipe dans la liste ci-dessus.';
+            listEl.innerHTML = '';
+          }
+        } catch (err) {
+          console.warn(`[Config] Chargement des équipes (${league.value}) échoué`, err);
+          teamSelect.innerHTML = '<option>Impossible de charger les équipes</option>';
+          teamSelect.disabled = true;
+          statusEl.textContent = 'Impossible de charger les équipes.';
+        }
+      };
+
+      leagueSelect.addEventListener('change', () => {
+        if (leagueSelect.value === '__custom__') {
+          setMode(true);
+          cfg.manualLeague = '__custom__';
+          delete cfg.idTeam;
+          updateSportExtras();
+          refreshSources(teamFieldInput.value);
+        } else {
+          delete cfg.idTeam; // ancienne équipe (autre ligue) plus valide ici
+          // `sources` retiré (comme le sélecteur de sport manuel ci-dessus,
+          // même raisonnement) — les URLs cochées pour l'ANCIENNE ligue
+          // n'ont aucune raison de correspondre au catalogue de la NOUVELLE
+          // (sport potentiellement différent) ; sans ce retrait, la 1re
+          // équipe choisie dans cette nouvelle ligue verrait TOUTES ses
+          // sources décochées par défaut (aucune URL de l'ancien sport ne
+          // matche jamais celles du nouveau) plutôt que présélectionnées.
+          delete cfg.sources;
+          cfg.manualLeague = leagueSelect.value;
+          activateLeagueMode();
+        }
+      });
+
+      // Async (2026-09-06, BUG 1) — la liste ne porte plus d'idTeam
+      // TheSportsDB (voir fetchLeagueTeams ci-dessus) : un choix explicite
+      // déclenche ICI la résolution réseau par nom (voir
+      // resolveTheSportsDbIdTeam), pas à la construction de la liste.
+      teamSelect.addEventListener('change', async (e) => {
+        const opt = e.target.selectedOptions[0];
+        if (!opt || !opt.value) return;
+        const name = opt.dataset.name;
+        const sport = opt.dataset.sport;
+        statusEl.textContent = 'Résolution de l\'équipe…';
+        listEl.innerHTML = '';
+        try {
+          const idTeam = await resolveTheSportsDbIdTeam(name);
+          applyTeamSelection(idTeam, name, sport);
+          refreshSources(name, { knownCategory: sport });
+        } catch (err) {
+          console.warn(`[Config] Résolution TheSportsDB de "${name}" échouée`, err);
+          statusEl.textContent = `Impossible de résoudre "${name}" sur TheSportsDB.`;
+        }
+      });
+
+      customInput.addEventListener('input', (e) => {
+        modulesState[key].config[field.key] = e.target.value;
+      });
+    } else {
+      // Prêts/Carburants/Météo/Qualité de l'air... : champ texte simple,
+      // comportement D'ORIGINE inchangé (ne concerne jamais isSportsKey).
+      const fieldWrap = document.createElement('div');
+      fieldWrap.className = 'module-config-field';
+      fieldWrap.innerHTML = `
+        <label>${field.label}</label>
+        <input type="text" placeholder="${field.placeholder}" value="${currentValue}">
+      `;
+      teamFieldInput = fieldWrap.querySelector('input');
+      teamFieldInput.addEventListener('input', (e) => {
+        if (!modulesState[key].config) modulesState[key].config = {};
+        modulesState[key].config[field.key] = e.target.value;
+      });
+      wrapper.appendChild(fieldWrap);
+    }
   }
 
   // Prêts DE CE groupe (jusqu'à 5) — indépendant du champ nom ci-dessus,
@@ -991,19 +1446,25 @@ function createModuleRow(key, mod, meta) {
       <div class="sports-sources-status">—</div>
       <div class="sports-sources-list"></div>
     `;
-    const statusEl = sourcesWrap.querySelector('.sports-sources-status');
-    const listEl = sourcesWrap.querySelector('.sports-sources-list');
+    statusEl = sourcesWrap.querySelector('.sports-sources-status');
+    listEl = sourcesWrap.querySelector('.sports-sources-list');
     wrapper.appendChild(sourcesWrap);
 
     let detectToken = 0;
 
-    async function refreshSources(team) {
+    refreshSources = async function (team, opts) {
       const myToken = ++detectToken;
       const trimmed = (team || '').trim();
-      // Sport choisi manuellement (2026-09-01, sur demande explicite) —
-      // '' (option "🔍 Détection automatique") redevient `undefined`, comme
-      // une config jamais touchée : laisse detectSportSources décider seul.
-      const manualSport = sportSelectInput?.value || undefined;
+      // Sport DÉJÀ connu avec certitude (2026-09-05, sur demande explicite —
+      // équipe choisie via le menu déroulant ligue/équipe, voir
+      // KNOWN_LEAGUES/activateLeagueMode plus haut) — prioritaire sur le
+      // sélecteur de sport manuel, qui n'existe même plus dans ce mode
+      // (`sportSelectInput` reste alors `null`, voir le bloc configField
+      // ci-dessus). Sport choisi MANUELLEMENT (mode "Autre équipe",
+      // comportement d'origine inchangé, 2026-09-01) sinon — '' (option
+      // "🔍 Détection automatique") redevient `undefined`, comme une config
+      // jamais touchée : laisse detectSportSources décider seul.
+      const manualSport = opts?.knownCategory || sportSelectInput?.value || undefined;
 
       if (!trimmed) {
         statusEl.textContent = 'Saisissez un nom d\'équipe pour détecter les sources.';
@@ -1015,7 +1476,13 @@ function createModuleRow(key, mod, meta) {
       listEl.innerHTML = '';
 
       try {
-        const detection = await window.SportsSources.detectSportSources(trimmed, manualSport);
+        // Aucun appel réseau nécessaire quand le sport est déjà connu (voir
+        // sourcesForCategory, sports-sources.js) — contrairement à
+        // detectSportSources (mode "Autre équipe" seulement), qui doit
+        // encore deviner le sport depuis un nom d'équipe tapé au clavier.
+        const detection = opts?.knownCategory
+          ? window.SportsSources.sourcesForCategory(opts.knownCategory)
+          : await window.SportsSources.detectSportSources(trimmed, manualSport);
         if (myToken !== detectToken) return; // l'équipe a changé entre-temps : résultat périmé
 
         if (!detection.list.length) {
@@ -1090,7 +1557,15 @@ function createModuleRow(key, mod, meta) {
       refreshSources(teamFieldInput.value);
     });
 
-    refreshSources(teamFieldInput.value);
+    // Chargement initial : ligue connue → charge sa liste d'équipes
+    // (activateLeagueMode déclenche lui-même refreshSources une fois
+    // l'équipe résolue) ; "Autre équipe" (texte libre) → comportement
+    // d'origine inchangé, détection directe sur le nom déjà saisi.
+    if (leagueSelect.value !== '__custom__') {
+      activateLeagueMode();
+    } else {
+      refreshSources(teamFieldInput.value);
+    }
   }
 
   // Sources d'actualités cochables — France/Tech/Bourse/Gaming (2026-09-01,
@@ -1288,49 +1763,48 @@ function createModuleRow(key, mod, meta) {
   return wrapper;
 }
 
-// ─── LIVE! (club + championnat + mode) ──────────────────────────────────────
-// Réécrit le 2026-08-11 (sur demande explicite, remplace la version 1
-// multi-sports du même jour, recentrée sur le football club/championnat) —
-// `window.LiveChampionships` (live-championships.js, chargé avant ce
-// fichier) fournit les options du <select>, partagé avec live.js pour
-// résoudre le bon endpoint ESPN/repli.
+// ─── LIVE FOOT! (compétition) ───────────────────────────────────────────────
+// Mode "Équipe" retiré ENTIÈREMENT le 2026-09-05, sur demande explicite
+// (simplification) — un seul mode reste : suivre une compétition entière
+// (voir live.js). `window.LiveCompetitions` (live-championships.js, chargé
+// avant ce fichier) fournit le catalogue slug/libellé/emoji, partagé avec
+// live.js.
+function liveOptionHtml(c, selected) {
+  return `<option value="${c.slug}" ${c.slug === selected ? 'selected' : ''}>${c.emoji} ${c.label}</option>`;
+}
+
+// Les 13 entrées, 3 groupes.
+function liveCompetitionOptionsHtml(selected) {
+  const list = window.LiveCompetitions || [];
+  const domestic = list.filter(c => c.kind === 'domestic');
+  const european = list.filter(c => c.kind === 'european');
+  const national = list.filter(c => c.kind === 'national');
+  return `
+    <optgroup label="Clubs — Championnats nationaux">${domestic.map(c => liveOptionHtml(c, selected)).join('')}</optgroup>
+    <optgroup label="Clubs — Coupes européennes">${european.map(c => liveOptionHtml(c, selected)).join('')}</optgroup>
+    <optgroup label="Sélections nationales">${national.map(c => liveOptionHtml(c, selected)).join('')}</optgroup>
+  `;
+}
+
 function renderLiveConfigSection(mod) {
   if (!mod.config) mod.config = {};
-  if (typeof mod.config.club !== 'string') mod.config.club = '';
-  if (typeof mod.config.championship !== 'string') mod.config.championship = 'ligue1';
-  if (mod.config.mode !== 'club' && mod.config.mode !== 'league') mod.config.mode = 'club';
+  if (typeof mod.config.competitionSlug !== 'string' || !mod.config.competitionSlug) mod.config.competitionSlug = 'fra.1';
+  if (typeof mod.config.competitionLabel !== 'string' || !mod.config.competitionLabel) {
+    mod.config.competitionLabel = liveCompetitionBySlug(mod.config.competitionSlug)?.label || '';
+  }
 
-  const champions = window.LiveChampionships || [];
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field live-config-field';
   wrap.innerHTML = `
     <div class="live-config-row">
-      <label>Mon club</label>
-      <input type="text" class="live-club-input" placeholder="Ex : Olympique Lyonnais" value="${mod.config.club}">
-    </div>
-    <div class="live-config-row">
-      <label>Mon championnat</label>
-      <select class="live-championship-select">
-        ${champions.map(c => `<option value="${c.key}" ${c.key === mod.config.championship ? 'selected' : ''}>${c.label}</option>`).join('')}
-      </select>
-    </div>
-    <div class="indices-toggle-row">
-      <span class="indices-toggle-label">Tout le championnat (au lieu de mon club uniquement)</span>
-      <label class="toggle">
-        <input type="checkbox" class="live-mode-toggle" ${mod.config.mode === 'league' ? 'checked' : ''}>
-        <span class="toggle-slider"></span>
-      </label>
+      <label>Compétition</label>
+      <select class="live-competition-select">${liveCompetitionOptionsHtml(mod.config.competitionSlug)}</select>
     </div>
   `;
 
-  wrap.querySelector('.live-club-input').addEventListener('input', (e) => {
-    mod.config.club = e.target.value;
-  });
-  wrap.querySelector('.live-championship-select').addEventListener('change', (e) => {
-    mod.config.championship = e.target.value;
-  });
-  wrap.querySelector('.live-mode-toggle').addEventListener('change', (e) => {
-    mod.config.mode = e.target.checked ? 'league' : 'club';
+  wrap.querySelector('.live-competition-select').addEventListener('change', (e) => {
+    mod.config.competitionSlug = e.target.value;
+    mod.config.competitionLabel = liveCompetitionBySlug(e.target.value)?.label || '';
   });
 
   return wrap;
@@ -1402,7 +1876,6 @@ function renderMonEquipeConfigSection(mod) {
         <select class="monequipe-sport-select">${monEquipeSportOptionsHtml(cfg.sport)}</select>
       </div>
     </div>
-    <p class="monequipe-roadmap-note">Synchronisation automatique avec les fédérations — roadmap V2</p>
 
     <label class="monequipe-list-label">Matchs à venir (max ${MON_EQUIPE_MAX_MATCHES})</label>
     <div class="monequipe-upcoming-header">
@@ -1411,7 +1884,7 @@ function renderMonEquipeConfigSection(mod) {
     <div class="monequipe-upcoming-list"></div>
     <button type="button" class="etf-add-line-btn monequipe-add-upcoming-btn">+ Ajouter un match</button>
 
-    <label class="monequipe-list-label monequipe-list-label--results">Derniers résultats (max ${MON_EQUIPE_MAX_MATCHES})</label>
+    <label class="monequipe-list-label monequipe-list-label--results">Matchs passés (max ${MON_EQUIPE_MAX_MATCHES})</label>
     <div class="monequipe-results-header">
       <span>Date</span><span>Adversaire</span><span>Score</span><span>Domicile / Extérieur</span><span>Type de match</span><span></span>
     </div>
@@ -1457,8 +1930,9 @@ function renderMonEquipeConfigSection(mod) {
       group.appendChild(row);
 
       // Score du match (2026-08-31, sur demande explicite) — renseigné une
-      // fois le match joué : déplace AUTOMATIQUEMENT ce match vers "Derniers
-      // résultats". Au `change` (donc au blur, pas à chaque frappe) : un
+      // fois le match joué : déplace AUTOMATIQUEMENT ce match vers "Matchs
+      // passés" (renommé depuis "Derniers résultats" le 2026-09-03). Au
+      // `change` (donc au blur, pas à chaque frappe) : un
       // déplacement en cours de saisie serait déroutant, l'utilisateur doit
       // pouvoir taper "78-6" sans perdre la ligne avant d'avoir fini
       // "78-65". Ce champ n'écrit JAMAIS dans `item.score` (les matchs à
@@ -1473,7 +1947,7 @@ function renderMonEquipeConfigSection(mod) {
       scoreRow.innerHTML = `
         <label>Score</label>
         <input type="text" class="monequipe-upcoming-score-input" placeholder="Si déjà joué, ex : 78-65">
-        <span class="monequipe-upcoming-score-hint">→ déplace vers "Derniers résultats"</span>
+        <span class="monequipe-upcoming-score-hint">→ déplace vers "Matchs passés"</span>
       `;
       scoreRow.querySelector('.monequipe-upcoming-score-input').addEventListener('change', (e) => {
         const score = e.target.value.trim();
@@ -1481,7 +1955,7 @@ function renderMonEquipeConfigSection(mod) {
         const idx = cfg.upcoming.indexOf(item);
         if (idx !== -1) cfg.upcoming.splice(idx, 1);
         // `competition` reporté tel quel (2026-09-01, sur demande explicite —
-        // "Type de match" ajouté aux Derniers résultats) : le match à venir
+        // "Type de match" ajouté aux Matchs passés) : le match à venir
         // avait déjà son type saisi, pas de raison de le redemander/le
         // réinitialiser à la 1re option lors du transfert automatique.
         cfg.results.push({ date: item.date, opponent: item.opponent, score, venue: item.venue, competition: item.competition });
@@ -1546,7 +2020,7 @@ function renderMonEquipeConfigSection(mod) {
   addResultBtn.addEventListener('click', () => {
     if (cfg.results.length >= MON_EQUIPE_MAX_MATCHES) return;
     // `competition` initialisé à la 1re option (2026-09-01, sur demande
-    // explicite — "Type de match" ajouté aux Derniers résultats), même
+    // explicite — "Type de match" ajouté aux Matchs passés), même
     // principe que addUpcomingBtn ci-dessus.
     cfg.results.push({ date: '', opponent: '', score: '', venue: 'home', competition: MON_EQUIPE_COMPETITIONS[0] });
     renderResults();
@@ -3172,6 +3646,7 @@ const PERSONNALISER_OPTIONS = [
   { key: 'nebula',    emoji: '🌌', label: 'Nébuleuse', theme: 'dark' },
   { key: 'beach',     emoji: '🏖️', label: 'Plage au lever du soleil', theme: 'dark' },
   { key: 'mountain',  emoji: '🏔️', label: 'Lever de soleil en montagne', theme: 'dark' },
+  { key: 'lac',       emoji: '🏞️', label: 'Lac et forêt', theme: 'dark' },
   { key: 'paper',     emoji: '📄', label: 'Grain de papier', theme: 'light' },
   { key: 'geometric', emoji: '📐', label: 'Lignes géométriques', theme: 'light' },
   { key: 'gradient',  emoji: '🌫️', label: 'Dégradé doux', theme: 'light' },

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
@@ -245,17 +245,17 @@ const DEFAULT_MODULES = {
   // utiles, ex. Colis/Rappels) — rien à afficher tant qu'aucun prêt n'est
   // configuré.
   prets: { enabled: false, position: 22, config: { name: '', loans: [] } },
-  // LIVE! — scores en direct football, club ou championnat (2026-08-11, sur
-  // demande explicite, 2e révision le même jour — remplace la version 1
-  // multi-sports par un ciblage club/championnat, voir renderer/modules/
-  // live.js). `enabled: false` par défaut, même convention que Carburants/
-  // Colis/Prêts : le mode par défaut ('club') n'affiche rien tant qu'un club
-  // n'est pas saisi, contrairement à Cinéma/Promos qui fonctionnent sans
-  // aucune saisie préalable.
+  // LIVE FOOT! — scores en direct d'une compétition entière (2026-08-11,
+  // réécrit intégralement le 2026-09-04 sur ESPN "site API" seul, mode
+  // "Équipe" retiré ENTIÈREMENT le 2026-09-05 sur demande explicite — un seul
+  // mode reste, voir renderer/modules/live.js/config.js renderLiveConfigSection).
+  // `competitionSlug`/`competitionLabel` par défaut sur Ligue 1 — 2e instance
+  // possible ("live_2", voir isLiveKey) créée avec les mêmes valeurs par
+  // défaut via config.js addLiveInstance, jamais ici.
   live: {
     enabled: false,
     position: 23,
-    config: { club: '', championship: 'ligue1', mode: 'club' },
+    config: { competitionSlug: 'fra.1', competitionLabel: 'Ligue 1' },
   },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi 100% MANUEL d'une
   // équipe (calendrier + résultats saisis à la main), contrairement à "ol"
@@ -336,6 +336,11 @@ const store = new Store({
       // createSunWindow plus bas.
       displayMode: 'fullscreen',
       floatingSunPosition: null,
+      // Moteur de recherche de la barre du titlebar (2026-09-03, sur demande
+      // explicite) — voir config.js createSearchEngineRow (Paramètres →
+      // Services) et dashboard.js initTitlebarSearch (construit l'URL de
+      // recherche à partir de cette clé au submit du formulaire).
+      searchEngine: 'google',
       // Défilement automatique du dashboard — SUPPRIMÉ ENTIÈREMENT le
       // 2026-09-01, sur demande explicite (voir CONTEXT.md) : `autoScroll`/
       // `autoScrollSpeed` n'ont plus d'usage, retirés des defaults (une
@@ -1147,6 +1152,66 @@ let currentDisplayMode = 'fullscreen';
 // `renderer/strip.html`/`renderer/strip.js` (fichiers supprimés).
 const SUN_WINDOW_SIZE = 60;
 
+// ─── Outil dev : test responsive multi-résolutions (2026-09-03, sur demande
+// explicite) ─────────────────────────────────────────────────────────────
+// Cycle mainWindow.setSize() entre 5 presets de résolution CSS EFFECTIVE
+// (résolution physique / échelle DPI Windows la plus courante donnant cette
+// résolution) pour tester le responsive 13"/14"/15" sans matériel physique.
+// Raccourci Ctrl+Shift+R (voir enregistrement dans app.whenReady() plus bas) —
+// vérifié sans conflit : aucun globalShortcut/accelerator n'existait ailleurs
+// dans le projet avant cet ajout.
+const DEV_WINDOW_SIZE_PRESETS = [
+  { name: '13" @150%', width: 1280, height: 720 },
+  { name: '14" @125-150%', width: 1366, height: 768 },
+  { name: '14" @125%', width: 1536, height: 864 },
+  { name: '15" @150% QHD', width: 1707, height: 960 },
+  { name: '15" @100-125% FHD', width: 1920, height: 1080 },
+];
+
+// -1 = mode inactif (taille normale). 0..4 = index du preset actuellement
+// appliqué. Pas de valeur d'index dédiée pour "retour à la taille normale" —
+// c'est l'appui qui suit le dernier preset (5e), qui réinitialise directement
+// à -1 avant de reboucler sur le preset 0 au prochain appui : cycle complet à
+// 6 temps (5 presets + normal) plutôt que de reboucler du 5e preset
+// directement au 1er, pour que "revenir à la taille normale" (demandé
+// explicitement) reste toujours atteignable par le même raccourci.
+let devWindowSizeTestIndex = -1;
+
+// true tant qu'une taille de TEST (preset, ou le court instant où l'on
+// revient à la taille normale) est appliquée par setSize — sans ce garde-fou,
+// le listener mainWindow.on('resize', ...) ci-dessous sauvegarderait CHAQUE
+// redimensionnement de test dans app.windowBounds, écrasant la vraie taille
+// de l'utilisateur avec une taille de preset. Repassé à false après un court
+// délai plutôt qu'immédiatement après l'appel à setSize : `animate: true`
+// déclenche des événements 'resize' intermédiaires de façon asynchrone
+// pendant l'animation, après le retour (synchrone) de setSize.
+let devWindowSizeTestSuppressBoundsSave = false;
+
+function cycleDevWindowSizeTest() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  devWindowSizeTestSuppressBoundsSave = true;
+  devWindowSizeTestIndex++;
+
+  if (devWindowSizeTestIndex >= DEV_WINDOW_SIZE_PRESETS.length) {
+    // Appui supplémentaire après le 5e preset → retour à la taille normale/sauvegardée.
+    devWindowSizeTestIndex = -1;
+    const bounds = store.get('app.windowBounds');
+    mainWindow.setSize(bounds.width, bounds.height, true);
+    mainWindow.center();
+    mainWindow.setTitle('Matin');
+    console.log(`[DevTools] Fenêtre redimensionnée : taille normale (${bounds.width}x${bounds.height})`);
+  } else {
+    const preset = DEV_WINDOW_SIZE_PRESETS[devWindowSizeTestIndex];
+    mainWindow.setSize(preset.width, preset.height, true);
+    mainWindow.center();
+    mainWindow.setTitle(`Matin — Test ${preset.name} (${preset.width}x${preset.height})`);
+    console.log(`[DevTools] Fenêtre redimensionnée : ${preset.name} (${preset.width}x${preset.height})`);
+  }
+
+  setTimeout(() => { devWindowSizeTestSuppressBoundsSave = false; }, 500);
+}
+
 function createMainWindow() {
   const bounds = store.get('app.windowBounds');
   const theme = store.get('app.theme') || 'dark';
@@ -1206,6 +1271,10 @@ function createMainWindow() {
   });
 
   mainWindow.on('resize', () => {
+    // Voir devWindowSizeTestSuppressBoundsSave plus haut — ignore les
+    // redimensionnements déclenchés par l'outil dev de test responsive, pour
+    // ne jamais écraser la vraie taille utilisateur avec une taille de preset.
+    if (devWindowSizeTestSuppressBoundsSave) return;
     const [width, height] = mainWindow.getSize();
     safeStoreSet('app.windowBounds', { width, height });
   });
@@ -1902,16 +1971,50 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
 // layout, name }` restent identiques, aucun changement ailleurs. La migration
 // de l'ancienne clé plate vers `profiles.profile1.layouts` est gérée UNE
 // SEULE FOIS par getProfilesState() (voir plus haut), pas ici.
+// ─── Clé de résolution effective (2026-09-03, sur demande explicite) ───────
+// Isole les dispositions sauvegardées par résolution CSS effective —
+// résolution physique du moniteur ajustée par l'échelle DPI Windows, en
+// pixels indépendants du périphérique (exactement ce que `screen.width`/
+// `screen.height` retourne côté renderer, DOM Screen) — pour que 2 PC de
+// résolutions différentes (ex. PC fixe 1920×1080 + laptop 1280×720) ne
+// s'écrasent plus mutuellement les dispositions "1"/"2" lors d'une
+// restauration Drive (voir layoutSlots:get/save juste en dessous, et Sync
+// Google Drive plus bas — le mécanisme d'upload/téléchargement de
+// matin-userdata lui-même ne change pas, seule la structure interne de
+// `profiles[key].layouts` change). `screen.getPrimaryDisplay().size` (PAS
+// `workAreaSize`, qui exclut la barre des tâches — donnerait par ex.
+// 1920x1040 au lieu de 1920x1080, une clé différente à chaque variation de
+// hauteur de la barre des tâches) est l'équivalent main-process de
+// `window.screen.width/height`.
+function getEffectiveScreenKey() {
+  const { width, height } = screen.getPrimaryDisplay().size;
+  return `${Math.round(width)}x${Math.round(height)}`;
+}
+ipcMain.handle('app:getScreenKey', () => getEffectiveScreenKey());
+
+// Le contrat IPC (layoutSlots:get renvoie { "1": {...}, "2": {...} },
+// layoutSlots:save(slot, layout, name) écrit sous ce même "1"/"2") reste
+// IDENTIQUE côté renderer (dashboard.js, jamais modifié par ce changement) :
+// on insère juste un niveau `[screenKey]` entre `profiles[active].layouts`
+// et les slots "1"/"2" existants, invisible pour l'appelant. Les anciennes
+// clés plates `profiles[key].layouts["1"]`/`["2"]` (format d'avant ce patch)
+// restent orphelines sur disque, jamais lues ni migrées (pas de collision
+// possible, une clé numérique "1"/"2" ne ressemble à aucune clé de résolution
+// "1920x1080" — voir CONTEXT.md).
 ipcMain.handle('layoutSlots:get', () => {
   const profiles = getProfilesState();
-  return profiles[profiles.active]?.layouts || {};
+  const screenKey = getEffectiveScreenKey();
+  return profiles[profiles.active]?.layouts?.[screenKey] || {};
 });
 ipcMain.handle('layoutSlots:save', (_e, { slot, layout, name }) => {
   const profiles = getProfilesState();
   const active = profiles.active;
-  const slots = profiles[active].layouts || {};
+  const screenKey = getEffectiveScreenKey();
+  const byResolution = profiles[active].layouts || {};
+  const slots = byResolution[screenKey] || {};
   slots[slot] = { name, layout, savedAt: new Date().toISOString() };
-  profiles[active].layouts = slots;
+  byResolution[screenKey] = slots;
+  profiles[active].layouts = byResolution;
   backupStoreBeforeWrite();
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
@@ -2946,7 +3049,17 @@ ipcMain.handle('epicPromos:fetchDeals', async () => {
 // via "fetch direct" + motif générique) — les motifs JSON-LD/meta/CSS/
 // CDiscount sont des best-effort à ajuster au premier usage réel si le prix
 // affiché semble faux (voir logs `[Suivi de prix]`, point 6 de la demande).
-const PRICE_EURO_RE = /(\d{1,3}(?:[.\s]\d{3})*,\d{2})\s?€/;
+// ÉTENDU (2026-09-03, sur demande explicite, debug CDiscount — point 4) :
+// 2 branches — virgule décimale FR (existante, "1 299,99 €"/"129,99 €",
+// milliers point OU espace) OU point décimal (NOUVELLE, "429.99 €", milliers
+// espace SEULEMENT — jamais point, qui serait ambigu avec le point décimal
+// lui-même : "1.299.99" n'a pas de lecture non ambiguë). `priceNormalizeAmount`
+// (ci-dessous) gère déjà correctement les 2 formes de capture sans
+// modification — seule la capture elle-même ratait la variante point avant
+// ce correctif (un prix "429.99 €" n'était jusqu'ici JAMAIS capturé du tout,
+// quel que soit le motif, puisque ce motif générique sert aussi de base à
+// priceLogAllAmountsFound/priceExtractGenericEuro plus bas).
+const PRICE_EURO_RE = /(\d{1,3}(?:[.\s]\d{3})*,\d{2}|\d{1,3}(?:\s\d{3})*\.\d{2})\s?€/;
 
 // Normalise un montant capturé par n'importe lequel des motifs ci-dessous —
 // gère à la fois "129.99" (point décimal, JSON/meta) et "1 299,99"/"129,99"
@@ -2983,9 +3096,20 @@ function priceNormalizeAmount(raw) {
 // prix de VENTE est toujours le plus bas des 2 — retient désormais le
 // MINIMUM de tous les prix trouvés dans TOUTES les offres de TOUS les nœuds
 // Product, jamais juste le 1er rencontré.
+// ÉTENDU (2026-09-03, sur demande explicite, debug CDiscount — point 2) :
+// gère maintenant AUSSI un nœud `"@type":"Offer"` AUTONOME (pas imbriqué
+// dans `.offers` d'un Product) — sur CDiscount, le prix peut vivre
+// directement sur ce nœud (`"price"` ou `"priceSpecification"."price"`),
+// pas seulement accessible via `Product.offers[].price` comme sur les sites
+// déjà vérifiés (Amazon/FNAC). Les 2 formes sont cherchées dans TOUS les
+// blocs `<script type="application/ld+json">` de la page, le prix le plus
+// bas retenu tous nœuds/toutes formes confondus (même logique "plusieurs
+// offres" que la version précédente, voir commentaire plus haut sur le prix
+// barré/de référence FNAC).
 function priceExtractJsonLdProduct(text) {
   const scripts = text.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
   let lowest = null;
+  let matchedForm = null;
   for (const [, raw] of scripts) {
     let json;
     try { json = JSON.parse(raw.trim()); } catch { continue; } // bloc JSON-LD malformé/tronqué — passe au suivant plutôt que planter
@@ -2994,18 +3118,29 @@ function priceExtractJsonLdProduct(text) {
       if (!node || typeof node !== 'object') continue;
       const type = node['@type'];
       const isProduct = type === 'Product' || (Array.isArray(type) && type.includes('Product'));
-      if (!isProduct) continue;
-      const offers = node.offers;
-      const offerList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
-      for (const offer of offerList) {
-        const raw = offer?.price ?? offer?.priceSpecification?.price;
-        if (raw == null) continue;
-        const price = priceNormalizeAmount(String(raw));
-        if (price != null && (lowest == null || price < lowest)) lowest = price;
+      const isOffer = type === 'Offer' || (Array.isArray(type) && type.includes('Offer'));
+      if (isProduct) {
+        const offers = node.offers;
+        const offerList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
+        for (const offer of offerList) {
+          const rawPrice = offer?.price ?? offer?.priceSpecification?.price;
+          if (rawPrice == null) continue;
+          const price = priceNormalizeAmount(String(rawPrice));
+          if (price != null && (lowest == null || price < lowest)) { lowest = price; matchedForm = 'Product → offers → price'; }
+        }
+      } else if (isOffer) {
+        // CDiscount (point 2) : "price" directement sur le nœud Offer, ou
+        // "priceSpecification"."price" — jamais via une clé "offers"
+        // puisque ce nœud N'EST PAS un Product qui en contiendrait une.
+        const rawPrice = node.price ?? node.priceSpecification?.price;
+        if (rawPrice != null) {
+          const price = priceNormalizeAmount(String(rawPrice));
+          if (price != null && (lowest == null || price < lowest)) { lowest = price; matchedForm = 'Offer autonome → price'; }
+        }
       }
     }
   }
-  return lowest != null ? { price: lowest, pattern: 'JSON-LD "@type":"Product" → offers → price (le plus bas)' } : null;
+  return lowest != null ? { price: lowest, pattern: `JSON-LD "@type":"Product"/"Offer" → price (le plus bas, via ${matchedForm})` } : null;
 }
 
 // Motifs Amazon SPÉCIFIQUES (2026-08-31, sur demande explicite, suite au
@@ -3214,14 +3349,28 @@ function priceExtractAmazonLegacyBlocks(text) {
   return m ? { price: priceNormalizeAmount(m[1]), pattern: 'Amazon #priceblock_ourprice' } : null;
 }
 
-// Motif 3 : meta Open Graph / Product (og:price:amount, product:price:amount)
-// — attribut `content` avant OU après le nom de propriété selon les sites,
-// les 2 ordres sont essayés.
+// Motif 3 : meta Open Graph / Product (og:price:amount, product:price:amount
+// — CDiscount utilise CETTE 2e forme, voir en-tête de section, "amount" DÉJÀ
+// couvert avant ce correctif, vérifié le 2026-09-03) — attribut `content`
+// avant OU après le nom de propriété selon les sites, les 2 ordres sont
+// essayés. `product:price:currency` (2026-09-03, sur demande explicite,
+// point 3) capturée en plus, UNIQUEMENT pour le log diagnostic ci-dessous —
+// jamais utilisée pour la valeur du prix elle-même (l'app est FR-only,
+// affichage toujours en €, voir price-tracking.js priceFmt) : sert juste à
+// repérer en direct dans le terminal un cas où le prix trouvé ne serait PAS
+// réellement en euros (ex. marketplace international), plutôt qu'un bug
+// silencieux.
 function priceExtractMetaTag(text) {
   let m = text.match(/<meta[^>]+(?:og:price:amount|product:price:amount)[^>]+content=["']([\d.,]+)["']/i)
     || text.match(/<meta[^>]+content=["']([\d.,]+)["'][^>]+(?:og:price:amount|product:price:amount)/i);
   if (!m) return null;
-  return { price: priceNormalizeAmount(m[1]), pattern: 'meta og:price' };
+  const currencyMatch = text.match(/<meta[^>]+(?:og:price:currency|product:price:currency)[^>]+content=["']([A-Za-z]{3})["']/i)
+    || text.match(/<meta[^>]+content=["']([A-Za-z]{3})["'][^>]+(?:og:price:currency|product:price:currency)/i);
+  const currency = currencyMatch ? currencyMatch[1].toUpperCase() : null;
+  if (currency && currency !== 'EUR') {
+    console.warn(`[Suivi de prix] meta product:price:currency="${currency}" (≠ EUR) — le prix affiché suppose des euros, vérifier manuellement.`);
+  }
+  return { price: priceNormalizeAmount(m[1]), pattern: `meta og:price/product:price${currency ? ` (devise: ${currency})` : ''}` };
 }
 
 // Motifs 4/5 (les moins fiables, gardés en dernier recours) : marquage CSS
@@ -3304,10 +3453,30 @@ function priceLogAllAmountsFound(text) {
   console.log(`[Suivi de prix] TOUS les montants "XX,XX €" trouvés sur la page (${all.length}) :`, all.slice(0, 40).join(', ') + (all.length > 40 ? ', …' : ''));
 }
 
-function priceExtractPrice(text) {
+// CDiscount (2026-09-03, sur demande explicite, points 1 et 5 du debug) —
+// détection de domaine pour le log détaillé ci-dessous UNIQUEMENT (jamais
+// pour changer l'ordre des proxys/motifs pour ce site précis, voir la longue
+// note sur PRICE_PROXIES plus bas : jina.ai reste nécessaire en 1er pour
+// CDiscount, retiré serait une régression).
+function isCdiscountUrl(url) {
+  try { return new URL(url).hostname.toLowerCase().includes('cdiscount.com'); }
+  catch { return false; }
+}
+
+// `proxyName` optionnel : quand fourni (voir priceTryProxy ci-dessous, posé
+// UNIQUEMENT pour une URL CDiscount) logge CHAQUE motif tenté avec son
+// résultat (point 5 de la demande, format EXACT demandé) — jamais pour les
+// autres sites, qui gardent le log générique existant (priceLogAllAmountsFound
+// ci-dessus), pas besoin d'alourdir le terminal pour un site qui fonctionne
+// déjà.
+function priceExtractPrice(text, proxyName) {
   priceLogAllAmountsFound(text);
   for (const extractor of PRICE_EXTRACTORS) {
     const result = extractor(text);
+    if (proxyName) {
+      const outcome = (result && result.price != null) ? `${result.price}€ (${result.pattern})` : 'ÉCHEC';
+      console.log(`[Suivi de prix][CDiscount] proxy=${proxyName} motif=${extractor.name} résultat=${outcome}`);
+    }
     if (result && result.price != null) return result;
   }
   return null;
@@ -3400,6 +3569,33 @@ function priceAmazonMobileAjaxUrl(asin) {
   return `https://www.amazon.fr/gp/product/ajax/ref=dp_aod_NEW_mbc?asin=${asin}&experienceId=aodAjaxMain`;
 }
 
+// CDiscount — jina.ai VÉRIFIÉ EN CONDITIONS RÉELLES le 2026-09-03 (point 1 du
+// debug, "tester l'endpoint jina.ai sur une URL CDiscount") : CDiscount sert
+// un CHALLENGE anti-bot JS ("Baleen", `__blnChallengeStore`/"challengejs")
+// à un fetch direct (`fetch direct` confirmé : réponse HTTP 200 mais page
+// de challenge générique, AUCUNE donnée produit, testé en direct sur une
+// vraie URL produit CDiscount) — un fetch serveur-à-serveur sans exécution
+// JS ne peut structurellement JAMAIS passer ce challenge. jina.ai Reader, à
+// l'inverse, restitue le VRAI contenu de la page (confirmé : aucun marqueur
+// "Baleen"/"challengejs" dans sa réponse pour la même URL) — donc jina.ai
+// reste NÉCESSAIRE en 1er pour CDiscount, le retirer serait une régression.
+// CONTREPARTIE (explique pourquoi les motifs JSON-LD/meta ci-dessus peuvent
+// échouer sur CDiscount même une fois ce challenge passé) : jina.ai convertit
+// la page en MARKDOWN — `<script>`/`<meta>`/attributs `class` sont
+// STRUCTURELLEMENT ABSENTS de sa réponse (vérifié : 0 occurrence de
+// "application/ld+json" dans le texte renvoyé), donc `priceExtractJsonLdProduct`/
+// `priceExtractMetaTag`/`priceExtractCssPattern` ne PEUVENT PAS matcher sur
+// une réponse jina.ai, quel que soit l'ajustement de leurs motifs — seul
+// `priceExtractGenericEuro` (montant "XX,XX €" visible dans le texte,
+// confirmé PRÉSENT en nombre dans la réponse jina.ai) a une chance réelle
+// pour ce site via ce proxy. Ces 3 motifs restent utiles quand même : pour
+// TOUS les autres sites (Amazon, FNAC...) ET pour CDiscount lui-même si un
+// proxy renvoyant du HTML brut (allorigins.win/fetch direct) finit par
+// réussir un jour (ex. challenge assoupli), sans exécution JS ils échoueront
+// probablement au même titre que "fetch direct" ci-dessus — non vérifié en
+// conditions réelles pour allorigins.win spécifiquement (HTTP 520,
+// indisponibilité du service au moment du test, pas une confirmation de
+// blocage CDiscount).
 const PRICE_PROXIES = [
   // `X-No-Cache` (2026-08-31, sur demande explicite) — jina.ai Reader met en
   // cache ses réponses ; ce header lui demande de re-fetcher la page
@@ -3423,12 +3619,16 @@ const PRICE_PROXIES = [
 // mention JavaScript requis...) sans avoir à relire des dizaines de Ko.
 const PRICE_RAW_LOG_LENGTH = 400;
 
-async function priceTryProxy(fetchFn, url) {
+// `proxyName` (2026-09-03, sur demande explicite, point 5 du debug
+// CDiscount) — transmis à priceExtractPrice UNIQUEMENT si `url` est une URL
+// CDiscount (voir isCdiscountUrl plus haut), pour déclencher son log détaillé
+// par motif SANS alourdir le terminal pour les autres sites marchands.
+async function priceTryProxy(proxyName, fetchFn, url) {
   const res = await fetchFn(url);
   const text = await res.text();
   console.log(`[Suivi de prix] Réponse brute (${text.length} caractères, HTTP ${res.status}) :`, text.slice(0, PRICE_RAW_LOG_LENGTH).replace(/\s+/g, ' '));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const extracted = priceExtractPrice(text);
+  const extracted = priceExtractPrice(text, isCdiscountUrl(url) ? proxyName : null);
   if (!extracted) throw new Error(`aucun motif de prix reconnu dans la réponse (${text.length} caractères)`);
   return extracted;
 }
@@ -3483,7 +3683,7 @@ ipcMain.handle('priceTracking:fetchPrice', async (_e, url) => {
 
   for (const [name, fetchFn] of PRICE_PROXIES) {
     try {
-      const { price, pattern } = await priceTryProxy(fetchFn, url);
+      const { price, pattern } = await priceTryProxy(name, fetchFn, url);
       const method = `${name} — ${pattern}`;
       console.log(`[Suivi de prix] ${url} — succès via proxy "${name}", motif "${pattern}" : ${price} €`);
       if (asin) priceLogAmazonAsinResult(asin, price, method);
@@ -3500,7 +3700,7 @@ ipcMain.handle('priceTracking:fetchPrice', async (_e, url) => {
   if (asin) {
     try {
       const ajaxUrl = priceAmazonMobileAjaxUrl(asin);
-      const { price, pattern } = await priceTryProxy((u) => fetch(u, { headers: PRICE_BROWSER_HEADERS }), ajaxUrl);
+      const { price, pattern } = await priceTryProxy('Amazon AJAX mobile', (u) => fetch(u, { headers: PRICE_BROWSER_HEADERS }), ajaxUrl);
       const method = `Amazon AJAX mobile — ${pattern}`;
       priceLogAmazonAsinResult(asin, price, method);
       return { price, method };
@@ -4373,9 +4573,22 @@ app.whenReady().then(() => {
   checkProfileAutoSwitch();
   setInterval(checkProfileAutoSwitch, PROFILE_AUTOSWITCH_CHECK_MS);
 
+  // Raccourci dev "test responsive" (voir cycleDevWindowSizeTest plus haut) —
+  // UNIQUEMENT en dev (même convention que mainWindow.webContents.
+  // openDevTools() dans createMainWindow, seul autre endroit du projet qui
+  // distingue dev/prod), pour ne jamais l'exposer dans le build Store.
+  if (process.argv.includes('--dev')) {
+    const registered = globalShortcut.register('CommandOrControl+Shift+R', cycleDevWindowSizeTest);
+    if (!registered) console.warn('[DevTools] Échec de l\'enregistrement du raccourci Ctrl+Shift+R (test responsive)');
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {

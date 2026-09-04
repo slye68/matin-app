@@ -257,8 +257,28 @@ window.SportsSources = (function () {
     };
   }
 
+  // Sources directement depuis un sport déjà connu (2026-09-05, sur demande
+  // explicite — menu déroulant ligue/équipe, voir KNOWN_LEAGUES dans ol.js/
+  // config.js) : contrairement à detectSportSources ci-dessus, AUCUN appel
+  // réseau — le sport n'a plus besoin d'être deviné depuis un nom d'équipe
+  // tapé au clavier (searchteams.php), il est déjà connu avec certitude,
+  // dérivé directement de la ligue choisie dans le menu. Même forme de
+  // retour que detectSportSources (category/sportLabel/list/autoRejected)
+  // pour rester utilisable telle quelle par le code de config.js qui affiche
+  // la liste de sources cochables.
+  function sourcesForCategory(category) {
+    const list = category ? [...(CATALOG[category] || [])] : [];
+    return {
+      category,
+      sportLabel: category ? (CATEGORY_LABELS[category] || category) : null,
+      list: list.slice(0, MAX_SOURCES),
+      autoRejected: false,
+    };
+  }
+
   return {
     MAX_SOURCES, CATALOG, CATEGORY_LABELS, MANUAL_SPORT_OPTIONS,
     mapSportToCategory, detectCategoryFromTeamName, resolveSportCategory, detectSportSources,
+    sourcesForCategory,
   };
 })();

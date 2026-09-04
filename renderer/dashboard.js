@@ -182,27 +182,36 @@ function updateSizeTier(card, width, height) {
   card.classList.toggle('size-icon-only', iconOnly);
 }
 
-// ─── Instances multiples (Sports, Prêts) ────────────────────────────────────
-// Même principe pour les deux : une clé "de base" + jusqu'à 4 suffixes _2.._5,
-// un seul renderer partagé (window.MatinModules.ol / .prets) sert toutes les
-// instances. `resolveModuleMeta`/`resolveRendererKey`/`resolveModuleTitle`
-// centralisent la résolution plutôt que de dupliquer le même ternaire à
-// chaque site d'appel (3 pour Sports avant l'ajout de Prêts).
+// ─── Instances multiples (Sports, Prêts, LIVE FOOT!) ────────────────────────
+// Même principe pour les trois : une clé "de base" + jusqu'à N suffixes
+// _2.._N, un seul renderer partagé (window.MatinModules.ol / .prets / .live)
+// sert toutes les instances. `resolveModuleMeta`/`resolveRendererKey`/
+// `resolveModuleTitle` centralisent la résolution plutôt que de dupliquer le
+// même ternaire à chaque site d'appel. LIVE FOOT! (2026-09-05, sur demande
+// explicite) plafonné à 2 instances seulement (`live`/`live_2`, voir
+// MAX_LIVE_INSTANCES dans config.js) — pas 5 comme Sports/Prêts, chaque carte
+// n'a qu'un seul réglage (la compétition suivie), 2 suffit largement à
+// comparer 2 championnats côte à côte.
 function isSportsKey(key) {
   return key === 'ol' || /^ol_[2-5]$/.test(key);
 }
 function isPretsKey(key) {
   return key === 'prets' || /^prets_[2-5]$/.test(key);
 }
+function isLiveKey(key) {
+  return key === 'live' || key === 'live_2';
+}
 function resolveModuleMeta(key) {
   if (MODULE_REGISTRY[key]) return MODULE_REGISTRY[key];
   if (isSportsKey(key)) return MODULE_REGISTRY.ol;
+  if (isLiveKey(key)) return MODULE_REGISTRY.live;
   if (isPretsKey(key)) return MODULE_REGISTRY.prets;
   return undefined;
 }
 function resolveRendererKey(key) {
   if (isSportsKey(key)) return 'ol';
   if (isPretsKey(key)) return 'prets';
+  if (isLiveKey(key)) return 'live';
   return key;
 }
 // Cartes à hauteur AUTOMATIQUE (2026-08-09, étendu le 2026-08-10 sur demande
@@ -277,8 +286,14 @@ function resolveModuleTitle(key, meta, config) {
 // tuple renvoyé par une seule fonction) pour rester un ajout NON intrusif :
 // tous les appels existants à resolveModuleTitle ailleurs restent valides
 // sans modification.
+// LIVE FOOT! (2026-09-05, sur demande explicite, ajouté avec le support de
+// 2 instances) — même besoin que Prêts : sans ce sous-titre, 2 cartes LIVE
+// FOOT! affichent le même titre générique et sont indiscernables tant
+// qu'aucun match n'est chargé. `config.competitionLabel` (peuplé par le
+// <select> Compétition, voir config.js) sert de sous-titre.
 function resolveModuleSubtitle(key, config) {
   if (isPretsKey(key)) return config?.name?.trim() || null;
+  if (isLiveKey(key)) return config?.competitionLabel?.trim() || null;
   return null;
 }
 
@@ -341,20 +356,27 @@ async function updateHeaderGreeting() {
   el.textContent = firstName ? `👋 Bonjour ${firstName}` : '';
 }
 
-// Barre de recherche Google centrée dans le titlebar — ouvre les résultats
-// dans le navigateur par défaut (pas dans l'app, qui n'a pas de moteur de
-// rendu web générique/navigation), donc shell:openExternal comme partout
-// ailleurs dans l'app pour un lien externe.
+// Barre de recherche (moteur configurable, 2026-09-03, sur demande explicite
+// — voir config.js createSearchEngineRow, Paramètres → Services) centrée dans
+// le titlebar — ouvre les résultats dans le navigateur par défaut (pas dans
+// l'app, qui n'a pas de moteur de rendu web générique/navigation), donc
+// shell:openExternal comme partout ailleurs dans l'app pour un lien externe.
+// Lu depuis le store À CHAQUE submit (pas mis en cache au chargement) : la
+// fenêtre Paramètres qui modifie ce réglage est une fenêtre séparée, et
+// contrairement à app.background/app.displayMode ce champ n'a pas besoin
+// d'un effet visuel immédiat dans le dashboard — inutile de le pousser par
+// IPC (voir background:updated/displayMode:updated) juste pour ça.
 function initTitlebarSearch() {
   const form = document.getElementById('titlebarSearch');
   const input = document.getElementById('titlebarSearchInput');
   if (!form || !input) return;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const query = input.value.trim();
     if (!query) return;
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    const engineId = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
+    const url = window.SearchEngines.buildSearchUrl(engineId, query);
     window.matin.shell.openExternal(url);
   });
 }
@@ -394,7 +416,7 @@ function initThemeSync() {
 // APP_BACKGROUND_DARK_KEYS/LIGHT_KEYS) : une clé qui ne correspond pas au
 // thème affiché en ce moment ne rend rien plutôt que de s'afficher hors
 // contexte (ex. après un changement de thème sans repasser par Personnaliser).
-const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain'];
+const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain', 'lac'];
 const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient'];
 const APP_BACKGROUND_STAR_COUNT = 140;
 const APP_BACKGROUND_PARTICLE_COUNT = 26;
@@ -407,6 +429,7 @@ const APP_BACKGROUND_BEACH_CLOUD_COUNT = 5;
 const APP_BACKGROUND_BEACH_GRAIN_COUNT = 1400; // demandé "densément" (2026-08-15), depuis 900
 const APP_BACKGROUND_MOUNTAIN_STAR_COUNT = 3;
 const APP_BACKGROUND_MOUNTAIN_BIRD_COUNT = 2;
+const APP_BACKGROUND_LAC_MIST_COUNT = 3;
 
 let appBackgroundAnimId = null;
 let appBackgroundResizeHandler = null;
@@ -719,51 +742,92 @@ function beachDrawStaticScene(staticCanvas, w, h) {
   }
   sctx.restore();
 
-  // Parasols + serviettes (2026-08-15, sur demande explicite) — éléments
-  // STATIQUES (ne bougent jamais), donc dessinés ici avec le reste de la
-  // scène plutôt que dans la boucle d'animation. Parasol 1 à ~25% de la
-  // largeur (rayures rouge/blanc), parasol 2 à ~70% (rayures jaune/blanc +
-  // détail livre à côté de sa serviette).
+  // Parasols + serviettes (2026-08-15, sur demande explicite ; ÉTENDU à 5 et
+  // les dômes REDESSINÉS le 2026-09-01, 2e demande explicite — voir
+  // beachDrawParasol pour le détail du nouveau dôme en demi-ellipse) —
+  // éléments STATIQUES (ne bougent jamais), donc dessinés ici avec le reste
+  // de la scène plutôt que dans la boucle d'animation. 5 parasols répartis
+  // gauche→droite avec les couleurs EXACTES demandées ; le 5e (tout à
+  // droite) est plus petit et posé plus haut dans le sable (`scale`/
+  // `groundFrac` réduits) pour suggérer qu'il est plus loin (effet de
+  // profondeur/perspective). `towelSide` place toujours la serviette du côté
+  // qui regarde vers le centre de la scène, pour qu'elle ne sorte jamais du
+  // cadre côté bord d'écran.
   const sandTop = seaBottomY, sandHeight = h - seaBottomY;
-  const groundY1 = sandTop + sandHeight * 0.55;
-  const groundY2 = sandTop + sandHeight * 0.62;
   const canopyR = Math.min(w, h) * 0.045;
 
-  beachDrawParasol(sctx, w * 0.25, groundY1, canopyR, '#e74c3c', '#ffffff');
-  beachDrawTowel(sctx, w * 0.25 + canopyR * 0.9, groundY1 + 6, canopyR * 2.6, canopyR * 1.1, -0.12, '#2f6fa8', '#ffffff');
+  const parasolDefs = [
+    { xFrac: 0.10, groundFrac: 0.55, scale: 1,    colorA: '#e74c3c', colorB: '#ffffff', towelA: '#2f6fa8', towelB: '#ffffff', towelAngle: -0.12 }, // 1 gauche — rouge/blanc
+    { xFrac: 0.30, groundFrac: 0.62, scale: 1,    colorA: '#2f6fa8', colorB: '#ffffff', towelA: '#e74c3c', towelB: '#ffffff', towelAngle:  0.15 }, // 2 centre-gauche — bleu/blanc
+    { xFrac: 0.55, groundFrac: 0.58, scale: 1,    colorA: '#f1c40f', colorB: '#27ae60', towelA: '#e67e22', towelB: '#ffffff', towelAngle: -0.10 }, // 3 centre-droit — jaune/vert
+    { xFrac: 0.78, groundFrac: 0.65, scale: 1,    colorA: '#e67e22', colorB: '#ffffff', towelA: '#27ae60', towelB: '#ffffff', towelAngle:  0.12 }, // 4 droite — orange/blanc
+    { xFrac: 0.93, groundFrac: 0.42, scale: 0.65, colorA: '#8e44ad', colorB: '#ffffff', towelA: '#f1c40f', towelB: '#ffffff', towelAngle: -0.15 }, // 5 tout à droite, plus petit/plus loin — violet/blanc
+  ];
 
-  beachDrawParasol(sctx, w * 0.7, groundY2, canopyR, '#f1c40f', '#ffffff');
-  beachDrawTowel(sctx, w * 0.7 - canopyR * 1.1, groundY2 + 6, canopyR * 2.6, canopyR * 1.1, 0.18, '#e67e22', '#ffffff');
-  beachDrawBook(sctx, w * 0.7 - canopyR * 2.7, groundY2 + 8, 0.3);
+  const placed = parasolDefs.map((p) => {
+    const x = w * p.xFrac;
+    const groundY = sandTop + sandHeight * p.groundFrac;
+    const r = canopyR * p.scale;
+    beachDrawParasol(sctx, x, groundY, r, p.colorA, p.colorB);
+    const towelSide = p.xFrac < 0.5 ? 1 : -1;
+    beachDrawTowel(sctx, x + towelSide * r * 1.1, groundY + 6 * p.scale, r * 2.6, r * 1.1, p.towelAngle, p.towelA, p.towelB);
+    return { x, groundY, r };
+  });
+
+  // Détail livre — conservé de la version à 2 parasols (2026-08-15), déplacé
+  // à côté du 3e parasol (jaune/vert) dans la nouvelle disposition.
+  const bookAnchor = placed[2];
+  beachDrawBook(sctx, bookAnchor.x - bookAnchor.r * 2.7, bookAnchor.groundY + 8, 0.3);
 }
 
-// Parasol — mât (fine ligne brune) + dôme rayé (bandes radiales alternées,
-// dessinées via un demi-disque découpé en tranches — même principe qu'un
-// diagramme "camembert" mais limité à 180°, plus simple/fiable qu'un tracé
-// de bord festonné pour un si petit élément).
+// Parasol — REDESSINÉ le 2026-09-01 (sur demande explicite, "proper
+// dome/canopy shape (half-ellipse, not circle)") : l'ancienne version
+// utilisait `arc()` (donc un demi-DISQUE, largeur = hauteur), peu
+// reconnaissable comme parasol de plage — remplacé par `ellipse()`
+// (radiusX ≠ radiusY, dôme aplati/plus large que haut, comme un vrai
+// parasol) découpé en tranches alternées, même principe "camembert" qu'avant
+// pour les rayures. Mât en bois inchangé (ligne brune) + petit embout
+// arrondi au sommet (détail ajouté, discret mais lisible) + liseré sombre
+// autour du bord du dôme pour détacher nettement la silhouette du ciel/fond.
 function beachDrawParasol(sctx, poleX, groundY, canopyR, colorA, colorB) {
-  const canopyY = groundY - canopyR * 2.6;
-  const poleTopY = canopyY + canopyR * 0.1;
+  const domeHeight = canopyR * 0.6; // aplati : plus large que haut (demi-ellipse, pas un demi-cercle)
+  const canopyY = groundY - canopyR * 2.2;
+  const poleTopY = canopyY + domeHeight * 0.2;
 
+  // Mât en bois
   sctx.strokeStyle = '#7a4a2b';
-  sctx.lineWidth = Math.max(1.5, canopyR * 0.08);
+  sctx.lineWidth = Math.max(1.5, canopyR * 0.09);
   sctx.lineCap = 'round';
   sctx.beginPath();
   sctx.moveTo(poleX, poleTopY);
   sctx.lineTo(poleX, groundY);
   sctx.stroke();
 
+  // Dôme rayé — demi-ellipse découpée en tranches alternées.
   const wedgeCount = 8;
   for (let i = 0; i < wedgeCount; i++) {
     const a0 = Math.PI + (Math.PI / wedgeCount) * i;
     const a1 = Math.PI + (Math.PI / wedgeCount) * (i + 1);
     sctx.beginPath();
     sctx.moveTo(poleX, canopyY);
-    sctx.arc(poleX, canopyY, canopyR, a0, a1);
+    sctx.ellipse(poleX, canopyY, canopyR, domeHeight, 0, a0, a1);
     sctx.closePath();
     sctx.fillStyle = i % 2 === 0 ? colorA : colorB;
     sctx.fill();
   }
+
+  // Liseré du bord — détache la silhouette du dôme du fond derrière lui.
+  sctx.beginPath();
+  sctx.ellipse(poleX, canopyY, canopyR, domeHeight, 0, Math.PI, Math.PI * 2);
+  sctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+  sctx.lineWidth = 1;
+  sctx.stroke();
+
+  // Petit embout arrondi au sommet du mât — détail classique de parasol.
+  sctx.beginPath();
+  sctx.fillStyle = '#7a4a2b';
+  sctx.arc(poleX, poleTopY, Math.max(1.5, canopyR * 0.08), 0, Math.PI * 2);
+  sctx.fill();
 }
 
 // Serviette de plage — rectangle rayé légèrement penché (angle en radians)
@@ -1031,25 +1095,55 @@ function mountainDrawRays(ctx, w, sunCenterY, sunRadius, pulse) {
   ctx.restore();
 }
 
+// Trajectoire erratique + battement d'ailes (2026-09-01, sur demande
+// explicite, "birds fly in straight horizontal line — make movement more
+// erratic/natural") — chaque oiseau reçoit sa PROPRE combinaison de 2
+// sinusoïdes verticales (fréquence/amplitude/phase tirées aléatoirement à la
+// création) superposées à `baseY` : une lente (dérive douce) + une rapide
+// (petits à-coups), qui ensemble donnent un vol qui monte/descend sans
+// jamais se répéter de façon prévisible, plutôt qu'une ligne droite. `speed`
+// déjà propre à chaque oiseau (conservé) ; `driftBias` ajoute un léger cap
+// horizontal aléatoire, retiré au sort toutes les quelques secondes
+// (`nextDriftAt`) — "occasional direction slight changes" demandé
+// explicitement. `wingPhase`/`wingSpeed` pilotent le battement d'ailes (voir
+// mountainDrawBird), propre à chaque oiseau lui aussi.
 function mountainMakeBird(w, h) {
+  const baseY = h * 0.12 + Math.random() * h * 0.25;
   return {
     x: Math.random() * w,
-    y: h * 0.12 + Math.random() * h * 0.25,
-    speed: Math.random() * 0.18 + 0.08, // lent — "flying slowly" demandé explicitement
+    baseY,
+    y: baseY,
+    speed: Math.random() * 0.18 + 0.08, // lent — "flying slowly" demandé explicitement, vitesse propre à cet oiseau
     span: Math.random() * 4 + 8,
+    wavePhase1: Math.random() * Math.PI * 2,
+    waveFreq1: 0.0015 + Math.random() * 0.0025,
+    waveAmp1: h * (0.015 + Math.random() * 0.02),
+    wavePhase2: Math.random() * Math.PI * 2,
+    waveFreq2: 0.006 + Math.random() * 0.006,
+    waveAmp2: h * (0.005 + Math.random() * 0.008),
+    driftBias: 0,
+    nextDriftAt: 0,
+    wingPhase: Math.random() * Math.PI * 2,
+    wingSpeed: 0.006 + Math.random() * 0.005,
   };
 }
 
 // Oiseau — simple "V" (2 segments), forme minimale demandée explicitement.
-function mountainDrawBird(ctx, b) {
+// `t` (horodatage rAF, voir frame() plus bas) pilote le battement d'ailes :
+// le "creux" du V (`droop`) oscille légèrement autour de sa valeur d'origine
+// (0.4 × span) au lieu de rester figé — silhouette qui s'ouvre/se referme
+// doucement (2026-09-01, sur demande explicite, "wing flap animation").
+function mountainDrawBird(ctx, b, t) {
+  const flap = Math.sin(t * b.wingSpeed + b.wingPhase);
+  const droop = b.span * (0.4 + flap * 0.18);
   ctx.save();
   ctx.strokeStyle = 'rgba(232, 234, 240, 0.55)';
   ctx.lineWidth = 1.4;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(b.x - b.span, b.y + b.span * 0.4);
+  ctx.moveTo(b.x - b.span, b.y + droop);
   ctx.lineTo(b.x, b.y);
-  ctx.lineTo(b.x + b.span, b.y + b.span * 0.4);
+  ctx.lineTo(b.x + b.span, b.y + droop);
   ctx.stroke();
   ctx.restore();
 }
@@ -1089,9 +1183,204 @@ function startMountainBackground(layer) {
     mountainDrawRays(ctx, canvas.width, sunCenterY, sunRadius, pulse);
     mountainDrawForeground(ctx, canvas.width, canvas.height, foregroundCenterBoost);
     for (const b of birds) {
-      b.x += b.speed;
+      // Cap horizontal — léger biais aléatoire en plus de la vitesse de base,
+      // retiré au sort toutes les 2-6s ("occasional direction slight changes").
+      if (t > b.nextDriftAt) {
+        b.driftBias = (Math.random() - 0.5) * 0.15;
+        b.nextDriftAt = t + 2000 + Math.random() * 4000;
+      }
+      b.x += b.speed + b.driftBias;
       if (b.x - b.span > canvas.width) b.x = -b.span; // ressort à gauche, dérive gauche→droite en boucle
-      mountainDrawBird(ctx, b);
+      // Dérive verticale — 2 sinusoïdes propres à cet oiseau superposées à
+      // baseY (voir mountainMakeBird) : monte/descend sans jamais suivre une
+      // ligne droite ni un cycle strictement répétitif.
+      b.y = b.baseY
+        + Math.sin(t * b.waveFreq1 + b.wavePhase1) * b.waveAmp1
+        + Math.sin(t * b.waveFreq2 + b.wavePhase2) * b.waveAmp2;
+      mountainDrawBird(ctx, b, t);
+    }
+    appBackgroundAnimId = requestAnimationFrame(frame);
+  }
+  appBackgroundAnimId = requestAnimationFrame(frame);
+}
+
+// ─── Lac et forêt (2026-09-01, sur demande explicite) ──────────────────────
+// Même principe statique+rAF que Plage/Montagne ci-dessus : ciel, montagnes,
+// forêt et le reflet MIROIR de ces 3 éléments dans le lac ne bougent jamais
+// (peints une fois sur `staticCanvas`, recopiés au début de chaque frame) —
+// seules les ondulations de surface et les nappes de brume, qui doivent
+// bouger, sont redessinées par-dessus à chaque frame. Les ondulations
+// servent AUSSI à "casser" le reflet miroir parfait (voir lacDrawRipples) :
+// c'est la "légère distorsion" demandée sur les reflets, sans avoir besoin
+// d'un algorithme de déformation pixel par pixel séparé.
+function lacDrawPineTree(ctx, x, baseY, height, width, color) {
+  ctx.fillStyle = color;
+  const tiers = 3;
+  for (let i = 0; i < tiers; i++) {
+    const tierH = (height / tiers) * 1.15;
+    // i=0 = tier du BAS (large, base au niveau de `baseY`) ; i croissant =
+    // tiers de plus en plus HAUTS et ÉTROITS, légèrement chevauchés — vrai
+    // profil conique de sapin (large à la base, pointe étroite en haut),
+    // pas l'inverse.
+    const tierBottomY = baseY - i * tierH * 0.72;
+    const tierTopY = tierBottomY - tierH;
+    const tierW = width * (1 - i * 0.24);
+    ctx.beginPath();
+    ctx.moveTo(x, tierTopY);
+    ctx.lineTo(x - tierW / 2, tierBottomY);
+    ctx.lineTo(x + tierW / 2, tierBottomY);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// Rangée de sapins silhouettes, base commune alignée sur `treelineY` (la rive
+// du lac) — hauteur/largeur/espacement variés pour un aspect naturel, jamais
+// une rangée strictement régulière.
+function lacDrawForestBand(ctx, w, treelineY, color, heightRange) {
+  let x = -10;
+  while (x < w + 10) {
+    const height = heightRange[0] + Math.random() * (heightRange[1] - heightRange[0]);
+    const width = height * 0.55;
+    lacDrawPineTree(ctx, x, treelineY, height, width, color);
+    x += width * (0.45 + Math.random() * 0.3); // chevauchement variable — "dense" demandé explicitement
+  }
+}
+
+function lacDrawStaticScene(staticCanvas, w, h) {
+  const sctx = staticCanvas.getContext('2d');
+  staticCanvas.width = w;
+  staticCanvas.height = h;
+
+  const horizonY = h * 0.40;
+  const treelineY = h * 0.58;
+  const lakeTopY = treelineY;
+
+  // Ciel — bleu profond en haut, s'éclaircit vers l'horizon (demandé explicitement).
+  const skyGrad = sctx.createLinearGradient(0, 0, 0, horizonY);
+  skyGrad.addColorStop(0, '#040a1a');
+  skyGrad.addColorStop(0.6, '#0f2a4a');
+  skyGrad.addColorStop(1, '#3a6a8a');
+  sctx.fillStyle = skyGrad;
+  sctx.fillRect(0, 0, w, horizonY);
+
+  // Dessine montagnes (3 couches, profondeur) + forêt — factorisé pour être
+  // rejoué à l'identique en reflet miroir juste après (voir plus bas). Les 3
+  // couches sont bornées entre l'horizon et la ligne de forêt (`treelineY`,
+  // aussi leur bord de fermeture en bas) : la couche la plus ÉLOIGNÉE (la
+  // plus claire) a les pics les plus hauts, la plus PROCHE (la plus sombre)
+  // les pics les plus bas mais la silhouette la plus déchiquetée — même
+  // logique de profondeur que le fond Montagne. La forêt (dessinée après)
+  // recouvre ensuite le bas de chaque couche, ne laissant dépasser que les
+  // pics au-dessus de la cime des arbres.
+  const drawSceneLayers = () => {
+    mountainDrawLayer(sctx, w, treelineY, '#152840', { baseY: h * 0.46, amp: h * 0.02, freq: 1.6, jagAmp: 0, jagFreq: 0, centerBoost: 0, centerWidth: 0 });
+    mountainDrawLayer(sctx, w, treelineY, '#0e1d30', { baseY: h * 0.50, amp: h * 0.03, freq: 2.4, jagAmp: h * 0.01, jagFreq: 7, centerBoost: 0, centerWidth: 0 });
+    mountainDrawLayer(sctx, w, treelineY, '#081420', { baseY: h * 0.54, amp: h * 0.025, freq: 3.1, jagAmp: h * 0.02, jagFreq: 10, centerBoost: 0, centerWidth: 0 });
+    // Forêt — 2 passes (arbres plus grands derrière, plus petits/denses
+    // devant) pour une silhouette dense plutôt qu'une rangée unique clairsemée.
+    lacDrawForestBand(sctx, w, treelineY, '#0d2818', [h * 0.10, h * 0.18]);
+    lacDrawForestBand(sctx, w, treelineY, '#0a2012', [h * 0.07, h * 0.13]);
+  };
+  drawSceneLayers();
+
+  // Lac — surface plate réfléchissante, couleur EXACTE demandée.
+  sctx.fillStyle = '#0a2a3a';
+  sctx.fillRect(0, lakeTopY, w, h - lakeTopY);
+
+  // Reflet — ciel + montagnes + forêt REJOUÉS en miroir (scale(1,-1) autour
+  // de la ligne d'eau), semi-transparents et assombris par la couleur du lac
+  // par-dessus (un vrai reflet sur l'eau est toujours plus sombre/désaturé
+  // que l'original, jamais un miroir identique).
+  sctx.save();
+  sctx.beginPath();
+  sctx.rect(0, lakeTopY, w, h - lakeTopY);
+  sctx.clip();
+  sctx.translate(0, lakeTopY * 2);
+  sctx.scale(1, -1);
+  sctx.globalAlpha = 0.5;
+  sctx.fillStyle = skyGrad;
+  sctx.fillRect(0, 0, w, horizonY);
+  drawSceneLayers();
+  sctx.restore();
+  sctx.fillStyle = 'rgba(10, 42, 58, 0.35)';
+  sctx.fillRect(0, lakeTopY, w, h - lakeTopY);
+}
+
+// Ondulations de surface — quelques lignes horizontales sinueuses qui
+// dérivent lentement (même technique que beachDrawWaves), semi-transparentes :
+// en plus de suggérer une eau qui bouge ("subtle ripple animation" demandé
+// explicitement), elles cassent le reflet miroir parfait peint dans la scène
+// statique — c'est la "légère distorsion" des reflets demandée, obtenue sans
+// déformation pixel par pixel séparée.
+function lacDrawRipples(ctx, w, lakeTopY, lakeHeight, t) {
+  const rowCount = 6;
+  for (let i = 0; i < rowCount; i++) {
+    const y = lakeTopY + lakeHeight * (0.08 + i * 0.14);
+    const phase = t * 0.0005 + i * 1.3;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= w; x += 18) {
+      ctx.lineTo(x, y + Math.sin(x * 0.015 + phase) * 2.5);
+    }
+    ctx.strokeStyle = `rgba(255, 255, 255, ${(0.04 + (i % 2) * 0.03).toFixed(2)})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+// Nappes de brume — quelques ellipses aplaties superposées (même principe
+// que beachDrawCloud, formes rondes assemblées) formant une traînée
+// horizontale floue, dérive TRÈS lente ("floating slowly" demandé explicitement).
+function lacMakeMist(w, lakeTopY, lakeHeight) {
+  return {
+    x: Math.random() * w,
+    y: lakeTopY + lakeHeight * (0.25 + Math.random() * 0.6),
+    scale: Math.random() * 0.6 + 0.7,
+    speed: Math.random() * 0.05 + 0.015,
+  };
+}
+
+function lacDrawMist(ctx, m) {
+  const r = 20 * m.scale;
+  ctx.save();
+  ctx.globalAlpha = 0.10;
+  ctx.fillStyle = '#e8eaf0';
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.ellipse(m.x + i * r * 0.9, m.y, r * 1.2, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function startLacBackground(layer) {
+  const canvas = document.createElement('canvas');
+  layer.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const staticCanvas = document.createElement('canvas');
+
+  let mists = [];
+  let lakeTopY = 0;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    lakeTopY = canvas.height * 0.58;
+    lacDrawStaticScene(staticCanvas, canvas.width, canvas.height);
+    mists = Array.from({ length: APP_BACKGROUND_LAC_MIST_COUNT }, () => lacMakeMist(canvas.width, lakeTopY, canvas.height - lakeTopY));
+  }
+  resize();
+  appBackgroundResizeHandler = resize;
+  window.addEventListener('resize', appBackgroundResizeHandler);
+
+  function frame(t) {
+    ctx.drawImage(staticCanvas, 0, 0);
+    lacDrawRipples(ctx, canvas.width, lakeTopY, canvas.height - lakeTopY, t);
+    for (const m of mists) {
+      m.x += m.speed;
+      if (m.x - 120 * m.scale > canvas.width) m.x = -120 * m.scale; // ressort à gauche, dérive gauche→droite en boucle
+      lacDrawMist(ctx, m);
     }
     appBackgroundAnimId = requestAnimationFrame(frame);
   }
@@ -1117,6 +1406,7 @@ function applyAppBackground(key) {
   else if (key === 'matrix') startMatrixBackground(layer);
   else if (key === 'beach') startBeachBackground(layer);
   else if (key === 'mountain') startMountainBackground(layer);
+  else if (key === 'lac') startLacBackground(layer);
   // aurora/nebula/paper/geometric/gradient : pur CSS via la classe bg-<clé> posée ci-dessus, rien d'autre à faire.
 }
 

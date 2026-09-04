@@ -101,13 +101,29 @@
            la barre de recherche et la largeur minimale de 60px. -->
       <button class="titlebar-btn titlebar-collapse-btn" id="btnCollapseToSun" title="Réduire en icône flottante" style="display:none">☀️→🔆</button>
       <form class="titlebar-search" id="titlebarSearch">
-        <button type="submit" class="titlebar-search-icon" title="Rechercher sur Google">🔍</button>
-        <input type="text" id="titlebarSearchInput" placeholder="Rechercher sur Google..." autocomplete="off">
+        <!-- "sur Google" retiré du title/placeholder (2026-09-03) — le
+             moteur est configurable (Paramètres → Services), voir
+             search-engines.js/dashboard.js initTitlebarSearch : un libellé
+             figé sur Google serait faux dès qu'un autre moteur est choisi. -->
+        <button type="submit" class="titlebar-search-icon" title="Rechercher">🔍</button>
+        <input type="text" id="titlebarSearchInput" placeholder="Rechercher..." autocomplete="off">
       </form>
     </div>
     <div class="titlebar-right">
-      <button class="titlebar-btn" id="btnRefresh" title="Actualiser">Actualiser</button>
-      <button class="titlebar-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞ Réorganiser</button>
+      <!-- Icônes seules (2026-09-03, sur demande explicite, "économiser de
+           l'espace horizontal") — texte remplacé par SVG (Actualiser,
+           Paramètres) ou par le seul glyphe ⊞ (Réorganiser, qui l'avait déjà) ;
+           title="" (déjà présent) sert de tooltip natif au survol pour
+           l'accessibilité, aucun JS supplémentaire nécessaire. Taille commune
+           via .titlebar-icon-btn (28×28, voir style.css). -->
+      <button class="titlebar-btn titlebar-icon-btn" id="btnRefresh" title="Actualiser">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </button>
+      <button class="titlebar-btn titlebar-icon-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞</button>
       <!-- Sélecteur de profil (2026-08-31, sur demande explicite ; icône
            👤→🚪, 2e révision, même jour, sur demande explicite) — bascule
            INSTANTANÉMENT entre Profil 1/2 (voir dashboard.js
@@ -119,7 +135,12 @@
            "Profil 1"/"Profil 2" en dur, ces clés ne sont que des identifiants
            internes. -->
       <button class="titlebar-btn" id="btnProfileSwitch" title="Changer de profil">Vers → …</button>
-      <button class="titlebar-btn" id="btnConfig" title="Paramètres">Paramètres</button>
+      <button class="titlebar-btn titlebar-icon-btn" id="btnConfig" title="Paramètres">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -283,6 +304,7 @@
   <script src="modules/live.js"></script>
   <script src="modules/mon-equipe.js"></script>
   <script src="modules/youtube.js"></script>
+  <script src="modules/search-engines.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

@@ -12,11 +12,6 @@
  */
 window.MatinModules = window.MatinModules || {};
 
-// Libellés complets à l'affichage (2026-08-16, sur demande explicite) — le
-// <select> de configuration (config.js, monEquipeVenueOptionsHtml) garde lui
-// "D"/"E" (compact, changé fréquemment en saisie), seul l'affichage carte
-// passe au mot complet.
-const MON_EQUIPE_VENUE_LABEL = { home: 'Domicile', away: 'Extérieur' };
 // 20 (2026-09-01, sur demande explicite — remplacé 3, section désormais
 // repliable comme ETF/FDJ, voir monEquipeSectionHtml/render plus bas) :
 // jusqu'à 20 matchs/résultats affichés une fois la section dépliée.
@@ -39,12 +34,6 @@ function monEquipeFormatDateTime(item) {
   return timePart ? `${datePart} à ${timePart}` : datePart;
 }
 
-// Domicile = jaune, Extérieur = rouge (2026-08-31, sur demande explicite —
-// remplace une seule couleur partagée par les deux).
-function monEquipeVenueClass(venue) {
-  return venue === 'away' ? 'monequipe-info-venue-away' : 'monequipe-info-venue-home';
-}
-
 // Combine date + heure en un instant comparable — sert au tri chronologique
 // ET au filtrage "pas encore joué" (voir render ci-dessous). Une heure
 // absente (facultative en config) vaut minuit, cohérent avec un tri par
@@ -59,81 +48,137 @@ function monEquipeDateTimeValue(item) {
 // "Match amical · 05/09 · 15h00 · Domicile · vs Francheville", remplace les
 // 2 lignes séparées meta/adversaire d'origine, jugées moins lisibles ;
 // 3e demande explicite le même jour — date+heure fusionnées "à" au lieu de
-// séparées par " · ", type recoloré en bleu, Domicile/Extérieur désormais
-// 2 couleurs distinctes au lieu d'une seule partagée) — compétition/
-// date-heure/domicile-extérieur/adversaire ont chacun leur propre classe
-// `.monequipe-info-*` (voir style.css), en couleurs fixes (pas de variable
-// de thème) puisque demandées comme valeurs hex précises.
-// Partagée entre "Prochain match" (mise en avant) et "Prochains matchs"
-// (liste) — même format de ligne pour les 2, voir monEquipeNextMatchHtml/
-// monEquipeUpcomingRowHtml plus bas.
-function monEquipeMatchLineHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+// séparées par " · ", type recoloré en bleu) — compétition/date-heure ont
+// chacun leur propre classe `.monequipe-info-*` (voir style.css), en
+// couleurs fixes (pas de variable de thème) puisque demandées comme valeurs
+// hex précises.
+// Ordre des équipes + couleurs revus le 2026-09-03, sur demande explicite —
+// l'ancien badge Domicile/Extérieur séparé (monEquipeVenueClass/
+// MON_EQUIPE_VENUE_LABEL, SUPPRIMÉES, plus aucun appelant) + "vs Adversaire"
+// neutre sont remplacés par un ORDRE qui indique implicitement le lieu, sans
+// aucune mention textuelle "Domicile"/"Extérieur" — même logique que
+// monEquipeNextMatchHtml ci-dessous (voir son commentaire pour le détail),
+// mêmes classes de couleur partagées .monequipe-team-us/-opponent (voir
+// style.css). `teamName` requis (passé par monEquipeUpcomingRowHtml,
+// lui-même reçu de render() où il est déjà garanti non vide).
+function monEquipeMatchLineHtml(item, teamName) {
+  const isHome = item.venue !== 'away';
+  const usSpan = `<span class="monequipe-team-us">${teamName}</span>`;
+  const opponentSpan = `<span class="monequipe-team-opponent">${item.opponent || ''}</span>`;
   return [
     item.competition ? `<span class="monequipe-info-type">${item.competition}</span>` : '',
     item.date ? `<span class="monequipe-info-datetime">${monEquipeFormatDateTime(item)}</span>` : '',
-    `<span class="${monEquipeVenueClass(item.venue)}">${venue}</span>`,
-    `<span class="monequipe-info-opponent">vs ${item.opponent || ''}</span>`,
+    `${isHome ? usSpan : opponentSpan} vs ${isHome ? opponentSpan : usSpan}`,
   ].filter(Boolean).join(' · ');
 }
 
-// "Prochain match" (2026-09-01, redesign sur demande explicite — remplace la
-// simple ligne monEquipeMatchLineHtml partagée avec la liste "Prochains
-// matchs", voir CSS .monequipe-next-* dédiées dans style.css) : compétition
-// en badge (pilule bleue), date+heure en grand texte vert, "Équipe vs
-// Adversaire" plutôt que juste "vs Adversaire" (nécessite `teamName`, connu
-// seulement ici — pas dans monEquipeMatchLineHtml, resté inchangé pour la
-// liste "Prochains matchs"), Domicile/Extérieur toujours coloré (classes
-// existantes monEquipeVenueClass, jaune/rouge). `teamName` déjà garanti non
-// vide par render() (sinon retour anticipé "Configurez votre équipe").
+// "Prochain match" (2026-09-01, redesign sur demande explicite ; ordre des
+// équipes + couleurs revus le 2026-09-03, sur demande explicite — l'ancien
+// "Équipe vs Adversaire" fixe + badge Domicile/Extérieur séparé sont
+// remplacés par un ORDRE qui indique implicitement le lieu, sans aucune
+// mention textuelle "Domicile"/"Extérieur" : Domicile → "Notre équipe vs
+// Adversaire" (ordre d'origine, inchangé), Extérieur → "Adversaire vs Notre
+// équipe" (adversaire en premier). Notre équipe toujours en orange
+// (.monequipe-team-us), l'adversaire toujours en rose très clair
+// (.monequipe-team-opponent, rouge #ef4444 d'origine adouci le même jour, 2e
+// demande explicite), quel que soit l'ordre — voir style.css ; mêmes classes
+// de couleur réutilisées par monEquipeMatchLineHtml ci-dessus pour
+// "Prochains matchs". `teamName` déjà garanti non vide par render() (sinon
+// retour anticipé "Configurez votre équipe").
 function monEquipeNextMatchHtml(item, teamName) {
   if (!item) return '<span class="sports-no-data">Aucun match prévu</span>';
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  const isHome = item.venue !== 'away';
+  const usSpan = `<span class="monequipe-next-team monequipe-team-us">${teamName}</span>`;
+  const opponentSpan = `<span class="monequipe-next-team monequipe-team-opponent">${item.opponent || ''}</span>`;
   return `
     <div class="monequipe-next-content">
       ${item.competition ? `<span class="monequipe-next-badge">${item.competition}</span>` : ''}
       ${item.date ? `<div class="monequipe-next-datetime">${monEquipeFormatDateTime(item)}</div>` : ''}
       <div class="monequipe-next-teams">
-        <span class="monequipe-next-team">${teamName}</span>
+        ${isHome ? usSpan : opponentSpan}
         <span class="monequipe-next-vs">vs</span>
-        <span class="monequipe-next-team">${item.opponent || ''}</span>
+        ${isHome ? opponentSpan : usSpan}
       </div>
-      <span class="${monEquipeVenueClass(item.venue)} monequipe-next-venue">${venue}</span>
     </div>`;
 }
 
-function monEquipeLastResultHtml(item) {
+// Score "<notre équipe>-<adversaire>" saisi tel quel en Paramètres (voir
+// config.js renderMonEquipeConfigSection, champ Score, placeholder "Ex :
+// 78-65") — TOUJOURS dans cet ordre quel que soit Domicile/Extérieur,
+// contrairement à monEquipeNextMatchHtml ci-dessus : aucun swap nécessaire
+// ici, seule la couleur dépend du résultat. `null` si le texte ne matche pas
+// le format attendu (espaces tolérées autour du tiret) — affiché tel quel
+// sans couleur dans ce cas plutôt que de planter sur une saisie inattendue.
+function monEquipeParseScore(scoreStr) {
+  const m = /^(\d+)\s*-\s*(\d+)$/.exec((scoreStr || '').trim());
+  if (!m) return null;
+  return { us: parseInt(m[1], 10), opponent: parseInt(m[2], 10) };
+}
+
+// Vert = victoire, rouge = défaite, couleur par défaut héritée (neutre) =
+// égalité — que le match ait été joué à domicile ou à l'extérieur (2026-09-03,
+// sur demande explicite).
+function monEquipeScoreClass(parsed) {
+  if (!parsed) return '';
+  if (parsed.us > parsed.opponent) return 'monequipe-score-win';
+  if (parsed.us < parsed.opponent) return 'monequipe-score-loss';
+  return '';
+}
+
+// "Dernier résultat" (2026-09-03, sur demande explicite — remplace "<score>
+// · Domicile/Extérieur <adversaire> · <date>" par "<notre équipe> <score>
+// <adversaire> · <date>", plus aucune mention Domicile/Extérieur ; score
+// coloré selon victoire/défaite, voir monEquipeScoreClass ci-dessus).
+// `teamName` déjà garanti non vide par render().
+function monEquipeLastResultHtml(item, teamName) {
   if (!item) return '<span class="sports-no-data">Aucun résultat</span>';
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+  const parsed = monEquipeParseScore(item.score);
+  const scoreText = parsed ? `${parsed.us} - ${parsed.opponent}` : (item.score || '—');
   return `
-    <div class="sports-next-detail">${item.score || '—'}</div>
-    <div class="sports-next-opp"><span class="${monEquipeVenueClass(item.venue)}">${venue}</span> ${item.opponent || ''} · <span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>
+    <div class="sports-next-detail monequipe-result-line">
+      <span class="monequipe-result-team">${teamName}</span>
+      <span class="monequipe-result-score ${monEquipeScoreClass(parsed)}">${scoreText}</span>
+      <span class="monequipe-result-team">${item.opponent || ''}</span>
+    </div>
+    ${item.date ? `<div class="sports-next-opp"><span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>` : ''}
   `;
 }
 
-function monEquipeUpcomingRowHtml(item) {
-  return `<div class="monequipe-list-row monequipe-list-row-line">${monEquipeMatchLineHtml(item)}</div>`;
+function monEquipeUpcomingRowHtml(item, teamName) {
+  return `<div class="monequipe-list-row monequipe-list-row-line">${monEquipeMatchLineHtml(item, teamName)}</div>`;
 }
 
-// Ligne "Derniers résultats" (2026-09-01, sur demande explicite — nouvelle
-// section, aucun équivalent liste n'existait avant, seul un "Dernier
-// résultat" au singulier était affiché) : même gabarit de ligne que
-// monEquipeUpcomingRowHtml (une seule chaîne fluide, couleurs dédiées),
-// score en tête plutôt que le type de compétition (non saisi pour un
-// résultat déjà joué, voir config.js renderMonEquipeConfigSection).
-function monEquipeResultRowHtml(item) {
-  const venue = MON_EQUIPE_VENUE_LABEL[item.venue] || 'Domicile';
+// Ligne "Matchs passés" (renommée depuis "Derniers résultats" le 2026-09-03,
+// sur demande explicite ; format uniformisé le même jour, 2e demande
+// explicite, "même présentation que Dernier résultat" — voir
+// monEquipeLastResultHtml/monEquipeParseScore/monEquipeScoreClass ci-dessus,
+// réutilisés tels quels pour l'équipe/le score/leurs couleurs) : contrairement
+// à monEquipeLastResultHtml (toujours "notre équipe" en premier), l'ORDRE ici
+// suit Domicile/Extérieur — MÊME logique que monEquipeMatchLineHtml
+// ci-dessus, demandée explicitement pour cette liste — donc le SCORE est
+// affiché dans l'ordre correspondant (`opponent - us` si Extérieur) pour
+// rester à côté du bon nom, tout en gardant la couleur basée sur le résultat
+// RÉEL (parsed.us vs parsed.opponent, indépendant de l'ordre d'affichage).
+// Plus aucune mention Domicile/Extérieur (badge supprimé, comme point 4).
+function monEquipeResultRowHtml(item, teamName) {
+  const isHome = item.venue !== 'away';
+  const parsed = monEquipeParseScore(item.score);
+  const scoreText = parsed
+    ? (isHome ? `${parsed.us} - ${parsed.opponent}` : `${parsed.opponent} - ${parsed.us}`)
+    : (item.score || '—');
+  const usSpan = `<span class="monequipe-result-team">${teamName}</span>`;
+  const opponentSpan = `<span class="monequipe-result-team">${item.opponent || ''}</span>`;
+  const scoreSpan = `<span class="monequipe-result-score ${monEquipeScoreClass(parsed)}">${scoreText}</span>`;
   const line = [
-    `<span class="monequipe-info-score">${item.score || '—'}</span>`,
-    `<span class="${monEquipeVenueClass(item.venue)}">${venue}</span>`,
-    `<span class="monequipe-info-opponent">vs ${item.opponent || ''}</span>`,
+    `${isHome ? usSpan : opponentSpan} ${scoreSpan} ${isHome ? opponentSpan : usSpan}`,
     item.date ? `<span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span>` : '',
   ].filter(Boolean).join(' · ');
   return `<div class="monequipe-list-row monequipe-list-row-line">${line}</div>`;
 }
 
-// Section repliable "Prochains matchs"/"Derniers résultats" (2026-09-01, sur
-// demande explicite, "comme ETF/FDJ") — même mécanique que .fdj-grids-section
+// Section repliable "Prochains matchs"/"Matchs passés" (2026-09-01, sur
+// demande explicite, "comme ETF/FDJ" ; 2e section renommée depuis "Derniers
+// résultats" le 2026-09-03) — même mécanique que .fdj-grids-section
 // (voir fdj-common.js/style.css) : repliée par défaut, dépliage/repliage via
 // un simple classList.toggle sur le nœud EXISTANT (jamais un re-render du
 // bloc lui-même, voir render() plus bas) pour que la transition CSS
@@ -194,7 +239,7 @@ window.MatinModules.monEquipe = {
         </div>
         <div class="sports-next">
           <span class="sports-next-label">Dernier résultat</span>
-          ${monEquipeLastResultHtml(lastResult)}
+          ${monEquipeLastResultHtml(lastResult, teamName)}
         </div>
         ${monEquipeSectionHtml(
           'upcoming', 'Prochains matchs',
@@ -202,12 +247,19 @@ window.MatinModules.monEquipe = {
           // "Prochain match" (upcoming[0]) — sans ce décalage il apparaît
           // deux fois (bug corrigé le 2026-08-16, signalé explicitement).
           upcoming.slice(1, 1 + MON_EQUIPE_SECTION_LIMIT), sectionExpanded.upcoming,
-          monEquipeUpcomingRowHtml, 'Aucun autre match à venir'
+          // `teamName` transmis via closure (2026-09-03, sur demande
+          // explicite — voir monEquipeMatchLineHtml) : monEquipeSectionHtml
+          // appelle `rowHtmlFn` avec le seul `item` (items.map), teamName
+          // n'était donc pas accessible depuis monEquipeUpcomingRowHtml sans
+          // ça.
+          (item) => monEquipeUpcomingRowHtml(item, teamName), 'Aucun autre match à venir'
         )}
         ${monEquipeSectionHtml(
-          'results', 'Derniers résultats',
+          // Renommée "Matchs passés" (2026-09-03, sur demande explicite,
+          // depuis "Derniers résultats").
+          'results', 'Matchs passés',
           results.slice(1, 1 + MON_EQUIPE_SECTION_LIMIT), sectionExpanded.results,
-          monEquipeResultRowHtml, 'Aucun autre résultat'
+          (item) => monEquipeResultRowHtml(item, teamName), 'Aucun autre résultat'
         )}
       </div>
     `;

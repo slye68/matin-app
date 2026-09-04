@@ -393,6 +393,57 @@
     }
     .module-config-field select.sports-manual-select:focus { outline: none; border-color: var(--accent); }
 
+    /* Menu déroulant ligue → équipe (2026-09-05, sur demande explicite,
+       remplace la saisie en texte libre) — largeur FIXE pour la ligue (moins
+       de texte, moins de place nécessaire qu'un nom de club complet),
+       `flex:1` pour l'équipe (même rôle que l'ancien champ texte libre,
+       cède donc la même place). `.sports-team-custom-input` (mode "Autre
+       équipe") réutilise déjà le style générique `.module-config-field
+       input` ci-dessus, aucune règle dédiée nécessaire. */
+    .module-config-field select.sports-league-select {
+      flex: none;
+      width: 130px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .module-config-field select.sports-team-select {
+      flex: 1;
+      min-width: 0;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .module-config-field select.sports-team-select:disabled { opacity: 0.6; }
+    .module-config-field select.sports-league-select:focus,
+    .module-config-field select.sports-team-select:focus { outline: none; border-color: var(--accent); }
+
+    /* Moteur de recherche (2026-09-03, sur demande explicite) — <select> en
+       tête de l'onglet Services (voir config.js createSearchEngineRow), pas
+       dans .module-config-field : direct enfant de .module-row comme le
+       .toggle qu'il remplace ici, largeur fixe pour ne pas écraser
+       .module-row-name (flex:1) à côté. */
+    .module-row select.search-engine-select {
+      flex: none;
+      width: 168px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 5px 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+    }
+    .module-row select.search-engine-select:focus { outline: none; border-color: var(--accent); }
+
     /* Badge "Bêta" à côté du sélecteur (2026-09-01, sur demande explicite) —
        visible seulement pour Basket/Rugby (voir config.js, updateSportExtras),
        vide/masqué pour Football et Détection automatique. flex-shrink:0 pour
@@ -506,12 +557,15 @@
     }
     .alerts-dept-input:focus { outline: none; border-color: var(--accent); }
 
-    /* LIVE! (2026-08-11) — club + championnat + mode, même structure en
-       lignes que la section Alertes ci-dessus. */
+    /* LIVE FOOT! (2026-09-04, réécriture complète — mode Équipe/Compétition ;
+       mode Équipe retiré ENTIÈREMENT le 2026-09-05, sur demande explicite,
+       ne reste que le <select> Compétition, voir config.js
+       renderLiveConfigSection) — même structure en lignes que la section
+       Alertes ci-dessus. */
     .module-config-field.live-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
     .live-config-row { display: flex; align-items: center; gap: 8px; }
     .live-config-row label { flex: none; width: 110px; font-size: 11px; color: var(--text-secondary); }
-    .live-club-input {
+    .live-competition-select {
       flex: 1;
       background: var(--bg-panel);
       border: 1px solid var(--border);
@@ -521,18 +575,7 @@
       color: var(--text-primary);
       font-family: var(--font-ui);
     }
-    .live-club-input:focus { outline: none; border-color: var(--accent); }
-    .live-championship-select {
-      flex: 1;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 5px 8px;
-      font-size: 12px;
-      color: var(--text-primary);
-      font-family: var(--font-ui);
-    }
-    .live-championship-select:focus { outline: none; border-color: var(--accent); }
+    .live-competition-select:focus { outline: none; border-color: var(--accent); }
 
     /* Mon Équipe (2026-08-15, révisée 2026-08-16 — mise en page compacte sur
        demande explicite) — nom + sport désormais CÔTE À CÔTE (60%/40%,
@@ -580,30 +623,42 @@
     }
     .monequipe-field-name input:focus,
     .monequipe-field-sport select:focus { outline: none; border-color: #0d9488; }
-    .monequipe-roadmap-note {
-      font-size: 11px;
-      font-style: italic;
-      color: var(--text-muted);
-      margin: 0;
-      padding: 0 2px;
-    }
     .monequipe-list-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
-    /* Bandeau dégradé "Derniers résultats" (2026-09-01, sur demande explicite)
-       — UNIQUEMENT ce label (voir `.monequipe-list-label--results` posé côté
-       JS, config.js), PAS "Matchs à venir" au-dessus qui garde le style texte
-       nu de base ci-dessus. `display: block` + `width: 100%` nécessaires : un
-       <label> est inline par défaut, ni le dégradé ni la pleine largeur
-       demandée ("Full width of the config section") ne s'appliqueraient sans
-       ça. Coin gauche arrondi/droit carré (dégradé qui s'estompe déjà
-       visuellement vers la transparence côté droit, un coin arrondi y serait
-       redondant). Texte blanc #ffffff (2026-09-01, 3e demande explicite le
-       même jour — remplace #3b82f6, lui-même un remplacement de #1a1a2e
-       signalé illisible sur le fond jaune). */
-    .monequipe-list-label--results {
+    /* Bandeau dégradé "Matchs passés" (2026-09-01, sur demande explicite ;
+       titre renommé depuis "Derniers résultats" le 2026-09-03) — UNIQUEMENT
+       ce label (voir `.monequipe-list-label--results` posé côté JS,
+       config.js — nom de classe interne conservé tel quel, aucun rapport
+       avec le libellé affiché), PAS "Matchs à venir" au-dessus qui garde le
+       style texte nu de base ci-dessus. `display: block` + `width: 100%`
+       nécessaires : un <label> est inline par défaut, ni le dégradé ni la
+       pleine largeur demandée ("Full width of the config section") ne
+       s'appliqueraient sans ça. Coin gauche arrondi/droit carré (dégradé qui
+       s'estompe déjà visuellement vers la transparence côté droit, un coin
+       arrondi y serait redondant). Texte blanc #ffffff (2026-09-01, 3e
+       demande explicite le même jour — remplace #3b82f6, lui-même un
+       remplacement de #1a1a2e signalé illisible sur le fond jaune).
+       Sélecteur `.module-config-field label.monequipe-list-label--results`
+       (2026-09-03, sur demande explicite, "toujours gris" malgré le
+       `color: #ffffff` ci-dessus) — ROOT CAUSE trouvée : `.module-config-field
+       label` (voir plus haut dans ce fichier) a une spécificité PLUS ÉLEVÉE
+       (1 classe + 1 type = 0-1-1) que l'ancien sélecteur `.monequipe-list-
+       label--results` seul (1 classe = 0-1-0), et l'emportait donc TOUJOURS
+       sur le blanc voulu, quel que soit l'ordre des règles dans ce fichier —
+       ce <label> vit bien à l'intérieur de `.module-config-field`
+       (`renderMonEquipeConfigSection`, config.js). Qualifié `label.` +
+       parenté `.module-config-field` explicite (0-2-1) pour battre ce
+       0-1-1 sans dépendre de l'ordre de déclaration. */
+    .module-config-field label.monequipe-list-label--results {
       display: block;
       width: 100%;
       box-sizing: border-box;
-      background: linear-gradient(to right, #fbbf24, transparent);
+      /* Jaune #fbbf24 → orange #f97316 (2026-09-03, sur demande explicite) —
+         même hex déjà utilisé tel quel ailleurs dans le projet (bandeau
+         PROFILS .profiles-banner plus bas dans ce fichier, thème Basket,
+         .prets-stat-label-orange dans style.css), pas de variable CSS dédiée
+         (--accent-orange n'existe pas, voir décision équivalente sur
+         .monequipe-team-us dans style.css). */
+      background: linear-gradient(to right, #f97316, transparent);
       color: #ffffff;
       padding: 4px 12px;
       border-radius: var(--radius-sm) 0 0 var(--radius-sm);
@@ -753,7 +808,29 @@
       letter-spacing: 0.1em;
       color: #f97316;
       margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
+    /* ℹ️ info "multi-PC" à côté du libellé PROFILS (2026-09-03, sur demande
+       explicite) — même bouton nu + popover que .price-tracking-info-btn/
+       -popup plus haut (seul autre point d'info de ce fichier), réutilisés
+       tels quels par showProfilesInfoPopup (config.js) plutôt que dupliqués :
+       seul ce petit bouton a besoin d'une classe dédiée, `letter-spacing:
+       normal` pour annuler celui du libellé PROFILS (0.1em) qui écartèrerait
+       le glyphe ℹ️ sinon. */
+    .profiles-info-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0;
+      line-height: 1;
+      opacity: 0.85;
+      color: #f97316;
+      letter-spacing: normal;
+    }
+    .profiles-info-btn:hover { opacity: 1; }
     .profile-tabs { display: flex; gap: 8px; margin-bottom: 0; }
     .profile-tab {
       display: flex;
@@ -1229,6 +1306,12 @@
         radial-gradient(circle at 50% 58%, #f59e0b 0%, #f59e0b 8%, rgba(245,158,11,0.4) 18%, transparent 34%),
         linear-gradient(to bottom, #0a0a1a 0%, #1a2a4a 45%, #e8703a 72%, #f9a978 82%, #0a0f1a 82.5%, #0a0f1a 100%);
     }
+    .personnaliser-thumb-lac {
+      background: linear-gradient(to bottom,
+        #040a1a 0%, #0f2a4a 38%, #3a6a8a 48%,
+        #0d2818 48.5%, #0a2012 56%,
+        #0a2a3a 58%, #0a2a3a 100%);
+    }
     .personnaliser-thumb-paper {
       background-color: #f5f5f0;
       background-image: radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px);
@@ -1524,7 +1607,13 @@
              l'état actuel dans ce profil. -->
         <div class="theme-toggle-profiles">
           <div class="profiles-banner">
-            <div class="profiles-banner-label">PROFILS</div>
+            <div class="profiles-banner-label">
+              PROFILS
+              <!-- Voir showProfilesInfoPopup dans config.js — même popover
+                   réutilisé que le bouton ℹ️ "Sites compatibles" du module
+                   Suivi de prix (.price-tracking-info-popup). -->
+              <button type="button" class="profiles-info-btn" id="profilesInfoBtn" title="Utilisation sur plusieurs PC">ℹ︎</button>
+            </div>
             <div class="profile-tabs" id="profileTabs"></div>
           </div>
 
@@ -1730,6 +1819,7 @@
   <datalist id="crypto-symbols-datalist"></datalist>
 
   <script src="modules/sports-sources.js"></script>
+  <script src="modules/ol.js"></script>
   <script src="modules/fuel-types.js"></script>
   <script src="modules/fdj-games.js"></script>
   <script src="modules/reminders-categories.js"></script>
@@ -1739,6 +1829,7 @@
   <script src="modules/bourse-sources.js"></script>
   <script src="modules/gaming-sources.js"></script>
   <script src="modules/live-championships.js"></script>
+  <script src="modules/search-engines.js"></script>
   <script src="config.js"></script>
 </body>
 </html>

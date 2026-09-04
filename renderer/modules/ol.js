@@ -1,31 +1,15 @@
 /**
  * Module Sports — équipe configurable
  *
- * Dernier résultat : fusion de PLUSIEURS sources (2026-08-10, sur demande
- * explicite — bug réel constaté sur Lyon, voir ci-dessous), on ne dépend
- * plus d'une seule. TheSportsDB (clé démo "3", gratuite) reste la base pour
- * eventslast.php/eventsnext.php, mais eventslast.php plafonne à 1 résultat
- * ET peut être PÉRIMÉ : vérifié en direct le 2026-08-10 pour Lyon (idTeam
- * 133713) — eventslast.php renvoyait encore "Lyon vs Servette" du 15/07
- * (amical) alors que Lyon avait déjà joué et perdu 2-1 à Prague le 04/08
- * (barrage aller Ligue des champions, "Sparta Prague vs Lyon") ET avait le
- * match retour ("Lyon vs Sparta Prague") programmé le 11/08 selon
- * eventsnext.php — donc l'API SAIT que l'équipe est active, mais
- * eventslast.php n'a simplement pas encore indexé le résultat aller.
- * Repéré que searchevents.php (recherche par titre d'événement), lui, avait
- * la bonne donnée à jour instantanément. D'où fetchReverseFixtureMatch
- * ci-dessous : quand eventsnext.php connaît le PROCHAIN adversaire (cas
- * fréquent en barrage à 2 manches), on interroge searchevents.php sur ce
- * même adversaire pour retrouver la manche déjà jouée — corrige exactement
- * ce cas, sans clé payante. En complément, fetchEspnSchedule (site.api.
- * espn.com, championnat national + Ligue des Champions, pas de clé) sert de
- * 2e recoupement, et fetchLastMatchGoogleNews (RSS, extraction de score dans un
- * titre, confiance limitée) n'intervient qu'en tout dernier repli si aucune
- * source structurée n'a rien donné. Le candidat retenu au final est le plus
- * RÉCENT (date desc) parmi toutes les sources ayant répondu — voir
- * window.MatinModules.ol.render. Toutes les réponses brutes sont loguées en
- * console (voir chaque fonction fetchXxx) pour permettre de vérifier la
- * fraîcheur des données en cas de nouveau doute.
+ * "Dernier résultat" RETIRÉ ENTIÈREMENT (2026-09-05, sur demande explicite)
+ * — toute la fusion multi-sources qui l'alimentait (TheSportsDB
+ * eventslast.php, repli barrage 2 manches par recherche de titre, recoupement
+ * ESPN roster/schedule ET scoreboard par fenêtre de dates, dernier repli RSS
+ * Google News avec extraction de score dans un titre) a été supprimée avec
+ * lui : la carte n'affiche plus que l'en-tête équipe, le classement, le
+ * prochain match et le ticker d'actualités. `fetchEspnSchedule` reste (le
+ * prochain match en dépend aussi), réduite à ne plus interroger que le
+ * calendrier À VENIR.
  *
  * Actualités : sources RSS choisies par l'utilisateur dans Paramètres, filtrées
  * par sport détecté automatiquement (voir modules/sports-sources.js, partagé
@@ -43,7 +27,6 @@ window.MatinModules = window.MatinModules || {};
 
 const DEFAULT_TEAM = 'Olympique Lyonnais';
 const SPORTSDB_BASE = 'https://www.thesportsdb.com/api/v1/json/3';
-const RESULT_LABEL = { win: 'V', draw: 'N', loss: 'D' };
 
 // Nombre d'items bruts à récupérer par flux avant filtrage par équipe : les
 // flux du catalogue (voir sports-sources.js) couvrent tout le sport, pas
@@ -240,19 +223,6 @@ function balanceAcrossSources(bySource, quota, target) {
   return result;
 }
 
-// Statuts TheSportsDB indiquant un match terminé (football + autres sports).
-const FINISHED_STATUS_RE = /^(FT|AET|PEN|MATCH FINISHED|FINISHED|FINAL)$/i;
-
-function isFinishedMatch(match) {
-  const homeScore = Number(match.intHomeScore);
-  const awayScore = Number(match.intAwayScore);
-  if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) return false;
-
-  const status = match.strStatus?.trim();
-  if (!status) return true; // pas de statut fourni : se fier à la présence des scores
-  return FINISHED_STATUS_RE.test(status);
-}
-
 function classifyCompetition(leagueName) {
   if (!leagueName) return '';
   const l = leagueName.toLowerCase();
@@ -310,7 +280,7 @@ async function fetchStandingsRaw(slug) {
     console.warn(`[Sports] Cache classement ${slug} illisible, re-téléchargement`, err);
   }
 
-  const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/standings`);
+  const raw = await window.matin.rss.fetchFeed(`http://site.api.espn.com/apis/v2/sports/soccer/${slug}/standings`);
   const data = JSON.parse(raw);
   console.log(`[Sports] Classement ${slug} téléchargé`, data);
   try {
@@ -468,6 +438,19 @@ function resolveWebsiteOverride(team) {
 // — un simple re-thème/filtre ESPN après coup n'aurait rien changé, l'idTeam
 // lui-même aurait déjà été celui du mauvais club.
 async function fetchTeamId(team, expectedCategory) {
+  // Override d'idTeam (voir CLUB_ID_OVERRIDES plus haut, BUG 3) — vérifié
+  // AVANT tout appel réseau : recherche TheSportsDB entièrement
+  // court-circuitée dès qu'un mot-clé connu correspond, pas seulement une
+  // correction du résultat après coup (contrairement à
+  // resolveWebsiteOverride, appliqué lui APRÈS la recherche puisqu'il ne
+  // corrige qu'un champ annexe de la même réponse, pas l'idTeam lui-même).
+  const idOverride = resolveClubIdOverride(team);
+  if (idOverride) {
+    console.log(`[Sports] idTeam forcé (override connu) pour "${team}" : ${idOverride.idTeam} (${idOverride.strLeague}) — recherche TheSportsDB par nom ignorée`);
+    const overrideUrl = resolveWebsiteOverride(team);
+    return { idTeam: idOverride.idTeam, strSport: idOverride.strSport, website: overrideUrl || null };
+  }
+
   const res = await fetch(`${SPORTSDB_BASE}/searchteams.php?t=${encodeURIComponent(team)}`);
   if (!res.ok) throw new Error(`Recherche équipe KO (${res.status})`);
   const data = await res.json();
@@ -486,6 +469,10 @@ async function fetchTeamId(team, expectedCategory) {
     }
   }
   console.log(`[Sports] Équipe "${team}" résolue vers idTeam=${found.idTeam} (${found.strTeam}, ${found.strSport}, ${found.strLeague})`);
+  // Log EXACT demandé explicitement (2026-09-06, BUG 3, PART A) — permet de
+  // confirmer en un coup d'œil quel idTeam TheSportsDB a réellement été
+  // résolu pour un nom donné, sans avoir à relire la ligne ci-dessus.
+  console.log('[Sports] idTeam résolu:', found.idTeam, found.strTeam, found.strLeague);
 
   const overrideUrl = resolveWebsiteOverride(team);
   if (overrideUrl) {
@@ -514,120 +501,52 @@ function olThemeForCategory(category) {
   return 'other-sports';
 }
 
-async function fetchLastMatches(idTeam) {
-  const url = `${SPORTSDB_BASE}/eventslast.php?id=${idTeam}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    // Échec loggué (2026-09-01, sur demande explicite, "OL LAST RESULT...
-    // log raw response, fix data fetch") — AVANT ce correctif, un `!res.ok`
-    // ici retournait `[]` en silence total : indiscernable dans la console
-    // d'un cas "0 match terminé trouvé" légitime, alors que la cause réelle
-    // (ex. 429 rate-limit TheSportsDB, panne ponctuelle) est très différente
-    // à diagnostiquer.
-    console.warn(`[Sports] ${url} → HTTP ${res.status} (échec), aucun résultat récent récupérable via cette source`);
-    return [];
-  }
-  const data = await res.json();
-  console.log(`[Sports] ${url} →`, data);
-  return data.results || [];
-}
-
+// Tri par date/heure croissante (2026-09-07, sur demande explicite, BUG
+// "prochain match" ASVEL) — eventsnext.php renvoie jusqu'à 5 événements À
+// VENIR TOUTES compétitions confondues pour l'équipe (championnat + coupe
+// nationale + coupe d'Europe...), PAS garantis triés par proximité :
+// `events[0]` pris aveuglément pouvait donc afficher un match plus lointain
+// qu'un autre déjà présent dans le même tableau (cas réel : ASVEL, la LNB
+// Super Coupe du 19/09 apparaissait derrière un match plus tardif). Fenêtre
+// de grâce de 2h (`Date.now() - 2h`) plutôt qu'un simple ">= maintenant" :
+// un match qui vient tout juste de démarrer doit rester affichable comme
+// "prochain" le temps qu'il soit reclassé "en cours"/"terminé" ailleurs dans
+// l'API, plutôt que de disparaître brutalement de cette liste pile au coup
+// d'envoi. AUCUN filtre par compétition ici (délibéré) : les 5 événements
+// renvoyés, quelle que soit leur ligue, restent tous des candidats valides —
+// le plus proche dans le temps l'emporte, jamais une restriction à la ligue
+// principale de l'équipe (un club joue plusieurs compétitions en parallèle).
 async function fetchNextMatch(idTeam) {
   const url = `${SPORTSDB_BASE}/eventsnext.php?id=${idTeam}`;
   const res = await fetch(url);
   if (!res.ok) {
-    // Même correctif de logging que fetchLastMatches ci-dessus — cette
-    // fonction n'avait ABSOLUMENT AUCUN log jusqu'ici (ni succès ni échec),
-    // contrairement à fetchLastMatches : un vrai trou de visibilité pour
-    // diagnostiquer "Aucun match prévu"/l'absence de repli reverse-fixture
-    // (fetchReverseFixtureMatch dépend directement du résultat de CETTE
-    // fonction pour connaître le prochain adversaire, voir plus bas).
     console.warn(`[Sports] ${url} → HTTP ${res.status} (échec), aucun prochain match récupérable via cette source`);
     return null;
   }
   const data = await res.json();
   console.log(`[Sports] ${url} →`, data);
-  const next = data.events?.[0] || null;
-  if (!next) console.log(`[Sports] ${url} → réponse OK mais aucun événement à venir (data.events vide/absent)`);
+
+  const upcoming = (data.events || [])
+    .map(e => {
+      const dt = new Date(`${e.dateEvent}T${e.strTime || '00:00:00'}Z`);
+      return { ...e, _ts: Number.isNaN(dt.getTime()) ? Infinity : dt.getTime() };
+    })
+    .filter(e => e._ts > Date.now() - 2 * 3600 * 1000) // fenêtre de grâce de 2h (match en cours)
+    .sort((a, b) => a._ts - b._ts);
+
+  console.log('[Sports] Prochains matchs (toutes compétitions):', upcoming.map(e =>
+    ({ date: e.dateEvent, time: e.strTime, league: e.strLeague, home: e.strHomeTeam, away: e.strAwayTeam })));
+
+  const next = upcoming[0] || null;
+  if (!next) console.log(`[Sports] ${url} → réponse OK mais aucun événement à venir exploitable (data.events vide/absent, ou tous hors fenêtre)`);
   return next;
-}
-
-function analyzeMatch(match, idTeam) {
-  const homeScore = Number(match.intHomeScore);
-  const awayScore = Number(match.intAwayScore);
-  if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) return null;
-
-  const isHome = match.idHomeTeam === idTeam;
-  const ourScore = isHome ? homeScore : awayScore;
-  const oppScore = isHome ? awayScore : homeScore;
-  const opponent = isHome ? match.strAwayTeam : match.strHomeTeam;
-
-  let result = 'draw';
-  if (ourScore > oppScore) result = 'win';
-  else if (ourScore < oppScore) result = 'loss';
-
-  return { ourScore, oppScore, opponent, result };
-}
-
-// Barrage à 2 manches (cas exact du bug Lyon/Sparta Prague, voir en-tête du
-// fichier) : eventsnext.php connaît déjà le PROCHAIN adversaire même quand
-// eventslast.php n'a pas encore indexé la manche déjà jouée contre ce même
-// adversaire. searchevents.php (recherche par titre) est à jour en temps
-// réel — on tente les 2 sens de titre ("A vs B" et "B vs A") et on écarte
-// l'événement du prochain match lui-même (idEvent) pour ne garder que la
-// manche déjà jouée.
-async function fetchReverseFixtureMatch(idTeam, nextMatch) {
-  if (!nextMatch) return null;
-  const isHome = nextMatch.idHomeTeam === idTeam;
-  const ourName = isHome ? nextMatch.strHomeTeam : nextMatch.strAwayTeam;
-  const opponent = isHome ? nextMatch.strAwayTeam : nextMatch.strHomeTeam;
-  if (!opponent || !ourName) return null;
-
-  for (const q of [`${opponent} vs ${ourName}`, `${ourName} vs ${opponent}`]) {
-    try {
-      const res = await fetch(`${SPORTSDB_BASE}/searchevents.php?e=${encodeURIComponent(q)}`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      console.log(`[Sports] searchevents.php?e=${encodeURIComponent(q)} →`, data);
-
-      const event = (data.event || []).find(e =>
-        (e.idHomeTeam === idTeam || e.idAwayTeam === idTeam) &&
-        e.idEvent !== nextMatch.idEvent &&
-        isFinishedMatch(e)
-      );
-      if (event) {
-        const analyzed = analyzeMatch(event, idTeam);
-        if (analyzed) return { ...analyzed, date: new Date(event.dateEvent), source: 'thesportsdb-reverse' };
-      }
-    } catch (err) {
-      console.warn(`[Sports] searchevents.php échoué pour "${q}"`, err);
-    }
-  }
-  return null;
 }
 
 // Recoupement via ESPN (site.api.espn.com, sans clé, pas d'en-tête CORS —
 // vérifié en direct 2026-08-10, d'où le passage par le proxy process main
-// rss:fetchFeed comme les autres sources bloquées CORS de ce module).
-//
-// ÉLARGI le 2026-08-31 (sur demande explicite, bug signalé : "Aucun match
-// prévu"/"Aucun résultat récent" persistants pour Olympique Lyonnais malgré
-// TheSportsDB) — 2 changements par rapport à la version précédente :
-//  1. Plusieurs championnats testés dans l'ordre (ESPN_SOCCER_LEAGUES), pas
-//     seulement fra.1 : un club français jouant aussi une coupe d'Europe
-//     (cas RÉEL d'OL, qui alterne Ligue 1/Ligue des Champions selon les
-//     semaines) avait un "trou" total côté ESPN dès que son prochain/dernier
-//     match tombait sur la coupe d'Europe — la portée fra.1-only, documentée
-//     comme limite connue dans l'ancienne version de ce commentaire, ne
-//     couvrait tout simplement pas ce cas.
-//  2. Le schedule ESPN sert désormais AUSSI de source pour le PROCHAIN match
-//     (`fetchEspnSchedule` renvoie `{ lastMatch, nextMatch }`), pas seulement
-//     le dernier résultat — c'était le vrai trou fonctionnel expliquant
-//     "Aucun match prévu" même quand ESPN avait la donnée : contrairement au
-//     dernier résultat (recoupé via `candidates`, voir render()), rien
-//     n'alimentait jamais le prochain match en dehors de TheSportsDB
-//     `eventsnext.php`, une source déjà documentée comme pouvant être
-//     PÉRIMÉE pour cette équipe précise (voir en-tête du fichier).
+// rss:fetchFeed comme les autres sources bloquées CORS de ce module) — source
+// de repli pour le PROCHAIN match (`fetchEspnSchedule` plus bas), quand
+// TheSportsDB `eventsnext.php` n'a rien renvoyé.
 //
 // GÉNÉRALISÉ le 2026-09-01 (sur demande explicite, "ASVEL NEXT MATCH: No
 // upcoming match shown — debug ESPN API for ASVEL basketball team") — 2
@@ -679,6 +598,12 @@ const ESPN_SPORT_PATH_BY_CATEGORY = { football: 'soccer', basketball: 'basketbal
 // que le slug technique ESPN.
 const ESPN_SLUG_LEAGUE_LABEL = {
   'fra.1': 'French Ligue 1',
+  // 'fra.2' ajouté (2026-09-06, sur demande explicite — BUG 3 PART B,
+  // fetchLeagueScoreboardNextMatch/KNOWN_LEAGUES) : manquait jusqu'ici,
+  // laissait `strLeague` vide pour tout match Ligue 2 retrouvé par ce repli,
+  // ce qui aurait aussi cassé classifyCompetition/detectStandingsLeague en
+  // aval (tous les deux lisent `strLeague`).
+  'fra.2': 'French Ligue 2',
   'uefa.champions': 'UEFA Champions League',
   'uefa.europa': 'UEFA Europa League',
   'uefa.europa.conference': 'UEFA Europa Conference League',
@@ -715,21 +640,6 @@ async function espnFindTeam(ctx, sportPath) {
   return null;
 }
 
-function espnEventToLastMatch(event, espnId) {
-  if (!event) return null;
-  const competitors = event.competitions?.[0]?.competitors || [];
-  const us = competitors.find(c => c.team.id === espnId);
-  const opp = competitors.find(c => c.team.id !== espnId);
-  const ourScore = Number(us?.score);
-  const oppScore = Number(opp?.score);
-  if (!us || !opp || Number.isNaN(ourScore) || Number.isNaN(oppScore)) return null;
-
-  let result = 'draw';
-  if (ourScore > oppScore) result = 'win';
-  else if (ourScore < oppScore) result = 'loss';
-  return { ourScore, oppScore, opponent: opp.team.displayName, result, date: new Date(event.date), source: 'espn' };
-}
-
 // Reconstruit un objet façon TheSportsDB (dateEvent/strTime/strLeague/
 // strEvent) à partir d'un événement ESPN à venir, pour rester compatible SANS
 // MODIFICATION avec renderNextMatchHtml/formatMatchDateTime/
@@ -758,110 +668,87 @@ function espnEventToNextMatch(event, slug) {
 }
 
 // Point d'entrée unique ESPN pour ce module — trouve l'équipe (tous
-// championnats de ESPN_SOCCER_LEAGUES), récupère SON calendrier, en tire le
-// dernier résultat ET le prochain match.
+// championnats de ESPN_SPORT_LEAGUES[sportPath]), récupère SON calendrier À
+// VENIR, en tire le prochain match.
 //
-// BUG RÉEL trouvé ET corrigé le 2026-08-31, VÉRIFIÉ EN DIRECT contre la vraie
-// API (curl, en dehors de l'app — accès réseau exceptionnellement disponible
-// pour ce diagnostic) : `.../teams/{id}/schedule` SANS paramètre ne renvoie
-// PAS le calendrier complet de la saison comme le code précédent le supposait
-// — seulement une petite fenêtre de matchs RÉCEMMENT joués (vérifié : 2
-// événements pour Lyon, tous les deux déjà terminés, AUCUN match à venir,
-// alors que Lyon a bien 32 matchs restants programmés cette saison). Le
-// paramètre `?fixture=true` (découvert par essai direct, non documenté
-// publiquement) fait basculer la réponse sur les matchs À VENIR exclusivement
-// (vérifié : 32 événements, tous `completed:false`) — c'est très
-// probablement la cause RÉELLE de "Aucun match prévu" pour Olympique Lyonnais
-// : ce module n'avait tout simplement JAMAIS pu voir les matchs à venir via
-// ESPN, avec ou sans le repli ajouté plus haut, faute de ce paramètre. Les 2
-// appels sont donc désormais faits en parallèle (résultats récents SANS le
-// paramètre, prochains matchs AVEC) plutôt qu'un seul comme la version
-// précédente le supposait à tort.
+// `?fixture=true` (découvert par essai direct le 2026-08-31, non documenté
+// publiquement) : `.../teams/{id}/schedule` SANS ce paramètre ne renvoie PAS
+// le calendrier à venir mais une petite fenêtre de matchs RÉCEMMENT joués —
+// vérifié en direct (32 événements à venir pour Lyon avec `?fixture=true`,
+// contre 2 matchs déjà terminés sans lui). Réduite le 2026-09-05 (sur demande
+// explicite, retrait du "dernier résultat") à ne plus interroger QUE cette
+// moitié "à venir" — l'autre appel (`baseUrl` sans le paramètre, résultats
+// récents) n'avait plus aucun consommateur une fois `espnEventToLastMatch`
+// supprimée avec le reste du "dernier résultat".
 async function fetchEspnSchedule(ctx, sportPath) {
   const found = await espnFindTeam(ctx, sportPath);
   if (!found) {
-    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: aucun, prochains matchs: 0, derniers résultats: 0`);
-    return { lastMatch: null, nextMatch: null };
+    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: aucun, prochains matchs: 0`);
+    return null;
   }
   const { espnId, slug } = found;
-  const baseUrl = `http://site.api.espn.com/apis/site/v2/sports/${sportPath}/${slug}/teams/${espnId}/schedule`;
+  const url = `http://site.api.espn.com/apis/site/v2/sports/${sportPath}/${slug}/teams/${espnId}/schedule?fixture=true`;
 
   try {
-    const [rawPast, rawFuture] = await Promise.all([
-      window.matin.rss.fetchFeed(baseUrl),
-      window.matin.rss.fetchFeed(`${baseUrl}?fixture=true`),
-    ]);
-    const pastData = JSON.parse(rawPast);
-    const futureData = JSON.parse(rawFuture);
-    console.log(`[Sports] ESPN schedule brut — résultats récents (${sportPath}, teamId=${espnId}, ${slug}) →`, pastData);
+    const raw = await window.matin.rss.fetchFeed(url);
+    const futureData = JSON.parse(raw);
     console.log(`[Sports] ESPN schedule brut — prochains matchs (${sportPath}, teamId=${espnId}, ${slug}, ?fixture=true) →`, futureData);
 
-    const completed = (pastData.events || [])
-      .filter(e => e.competitions?.[0]?.status?.type?.completed)
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
     const upcoming = (futureData.events || [])
       .filter(e => !e.competitions?.[0]?.status?.type?.completed)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: ${espnId}, prochains matchs: ${upcoming.length}, derniers résultats: ${completed.length}`);
+    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: ${espnId}, prochains matchs: ${upcoming.length}`);
 
-    return {
-      lastMatch: espnEventToLastMatch(completed[0], espnId),
-      nextMatch: espnEventToNextMatch(upcoming[0], slug),
-    };
+    return espnEventToNextMatch(upcoming[0], slug);
   } catch (err) {
     console.warn(`[Sports] ESPN schedule (${sportPath}, teamId=${espnId}, ${slug}) indisponible`, err);
-    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: ${espnId}, prochains matchs: 0, derniers résultats: 0`);
-    return { lastMatch: null, nextMatch: null };
+    console.log(`[Sports] ESPN (${sportPath}) — Team ID trouvé: ${espnId}, prochains matchs: 0`);
+    return null;
   }
 }
 
-// Dernier repli (confiance limitée) : recherche RSS Google News, extraction
-// d'un score dans un TITRE au format "Équipe X-Y Adversaire" (ou l'inverse)
-// — n'intervient que si aucune source structurée (TheSportsDB, ESPN)
-// n'a rien donné. Un titre sans motif score+équipe adjacent est simplement
-// ignoré (pas de résultat fabriqué à partir d'un titre ambigu, ex. "l'OL
-// craque sur la pelouse du Sparta Prague" ne contient aucun chiffre).
-const SCORE_IN_TITLE_RE = /([A-Za-zÀ-ÿ'.\- ]{2,40}?)\s+(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([A-Za-zÀ-ÿ'.\- ]{2,40})/;
-
-function extractScoreFromTitle(title, ctx) {
-  const m = title.match(SCORE_IN_TITLE_RE);
-  if (!m) return null;
-  const [, left, s1, s2, right] = m;
-  const leftIsUs = ctx.keywords.some(kw => containsWholeWord(left, kw));
-  const rightIsUs = ctx.keywords.some(kw => containsWholeWord(right, kw));
-  if (leftIsUs === rightIsUs) return null; // ambigu (aucun ou les 2 côtés) : ignoré
-
-  const ourScore = Number(leftIsUs ? s1 : s2);
-  const oppScore = Number(leftIsUs ? s2 : s1);
-  let result = 'draw';
-  if (ourScore > oppScore) result = 'win';
-  else if (ourScore < oppScore) result = 'loss';
-  return { ourScore, oppScore, opponent: (leftIsUs ? right : left).trim(), result };
-}
-
-async function fetchLastMatchGoogleNews(team, ctx) {
+// ─── Repli scoreboard ESPN par ligue connue (2026-09-06, sur demande
+// explicite, BUG 3 PART B — PSG : "Prochain match: Indisponible") — DERNIER
+// filet de rattrapage pour le prochain match, après TheSportsDB eventsnext.php
+// ET fetchEspnSchedule (roster ESPN par nom, déjà en place) : ne s'applique
+// QUE si l'utilisateur a choisi une ligue connue dans le menu déroulant
+// Paramètres (voir KNOWN_LEAGUES plus haut/config.js, config.manualLeague).
+// Le scoreboard ESPN est le flux du CHAMPIONNAT ENTIER pour la journée/la
+// manche à venir, filtré ici sur le nom de l'équipe suivie — contrairement à
+// fetchEspnSchedule, qui dépend de espnFindTeam trouvant l'équipe dans le
+// roster ESPN par correspondance de nom (une même résolution de nom
+// défaillante casserait aussi ce chemin-là) : celui-ci ne dépend QUE du nom
+// déjà connu avec certitude depuis la sélection dans le menu déroulant, pas
+// d'une recherche supplémentaire.
+async function fetchLeagueScoreboardNextMatch(league, ctx) {
+  if (!league?.espnSlug || !league?.espnSportPath) return null;
+  const url = `http://site.api.espn.com/apis/site/v2/sports/${league.espnSportPath}/${league.espnSlug}/scoreboard`;
   try {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`"${team}" résultat`)}&hl=fr&gl=FR&ceid=FR:fr`;
-    const xmlText = await window.matin.rss.fetchFeed(url);
-    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-    const items = Array.from(doc.querySelectorAll('item')).slice(0, 20).map(item => ({
-      title: item.querySelector('title')?.textContent || '',
-      pubDate: item.querySelector('pubDate')?.textContent || '',
-    }));
-    console.log('[Sports] Google News RSS (repli dernier recours) — titres bruts :', items);
+    const raw = await window.matin.rss.fetchFeed(url);
+    const data = JSON.parse(raw);
+    console.log(`[Sports] Repli scoreboard ESPN (${league.espnSportPath}/${league.espnSlug}) →`, data);
 
-    for (const item of items) {
-      const extracted = extractScoreFromTitle(item.title, ctx);
-      if (extracted) {
-        console.log('[Sports] Score extrait d\'un titre Google News (confiance limitée) :', item.title, '→', extracted);
-        return { ...extracted, date: item.pubDate ? new Date(item.pubDate) : new Date(), source: 'googlenews' };
-      }
+    const match = (data.events || []).find(ev => {
+      const competitors = ev.competitions?.[0]?.competitors || [];
+      const isOurs = competitors.some(c => {
+        const name = (c.team?.displayName || '').toLowerCase();
+        return ctx.keywords.some(kw => name.includes(kw) || kw.includes(name));
+      });
+      const state = ev.status?.type?.state || ev.competitions?.[0]?.status?.type?.state;
+      return isOurs && state === 'pre';
+    });
+
+    if (!match) {
+      console.log(`[Sports] Repli scoreboard ESPN (${league.espnSportPath}/${league.espnSlug}) — aucun match à venir trouvé pour cette équipe`);
+      return null;
     }
+    console.log(`[Sports] Repli scoreboard ESPN — match à venir trouvé :`, match.name || match.shortName);
+    return espnEventToNextMatch(match, league.espnSlug);
   } catch (err) {
-    console.warn('[Sports] Google News RSS indisponible', err);
+    console.warn(`[Sports] Repli scoreboard ESPN (${league.espnSportPath}/${league.espnSlug}) indisponible`, err);
+    return null;
   }
-  return null;
 }
 
 // jina.ai Reader (r.jina.ai) restitue une page en MARKDOWN, jamais le XML
@@ -1118,25 +1005,154 @@ async function fetchNewsItems(team, config) {
   return balanced;
 }
 
-function renderLastResultsHtml(analyzedList) {
-  if (!analyzedList.length) return '<span class="sports-no-data">Aucun résultat récent</span>';
-  return analyzedList.map(a => `
-    <div class="sports-result-item">
-      <span class="sports-result-pill result-${a.result}">${RESULT_LABEL[a.result]} ${a.ourScore}-${a.oppScore}</span>
-      <span class="sports-result-opp" title="${a.opponent}">${a.opponent}</span>
-    </div>
-  `).join('');
-}
-
+// Nom RÉEL de la compétition (2026-09-07, sur demande explicite, BUG
+// "prochain match" ASVEL) — affiche `match.strLeague` TEL QUEL (ex. "LNB
+// Super Coupe", "Euroleague Basketball"), directement depuis l'événement
+// retenu, plutôt que la catégorie générique `classifyCompetition` calculait
+// jusqu'ici ("Championnat"/"Coupe"/"Coupe d'Europe") — cette dernière
+// noyait la compétition RÉELLE d'un match précis derrière un mot générique,
+// alors qu'un club joue plusieurs compétitions en parallèle et que
+// l'utilisateur a besoin de savoir laquelle est concernée par CE match.
+// `classifyCompetition` gardée en tout dernier repli, seulement si
+// `strLeague` est vide (cas limite, source sans nom de championnat exploitable).
 function renderNextMatchHtml(match) {
   if (!match) return '<span class="sports-no-data">Aucun match prévu</span>';
   const { date, time } = formatMatchDateTime(match.dateEvent, match.strTime);
-  const competition = classifyCompetition(match.strLeague);
+  const competition = match.strLeague || classifyCompetition(match.strLeague);
   return `
-    <div class="sports-next-detail">${date} · ${time}${competition ? ' · ' + competition : ''}</div>
+    <div class="sports-next-detail">${competition ? competition + ' — ' : ''}${date} · ${time}</div>
     <div class="sports-next-opp">${match.strEvent || ''}</div>
     <div class="sports-standings-line" id="sports-standings-slot"></div>
   `;
+}
+
+// ─── Ligues connues pour le menu déroulant Équipe (2026-09-05, sur demande
+// explicite, remplace la saisie en texte libre par un choix ligue → équipe,
+// avec repli "Autre équipe" en texte libre conservé — voir config.js) —
+// chaque entrée porte le SPORT (thème de carte + sources actualités, voir
+// olThemeForCategory/sports-sources.js CATALOG) et le nom de championnat
+// attendu par TheSportsDB `search_all_teams.php?l=` (voir config.js), qui
+// n'accepte QUE son intitulé anglais exact, pas le slug `value` ni le
+// libellé français affiché dans le menu. Exposée à config.js via
+// `window.MatinModules.olKnownLeagues` (ol.js chargé AVANT config.js dans
+// config.html, comme dans index.html) — pas de nouveau fichier séparé façon
+// live-championships.js : cette liste n'a de sens que couplée aux fonctions
+// de ce fichier (olThemeForCategory notamment), contrairement aux
+// championnats LIVE! qui n'ont aucune dépendance vers live.js lui-même.
+// `espnSportPath`/`espnSlug` (2026-09-06, sur demande explicite, BUG 1 —
+// menu déroulant Équipe plafonné à 10 équipes) : identifient le même
+// championnat côté ESPN (site.api.espn.com), utilisés par config.js pour
+// lister les équipes SANS le plafond de 10 imposé par TheSportsDB
+// `search_all_teams.php` (clé démo gratuite "3" — vérifié en direct,
+// confirmé aussi documenté comme limite connue de cette clé) ainsi que par
+// fetchLeagueScoreboardNextMatch ci-dessous (BUG 3 PART B). Repris tels
+// quels des slugs déjà vérifiés ailleurs dans ce fichier (voir
+// ESPN_SPORT_LEAGUES/STANDINGS_LEAGUES) plutôt que redevinés.
+const KNOWN_LEAGUES = [
+  {
+    value: 'fra.ligue1',
+    label: '🇫🇷 Ligue 1',
+    sport: 'football',
+    theSportsDbLeague: 'French Ligue 1',
+    espnSportPath: 'soccer',
+    espnSlug: 'fra.1',
+  },
+  {
+    value: 'fra.ligue2',
+    label: '🇫🇷 Ligue 2',
+    sport: 'football',
+    theSportsDbLeague: 'French Ligue 2',
+    espnSportPath: 'soccer',
+    espnSlug: 'fra.2',
+  },
+  {
+    value: 'betclic.elite',
+    label: '🇫🇷 Betclic Élite',
+    sport: 'basketball',
+    // "French Pro A Basketball" (1re tentative) ne renvoie AUCUNE équipe
+    // sur search_all_teams.php — vérifié en direct le 2026-09-05. Le VRAI
+    // nom TheSportsDB de cette ligue est "French LNB" (voir
+    // search_all_leagues.php?c=France&s=Basketball, idLeague 4423 :
+    // "The LNB Élite, currently known for sponsorship reasons as Betclic
+    // Élite" — Betclic Élite n'est qu'un nom de sponsor, pas le nom de
+    // ligue enregistré) ; confirmé en direct : 10 équipes renvoyées
+    // (AS Monaco Basket, Boulazac, Cholet, Dijon...).
+    theSportsDbLeague: 'French LNB',
+    espnSportPath: 'basketball',
+    espnSlug: 'fra.lnb',
+  },
+  {
+    value: 'nba',
+    label: '🇺🇸 NBA',
+    sport: 'basketball',
+    theSportsDbLeague: 'NBA',
+    espnSportPath: 'basketball',
+    espnSlug: 'nba',
+  },
+];
+window.MatinModules.olKnownLeagues = KNOWN_LEAGUES;
+
+// idTeam TheSportsDB connu à la main (2026-09-06, sur demande explicite,
+// BUG 3 — PSG : "Prochain match: Indisponible", eventslast.php/eventsnext.php
+// vides pour l'idTeam résolu) — même pattern que CLUB_WEBSITE_OVERRIDES
+// ci-dessus, mais pour l'ID lui-même plutôt que le site officiel.
+// Vérifié EN DIRECT contre l'API réelle (curl, 2026-09-06) : `searchteams.php`
+// est franchement PEU FIABLE pour ce club précis — "PSG" seul renvoie une
+// équipe d'ESPORTS (League of Legends) homonyme, "Paris" seul renvoie un
+// club amateur sans rapport ("Paris 15"), ET "Paris Saint-Germain" (AVEC le
+// tiret, forme la plus probable saisie/renvoyée par ESPN) ne renvoie
+// STRICTEMENT RIEN (`{"teams":null}`) — seule la forme SANS tiret ("Paris
+// Saint Germain") résout la bonne équipe. idTeam **133714** confirmé avec un
+// historique ET un calendrier exploitables (eventslast.php → "Paris
+// Saint-Germain vs Aston Villa, 2-1, FT" ; eventsnext.php → "Paris
+// Saint-Germain vs Monaco"). L'idTeam "73" (donnée de départ de cette
+// demande) a été vérifié INVALIDE : `lookupteam.php?id=73` renvoie
+// `{"teams":null}`, ne correspond à aucune équipe existante — corrigé ici
+// vers la valeur réellement vérifiée plutôt que reproduit tel quel.
+// Appliqué AVANT tout appel réseau (voir fetchTeamId ci-dessous) : recherche
+// par nom entièrement court-circuitée dès qu'un mot-clé correspond, pas
+// seulement une correction après coup du résultat.
+const CLUB_ID_OVERRIDES = [
+  { keyword: 'psg', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
+  { keyword: 'paris saint-germain', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
+  { keyword: 'paris saint germain', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
+];
+
+function resolveClubIdOverride(team) {
+  const t = (team || '').toLowerCase();
+  return CLUB_ID_OVERRIDES.find(o => t.includes(o.keyword)) || null;
+}
+// Exposée à config.js (2026-09-06, sur demande explicite) — le menu déroulant
+// Équipe (voir sportsTeamOptionsHtml/teamSelect dans config.js) résout lui
+// aussi un idTeam TheSportsDB par nom une fois l'équipe choisie dans la
+// liste ESPN (voir BUG 1 ci-dessus) : sans cette même correction là-bas,
+// choisir "Paris Saint-Germain" dans le menu déroulant retomberait sur le
+// même mauvais idTeam que la saisie en texte libre, une seule source de
+// vérité pour l'override plutôt que deux copies à maintenir en parallèle.
+window.MatinModules.olResolveClubIdOverride = resolveClubIdOverride;
+
+// Lookup direct par idTeam (2026-09-05, sur demande explicite — menu
+// déroulant ligue/équipe ci-dessus) : l'idTeam est déjà connu dans ce cas
+// (choisi dans un menu, pas deviné par une recherche approximative de nom
+// comme fetchTeamId) — `lookupteam.php` (id exact) plutôt que
+// `searchteams.php` (nom approximatif) pour récupérer strSport/le site
+// officiel du club, seules données encore nécessaires ici (thème de la carte
+// + lien cliquable, voir render() plus bas) et délibérément PAS stockées en
+// config (voir la forme { idTeam, team, sport, manualLeague }, sans
+// `website` — demande explicite).
+async function fetchTeamMeta(idTeam, team) {
+  const res = await fetch(`${SPORTSDB_BASE}/lookupteam.php?id=${encodeURIComponent(idTeam)}`);
+  if (!res.ok) throw new Error(`Lookup équipe KO (${res.status})`);
+  const data = await res.json();
+  console.log(`[Sports] lookupteam.php?id=${idTeam} →`, data);
+  const found = data.teams?.[0];
+  if (!found) throw new Error(`idTeam ${idTeam} introuvable sur TheSportsDB (lookupteam.php)`);
+
+  const overrideUrl = resolveWebsiteOverride(team);
+  if (overrideUrl) {
+    console.log(`[Sports] Site officiel forcé (override connu) pour "${team}" : ${overrideUrl} (TheSportsDB renvoyait : ${found.strWebsite || '—'})`);
+  }
+  return { strSport: found.strSport, website: overrideUrl || normalizeWebsiteUrl(found.strWebsite) };
 }
 
 window.MatinModules.ol = {
@@ -1152,9 +1168,6 @@ window.MatinModules.ol = {
 
     container.innerHTML = `
       <div class="sports-module">
-        <div class="sports-results-row" id="sports-results-slot">
-          <div class="loading-spinner" style="width:14px;height:14px"></div>
-        </div>
         <div class="sports-next" id="sports-next-slot">
           <span class="sports-next-label">Prochain match</span>
           <div class="loading-spinner" style="width:14px;height:14px;margin-top:4px"></div>
@@ -1167,11 +1180,10 @@ window.MatinModules.ol = {
       </div>
     `;
 
-    const resultsSlot = container.querySelector('#sports-results-slot');
     const nextSlot = container.querySelector('#sports-next-slot');
     const tickerSlot = container.querySelector('#sports-ticker-slot');
 
-    // Résultats et calendrier (TheSportsDB)
+    // Calendrier (TheSportsDB + ESPN)
     try {
       // Connu AVANT même d'interroger TheSportsDB (sport manuel, ou déduit du
       // nom d'équipe — ex. "Basket" dans "Monaco Basket") : sert à choisir le
@@ -1179,7 +1191,21 @@ window.MatinModules.ol = {
       const expectedCategoryHint = manualSport
         ? (manualSport === 'autre' ? null : manualSport)
         : window.SportsSources.detectCategoryFromTeamName(team);
-      const { idTeam, strSport, website } = await fetchTeamId(team, expectedCategoryHint);
+      let idTeam, strSport, website;
+      if (config?.idTeam) {
+        // idTeam déjà connu (menu déroulant ligue/équipe, voir KNOWN_LEAGUES
+        // plus haut) — searchteams.php (recherche approximative par nom, voir
+        // fetchTeamId) entièrement court-circuité : plus aucune ambiguïté à
+        // lever, l'utilisateur a choisi l'équipe exacte dans une liste, pas
+        // tapé un nom.
+        console.log(`[Sports] idTeam connu depuis Paramètres (${config.idTeam}) — recherche TheSportsDB par nom ignorée`);
+        idTeam = config.idTeam;
+        ({ strSport, website } = await fetchTeamMeta(idTeam, team));
+      } else {
+        // Config historique, ou "Autre équipe" (texte libre) — comportement
+        // d'origine inchangé : recherche approximative par nom.
+        ({ idTeam, strSport, website } = await fetchTeamId(team, expectedCategoryHint));
+      }
       // Catégorie FINALE (2026-09-01, sur demande explicite — bug
       // "Basketball vs Football cross-contamination") : même résolution que
       // pour les actualités (sport manuel > nom d'équipe > cas connus de
@@ -1210,70 +1236,42 @@ window.MatinModules.ol = {
             .catch(err => console.error('[Sports] Échec de la sauvegarde du site officiel du club', err));
         }
       }
-      const [lastMatches, nextMatchTsdb] = await Promise.all([
-        fetchLastMatches(idTeam).catch(() => []),
-        fetchNextMatch(idTeam).catch(() => null),
-      ]);
-      console.log(`[Sports] TheSportsDB — eventslast.php: ${lastMatches.length} événement(s), eventsnext.php: ${nextMatchTsdb ? 1 : 0} événement`);
+      const ctx = buildTeamContext(team);
 
-      const finishedMatches = lastMatches
-        .filter(isFinishedMatch)
-        .sort((a, b) => new Date(b.dateEvent) - new Date(a.dateEvent));
-      console.log('[Sports] Matchs terminés triés (date desc, TheSportsDB eventslast.php) :', finishedMatches);
+      const nextMatchTsdb = await fetchNextMatch(idTeam).catch(() => null);
 
-      const thesportsdbCandidate = finishedMatches
-        .map(m => {
-          const a = analyzeMatch(m, idTeam);
-          return a ? { ...a, date: new Date(m.dateEvent), source: 'thesportsdb' } : null;
-        })
-        .find(Boolean) || null;
-
-      // Recoupement multi-sources (voir en-tête du fichier) : on interroge
-      // TOUJOURS les sources structurées (reverse-fixture + ESPN) en plus du
-      // résultat brut TheSportsDB, puis on garde le candidat le plus RÉCENT
-      // parmi tous ceux qui ont répondu — pas un simple ordre de priorité
-      // fixe, pour ne jamais laisser un résultat périmé l'emporter sur un
-      // résultat plus frais trouvé ailleurs. `fetchEspnSchedule` (voir plus
-      // haut) sert ICI pour le dernier résultat (espnResult.lastMatch), ET
-      // plus bas pour le prochain match — un seul appel ESPN couvre les 2.
-      // Chemin ESPN sport-dépendant (2026-09-01, sur demande explicite — voir
-      // ESPN_SPORT_LEAGUES) : plus seulement football, basketball tenté en
-      // best-effort aussi désormais (ASVEL notamment) — `null` pour tout
-      // sport sans mapping ESPN connu, comme avant pour le non-football.
-      // Dérivé de `sportCategory` (sport manuel/nom d'équipe/détection déjà
-      // résolus ci-dessus), PLUS `strSport` brut seul comme avant le
-      // correctif "Monaco Basket" (2026-09-01) — un basket mal détecté par
-      // TheSportsDB comme football n'interroge plus jamais soccer, et
-      // inversement, quelle que soit la fiabilité de `strSport` lui-même.
+      // Chemin ESPN roster/schedule sport-dépendant (2026-09-01, sur demande
+      // explicite — voir ESPN_SPORT_LEAGUES) — repli pour le prochain match
+      // quand TheSportsDB `eventsnext.php` n'a rien renvoyé. `null` pour tout
+      // sport sans mapping ESPN connu, comme avant.
       const espnSportKey = ESPN_SPORT_PATH_BY_CATEGORY[sportCategory] || null;
-      const [reverseCandidate, espnResult] = await Promise.all([
-        fetchReverseFixtureMatch(idTeam, nextMatchTsdb).catch(err => { console.warn('[Sports] fetchReverseFixtureMatch a échoué', err); return null; }),
-        espnSportKey
-          ? fetchEspnSchedule(buildTeamContext(team), espnSportKey).catch(err => { console.warn('[Sports] fetchEspnSchedule a échoué', err); return { lastMatch: null, nextMatch: null }; })
-          : Promise.resolve({ lastMatch: null, nextMatch: null }),
-      ]);
-
-      let candidates = [thesportsdbCandidate, reverseCandidate, espnResult.lastMatch].filter(Boolean);
-      console.log('[Sports] Candidats "dernier match" collectés :', candidates);
-
-      if (!candidates.length) {
-        const newsCandidate = await fetchLastMatchGoogleNews(team, buildTeamContext(team)).catch(err => { console.warn('[Sports] fetchLastMatchGoogleNews a échoué', err); return null; });
-        if (newsCandidate) candidates = [newsCandidate];
-      }
-
-      candidates.sort((a, b) => b.date - a.date);
-      const best = candidates[0] || null;
-      console.log('[Sports] Dernier match retenu (le plus récent parmi les candidats) :', best);
+      const espnNextMatch = espnSportKey
+        ? await fetchEspnSchedule(ctx, espnSportKey).catch(err => { console.warn('[Sports] fetchEspnSchedule a échoué', err); return null; })
+        : null;
 
       // Prochain match : TheSportsDB en priorité (déjà dans le bon format,
       // et généralement à jour) ; repli sur ESPN SEULEMENT si TheSportsDB n'a
       // rien renvoyé — corrige le vrai trou signalé (voir en-tête de
       // fetchEspnSchedule) où rien d'autre que `eventsnext.php` n'alimentait
       // jamais l'affichage du prochain match.
-      const nextMatch = nextMatchTsdb || espnResult.nextMatch;
-      console.log('[Sports] Prochain match retenu :', nextMatch, nextMatchTsdb ? '(source: thesportsdb)' : (espnResult.nextMatch ? '(source: espn, repli)' : '(aucune source)'));
+      let nextMatch = nextMatchTsdb || espnNextMatch;
+      let nextMatchSource = nextMatchTsdb ? 'thesportsdb' : (espnNextMatch ? 'espn (roster)' : null);
 
-      resultsSlot.innerHTML = renderLastResultsHtml(best ? [best] : []);
+      // DERNIER repli — scoreboard ESPN par ligue connue (2026-09-06, sur
+      // demande explicite, BUG 3 PART B — PSG : "Prochain match:
+      // Indisponible" malgré une équipe bien réelle) : seulement si TheSportsDB
+      // n'a RIEN renvoyé ET qu'une ligue connue a été choisie dans le menu
+      // déroulant Paramètres (voir KNOWN_LEAGUES/config.js, config.manualLeague)
+      // — voir fetchLeagueScoreboardNextMatch plus haut pour le détail.
+      if (!nextMatch && config?.manualLeague) {
+        const knownLeague = KNOWN_LEAGUES.find(l => l.value === config.manualLeague);
+        if (knownLeague) {
+          nextMatch = await fetchLeagueScoreboardNextMatch(knownLeague, buildTeamContext(team)).catch(err => { console.warn('[Sports] fetchLeagueScoreboardNextMatch a échoué', err); return null; });
+          if (nextMatch) nextMatchSource = 'espn (scoreboard ligue, dernier repli)';
+        }
+      }
+      console.log('[Sports] Prochain match retenu :', nextMatch, nextMatchSource ? `(source: ${nextMatchSource})` : '(aucune source)');
+
       nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span>${renderNextMatchHtml(nextMatch)}`;
 
       // Classement — jamais attendu avant d'afficher le prochain match
@@ -1293,7 +1291,6 @@ window.MatinModules.ol = {
           .catch((err) => console.warn(`[Sports] Classement ${league.slug} indisponible`, err));
       }
     } catch (err) {
-      resultsSlot.innerHTML = '<span class="sports-no-data">—</span>';
       nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span><span class="sports-no-data">Indisponible</span>`;
       console.error('[Sports] TheSportsDB', err);
     }
