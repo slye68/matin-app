@@ -91,15 +91,6 @@
       <span class="drive-sync-indicator" id="driveSyncIndicator"></span>
     </div>
     <div class="titlebar-center">
-      <!-- Réduire en icône flottante (2026-08-23, déplacée le même jour à
-           gauche de la barre de recherche sur demande explicite — vivait
-           avant dans .titlebar-right, à côté de Paramètres) — masquée par
-           défaut, affichée par dashboard.js (initDisplayMode) UNIQUEMENT en
-           mode "floating" ; Échap fait la même chose (voir dashboard.js).
-           "☀️→🔆" (grand soleil → petit soleil) illustre "réduire en icône" ;
-           .titlebar-collapse-btn (voir style.css) porte le gap de 40px vers
-           la barre de recherche et la largeur minimale de 60px. -->
-      <button class="titlebar-btn titlebar-collapse-btn" id="btnCollapseToSun" title="Réduire en icône flottante" style="display:none">☀️→🔆</button>
       <form class="titlebar-search" id="titlebarSearch">
         <!-- "sur Google" retiré du title/placeholder (2026-09-03) — le
              moteur est configurable (Paramètres → Services), voir
@@ -108,6 +99,30 @@
         <button type="submit" class="titlebar-search-icon" title="Rechercher">🔍</button>
         <input type="text" id="titlebarSearchInput" placeholder="Rechercher..." autocomplete="off">
       </form>
+      <!-- Réduire en icône flottante — reconstruit le 2026-09-09, sur demande
+           explicite (l'ancien bouton, sa classe .titlebar-collapse-btn et le
+           toggle display de initDisplayMode ont été supprimés entièrement,
+           voir dashboard.js/style.css) : visibilité désormais pilotée
+           UNIQUEMENT par dashboard.js updateCollapseBtnVisibility (mode
+           "floating" actif ET pas en mode portrait — masqué en portrait,
+           voir CONTEXT.md). ÉCART assumé par rapport à la demande littérale
+           ("supprime entièrement le bouton") : la demande redonne dans la
+           foulée un comportement d'affichage pour ce même #btnCollapseToSun,
+           impossible sans que l'élément existe dans le DOM — traité comme
+           une reconstruction propre plutôt qu'une suppression définitive.
+           style="display:none" par défaut : évite un flash visible avant le
+           premier appel JS à updateCollapseBtnVisibility. -->
+      <button class="titlebar-btn titlebar-icon-btn" id="btnCollapseToSun" title="Réduire en icône flottante" style="display:none">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="13" r="4"/>
+          <line x1="3" y1="17" x2="21" y2="17"/>
+          <line x1="12" y1="5" x2="12" y2="3"/>
+          <line x1="6.3" y1="7.3" x2="4.9" y2="5.9"/>
+          <line x1="17.7" y1="7.3" x2="19.1" y2="5.9"/>
+          <line x1="4" y1="13" x2="2" y2="13"/>
+          <line x1="22" y1="13" x2="20" y2="13"/>
+        </svg>
+      </button>
     </div>
     <div class="titlebar-right">
       <!-- Icônes seules (2026-09-03, sur demande explicite, "économiser de
@@ -124,6 +139,13 @@
         </svg>
       </button>
       <button class="titlebar-btn titlebar-icon-btn" id="btnAutoArrange" title="Réorganiser automatiquement les modules par catégorie">⊞</button>
+      <!-- Mode portrait (2026-09-07, sur demande explicite) — bascule
+           .portrait-mode sur <body> (voir dashboard.js) : resserre la zone de
+           dépôt des cartes à 2 colonnes environ, pour un écran tourné en
+           vertical. Icône ⇅ (paysage, état par défaut) ↔ ↕ (portrait actif),
+           mise à jour par dashboard.js au clic ET au chargement (lit
+           `ui.portraitMode`). -->
+      <button class="titlebar-btn titlebar-icon-btn" id="btnPortraitMode" title="Mode portrait / paysage">⇅</button>
       <!-- Sélecteur de profil (2026-08-31, sur demande explicite ; icône
            👤→🚪, 2e révision, même jour, sur demande explicite) — bascule
            INSTANTANÉMENT entre Profil 1/2 (voir dashboard.js
@@ -306,5 +328,12 @@
   <script src="modules/youtube.js"></script>
   <script src="modules/search-engines.js"></script>
   <script src="dashboard.js"></script>
+  <!-- Mode démo (2026-09-09, sur demande explicite) — présentation
+       automatisée des modules phares, lancée manuellement via `runDemo()`
+       dans la console DevTools (aucun bouton/raccourci UI, voir
+       demo-mode.js). Chargé APRÈS dashboard.js : s'appuie sur les cartes
+       qu'il crée (`#module-<clé>`) et sur ses boutons existants
+       (`#btnAutoArrange`), sans rien redéfinir de son côté. -->
+  <script src="demo-mode.js"></script>
 </body>
 </html>

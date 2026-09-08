@@ -3924,7 +3924,7 @@ const DRIVE_FILE_NAME = 'matin-userdata.json';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
-// Pousse un événement au dashboard pour l'indicateur "✓ Données synchronisées"
+// Pousse un événement au dashboard pour l'indicateur "✓ Saved"
 // (voir index.html/dashboard.js, .drive-sync-indicator) — mémorisé aussi dans
 // `lastDriveSyncStatus` pour le cas où le dashboard n'a pas encore fini de
 // charger/enregistrer son écouteur au moment où la sync de lancement termine

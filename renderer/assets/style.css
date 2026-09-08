@@ -60,20 +60,48 @@
    (index.html ET config.html, CSSOM séparés), cette seule règle ici suffit
    aux deux dès que chacun pose l'attribut sur SON PROPRE <html>. */
 :root[data-color-scheme="light"] {
-  --bg-base:       #f5f5f0;
+  --bg-base:       #f0f0f0;
   --bg-panel:      #ffffff;
   --bg-panel-alt:  #f0f0eb;
   --bg-hover:      #e8e8e3;
+  /* Titlebar blanc pur (2026-09-08, sur demande explicite) — sans cette
+     variable, `.titlebar` retombe sur `var(--bg-base)` (voir :root ci-dessus),
+     désormais un gris très clair plutôt que blanc ; ce réglage garde la
+     titlebar visuellement distincte du fond du dashboard. Fenêtre dashboard
+     UNIQUEMENT : `html.dashboard-window[data-color-scheme="light"]`
+     ci-dessous la redéfinit avec sa propre teinte "parchemin" volontairement
+     plus foncée (voir son commentaire), non touchée ici. */
+  --titlebar-bg:   #ffffff;
 
   --border:        #d1d5db;
   --border-light:  #e5e7eb;
 
-  /* Assombries (2026-08-30, sur demande explicite — meilleure lisibilité) */
-  --text-primary:  #1a1a2e;
-  --text-secondary:#3d4450;
+  /* Assombries (2026-08-30, sur demande explicite — meilleure lisibilité) ;
+     re-ajustées le 2026-09-08 (sur demande explicite) — text-primary
+     légèrement plus neutre (moins de teinte bleu-nuit), text-secondary
+     éclairci pour se rapprocher de l'ancien text-muted (inchangé).
+     RE-ASSOMBRIE le 2026-09-09 (sur demande explicite, "gris trop clair en
+     mode clair") — text-secondary (labels/métadonnées/dates, ex. .app-date)
+     repasse à #374151, plus contrasté ; text-muted (placeholders/texte
+     tertiaire moins important, ex. ::placeholder) reste #6b7280, valeur
+     PLANCHER explicitement demandée (jamais plus clair que ça en mode clair). */
+  --text-primary:  #1a1a1a;
+  --text-secondary:#374151;
   --text-muted:    #6b7280;
 
   --color-scheme: light;
+}
+
+/* Cartes module SANS bordure visible, ombre légère à la place (2026-09-08,
+   sur demande explicite) — `border-color: transparent` plutôt que
+   `border: none` : garde le MÊME espace réservé (1px, box-sizing:border-box,
+   voir le reset plus bas) qu'en thème sombre, alignement du contenu interne
+   identique entre les 2 thèmes, seule la bordure devient invisible. Scopé à
+   `.module-card` uniquement (pas une redéfinition de `--border`, encore
+   utilisée telle quelle par les champs/menus déroulants de Paramètres). */
+:root[data-color-scheme="light"] .module-card {
+  border-color: transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* ─── Fenêtre dashboard, thème clair uniquement (2026-08-10, sur demande
@@ -83,10 +111,11 @@
    chargé indépendamment par index.html ET config.html). Scopé via la classe
    posée en dur sur <html> dans index.html (absente de config.html) plutôt
    que par une variable globale, justement pour NE PAS affecter Paramètres.
-   --titlebar-bg garde sa valeur par défaut (= --bg-base) partout ailleurs
-   (thème sombre, thème clair de config.html) : seule la titlebar du
-   dashboard en clair a sa propre teinte, nettement plus foncée que le
-   contenu pour bien la distinguer (demande explicite). */
+   --titlebar-bg vaut #ffffff partout ailleurs en thème clair (voir
+   :root[data-color-scheme="light"] plus haut, 2026-09-08) — seule la
+   titlebar du dashboard en clair garde sa propre teinte parchemin, plus
+   foncée que le contenu pour bien la distinguer (demande explicite
+   d'origine, toujours valable). */
 html.dashboard-window[data-color-scheme="light"] {
   /* Palette "parchemin/crème" (2026-08-11, sur demande explicite — remplace
      la teinte gris-bleu froide ci-dessus, jugée trop clinique/agressive) :
@@ -105,9 +134,16 @@ html.dashboard-window[data-color-scheme="light"] {
 
   --border:        #c8c7c0;
 
+  /* text-secondary/text-muted RE-ASSOMBRIES le 2026-09-09 (sur demande
+     explicite, "gris trop clair en mode clair") — même règle que le bloc
+     clair partagé plus haut : #374151 pour le texte secondaire (labels/
+     métadonnées/dates), #6b7280 pour le texte tertiaire/placeholder — c'était
+     surtout `--text-muted` le problème réel ici (#9b9b94, plus clair que le
+     plancher #6b7280 demandé, donc moins contrasté que la variante partagée
+     avec Paramètres alors qu'il aurait dû être AU MOINS aussi sombre). */
   --text-primary:  #2d2d2a;
-  --text-secondary:#6b6b65;
-  --text-muted:    #9b9b94;
+  --text-secondary:#374151;
+  --text-muted:    #6b7280;
 }
 
 /* ─── Reset ─────────────────────────────────────────────────── */
@@ -153,11 +189,21 @@ html, body {
   z-index: 100;
 }
 
+/* `drag` (2026-09-08, sur demande explicite — correctif : la fenêtre n'était
+   PLUS DRAGGABLE du tout via la titlebar) — `.titlebar-left` (logo/nom/date/
+   salutation/indicateur sync, voir index.html) ne contient AUCUN élément
+   cliquable ; `.titlebar-right` ne contient QUE des `<button>`, déjà
+   `no-drag` par eux-mêmes (voir `.titlebar-btn` et la couverture générale
+   `.titlebar button` plus bas, déclarées directement SUR les boutons, pas
+   héritées de ce conteneur) — passer ces 2 conteneurs en `no-drag` (comme
+   avant ce correctif) rendait donc TOUTE la largeur de la titlebar
+   non-draggable pour aucun bénéfice réel, les vrais éléments cliquables
+   restant protégés indépendamment. */
 .titlebar-left, .titlebar-right {
   display: flex;
   align-items: center;
   gap: 10px;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .app-logo { font-size: 15px; }
@@ -174,6 +220,10 @@ html, body {
    milieu, ce qui le faisait chevaucher la barre de recherche (elle-même
    centrée en absolu sur 50% de la largeur totale) à la largeur de fenêtre par
    défaut de l'appli. */
+/* `drag` (2026-09-08, sur demande explicite, même correctif que
+   .titlebar-left/-right ci-dessus) — ne contient que le formulaire de
+   recherche (`#titlebarSearch`/`.titlebar-search`), déjà `no-drag` par
+   lui-même (voir plus bas), pas besoin que ce conteneur le soit aussi. */
 .titlebar-center {
   position: absolute;
   left: 50%;
@@ -181,7 +231,37 @@ html, body {
   transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
+}
+
+/* Mode portrait — titlebar (2026-09-09, 8e révision, sur demande explicite) —
+   ANNULE la 7e : prénom (`.app-greeting`) plus du tout tronqué (`max-width:
+   none`, `overflow:hidden`/`text-overflow:ellipsis` retirés) ; `.titlebar-search`
+   resserrée à `14vw` (moitié du 28vw de la 7e révision) pour laisser de la
+   marge des 2 côtés sur un écran étroit et ne plus chevaucher `.titlebar-right`
+   (Actualiser/Réorganiser/etc.) ; `.titlebar-center` INCHANGÉE (`display:block`,
+   garde son centrage absolu natif `position:absolute;left:50%`, règle de base
+   plus haut) ; `.titlebar-left`/`.titlebar-right` INCHANGÉES (`flex:0 0 auto`). */
+body.portrait-mode .titlebar-left {
+  flex: 0 0 auto;          /* prend sa taille naturelle, ne compresse pas */
+  overflow: visible;        /* prénom jamais coupé */
+}
+
+body.portrait-mode .app-greeting {
+  max-width: none;          /* supprime la troncature du prénom */
+  white-space: nowrap;
+}
+
+body.portrait-mode .titlebar-center {
+  display: block;           /* reste centré en absolu (position:absolute left:50%) */
+}
+
+body.portrait-mode .titlebar-search {
+  width: 14vw;              /* moitié du mode paysage (~28vw) */
+}
+
+body.portrait-mode .titlebar-right {
+  flex: 0 0 auto;           /* tous les boutons restent visibles */
 }
 
 .app-greeting {
@@ -324,6 +404,32 @@ body.ultrawide .titlebar-search { width: 40vw; }
   background: var(--bg-hover);
 }
 
+/* Couverture no-drag générale (2026-09-07, sur demande explicite ; PREMIER
+   mécanisme de protection depuis le 2026-09-08 — voir .titlebar-left/-center/
+   -right plus haut, repassés `drag` ce jour-là pour corriger une fenêtre
+   devenue entièrement non-draggable, voir leur commentaire) — couvre
+   directement tout bouton/champ/lien/<select>, où qu'il vive dans la
+   titlebar (ces 3 groupes inclus, PLUS tout enfant DIRECT de `.titlebar`
+   hors de ces 3 groupes qui serait ajouté plus tard), qui hériterait sinon
+   du `drag` ambiant et deviendrait incliquable. `.titlebar-search`/
+   `#titlebarSearch` (formulaire de recherche, seul élément interactif de
+   `.titlebar-center`) garde en plus sa PROPRE règle `no-drag` ci-dessous,
+   redondante avec celle-ci mais sans risque.
+   Adapté du sélecteur générique fourni (`#titlebar` → `.titlebar`, aucun
+   élément de ce nom dans ce fichier — c'est une classe ici, voir
+   index.html) ; `.module-add-btn` du sélecteur d'origine retiré, classe
+   inexistante dans ce projet (les modules s'ajoutent depuis Paramètres, pas
+   un bouton "+" du titlebar). */
+.titlebar button,
+.titlebar input,
+.titlebar select,
+.titlebar a,
+#titlebarSearch,
+#titlebarSearchInput,
+.titlebar-btn {
+  -webkit-app-region: no-drag;
+}
+
 /* Icônes seules Actualiser/Réorganiser/Paramètres (2026-09-03, sur demande
    explicite) — même composant que .titlebar-btn (fond/hover/no-drag hérités),
    juste recentré en carré 28×28 pour un glyphe/SVG au lieu de texte + padding
@@ -338,17 +444,38 @@ body.ultrawide .titlebar-search { width: 40vw; }
   line-height: 1;
 }
 
-/* Réduire en icône flottante (2026-08-23, déplacée le même jour à gauche de
-   la barre de recherche sur demande explicite, voir index.html) — largeur
-   mini 60px pour rester lisible ("☀️→🔆" tient large), marge de 40px avant
-   .titlebar-search (PAS un `gap` sur .titlebar-center, qui s'appliquerait
-   aussi entre les autres enfants de ce conteneur — un seul enfant en a
-   besoin, et seulement d'un côté). */
-.titlebar-collapse-btn {
-  min-width: 60px;
-  text-align: center;
-  margin-right: 40px;
-  flex-shrink: 0;
+/* Icônes/texte du titlebar forcés en noir en mode clair (2026-09-09, sur
+   demande explicite) — `.titlebar-btn`/`.titlebar-search input` restent
+   `color:#ffffff` en dur (voir plus haut) quel que soit le thème : pensés à
+   l'origine pour une titlebar TOUJOURS sombre (`--titlebar-bg`, voir :root),
+   ce qui n'est plus vrai en thème clair (`--titlebar-bg:#ffffff` par défaut,
+   voir :root[data-color-scheme="light"]) — texte/icônes blancs devenus
+   quasi invisibles sur ce fond clair. Les SVG (Actualiser/Paramètres, voir
+   index.html) utilisent déjà `stroke="currentColor"` — `color:#111111`
+   suffirait donc en théorie à les faire suivre, mais le `stroke` explicite
+   ci-dessous est gardé en plus (sans risque) au cas où un futur SVG fixerait
+   sa propre couleur de trait plutôt que `currentColor`. `.titlebar-search
+   input` ajoutée en plus du sélecteur fourni : même bug exact (texte
+   TAPÉ dans la recherche resterait blanc sur fond clair), pas seulement les
+   boutons/icônes. */
+:root[data-color-scheme="light"] .titlebar-btn,
+:root[data-color-scheme="light"] .titlebar-icon-btn,
+:root[data-color-scheme="light"] #btnProfileSwitch,
+:root[data-color-scheme="light"] .titlebar-search input {
+  color: #111111;
+}
+:root[data-color-scheme="light"] .titlebar-icon-btn svg {
+  stroke: #111111;
+}
+
+/* ─── Mode portrait (2026-09-07, sur demande explicite) ──────────────────── */
+/* Bouton bascule mis en évidence (fond accentué) pendant que le mode est
+   actif — seul retour visuel direct sur l'état du bouton lui-même, le reste
+   de l'effet du mode portrait (zone de dépôt des cartes resserrée) est piloté
+   en JS, voir dashboard.js dashboardContentBounds/PORTRAIT_MAX_CONTENT_WIDTH. */
+body.portrait-mode #btnPortraitMode {
+  background: var(--accent-glow);
+  color: var(--accent);
 }
 
 /* ─── Dashboard : zone libre (glisser-déposer + redimensionnement) ──────── */
@@ -687,6 +814,41 @@ body.ultrawide .module-card { max-width: 500px; }
   padding: 1px 6px;
   border-radius: 6px;
   vertical-align: middle;
+}
+
+/* Badge "Bêta" — option "Icône flottante" des Paramètres (2026-09-09, sur
+   demande explicite, voir config.js renderDisplayModeOptions). ATTENTION —
+   distinct de `.beta-badge` juste au-dessus (déjà utilisé ailleurs pour le
+   même usage sémantique, mais en discret/italique/teintes muted) : cette
+   classe-ci (nom inversé, `badge-beta`) a été redemandée avec un style
+   volontairement différent (pastille pleine `--accent`, texte blanc, gras) —
+   ajoutée telle quelle malgré la quasi-duplication fonctionnelle avec
+   `.beta-badge`, à réconcilier si ce n'était pas voulu. */
+.badge-beta {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
+/* Hint à côté du libellé "PROFILS" des Paramètres (2026-09-09, sur demande
+   explicite, voir config.html .profiles-banner-label). `letter-spacing:
+   normal` AJOUTÉ (absent de la demande) : `.profiles-banner-label` (parent,
+   config.html) impose `letter-spacing:0.1em` à tous ses enfants — pensé pour
+   "PROFILS" en majuscules espacées, mais étirerait une phrase entière ici de
+   façon peu lisible. Même correctif déjà appliqué à `.profiles-info-btn`
+   (config.html, sibling de ce span) pour la même raison. */
+.profiles-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  margin-left: 6px;
+  letter-spacing: normal;
 }
 
 .module-content { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }
@@ -2233,6 +2395,33 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .layout-slot-btn:disabled:hover { background: var(--bg-panel-alt); }
 
+/* Couleurs dédiées Sauvegarder (vert) / Charger (orange) (2026-09-09, sur
+   demande explicite). `:not(:disabled)` sur les boutons Charger : ils
+   démarrent `disabled` (voir index.html) tant qu'aucune disposition n'est
+   encore enregistrée dans cet emplacement — l'orange ne doit s'appliquer
+   qu'une fois cliquables, sinon le style `:disabled` déjà en place ci-dessus
+   (opacity 0.5) perdrait tout son sens visuel de bouton inactif. */
+#layoutSlotSave1,
+#layoutSlotSave2 {
+  color: #ffffff;
+  background-color: #16a34a;
+  border-color: #16a34a;
+}
+#layoutSlotSave1:hover,
+#layoutSlotSave2:hover {
+  background-color: #15803d;
+}
+#layoutSlotLoad1:not(:disabled),
+#layoutSlotLoad2:not(:disabled) {
+  color: #ffffff;
+  background-color: #ea580c;
+  border-color: #ea580c;
+}
+#layoutSlotLoad1:not(:disabled):hover,
+#layoutSlotLoad2:not(:disabled):hover {
+  background-color: #c2410c;
+}
+
 /* Note d'info sous les emplacements de disposition (2026-09-01, sur demande
    explicite) — précise que "Réorganiser"/les dispositions sauvegardées ne
    portent QUE sur le placement, jamais l'activation d'un module. Discrète à
@@ -3341,18 +3530,22 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .parcels-row input:focus { outline: none; border-color: var(--accent); }
 
-/* Config Suivi de prix (page Paramètres, 2026-08-31, sur demande explicite) —
-   grille DÉDIÉE (pas .parcels-row générique ci-dessus, qui reste partagée
-   par Suivi de prix... ah non, plus lui désormais : RSS/YouTube) : ce module
-   a besoin d'une 5e colonne ("Vendeur") ET de largeurs FIXES précises pour
-   Vendeur/Prix cible (demandées en px, pas en fr comme le reste de
-   .parcels-row) plutôt que la proportion générique 1.2fr/1.2fr/0.8fr.
-   [Nom du produit] [Vendeur] [URL] [Prix cible €] [×] — Nom et URL restent
-   flexibles (minmax + fr, comme le reste de l'app pour des colonnes de texte
-   de longueur variable), Vendeur/Prix cible/× fixes. */
+/* Config Liste de souhaits (page Paramètres, 2026-08-31, refonte complète le
+   2026-09-08 sur demande explicite — "Suivi de prix Marchand" devient une
+   liste statique) — grille DÉDIÉE (pas .parcels-row générique ci-dessus, qui
+   reste partagée par RSS/YouTube) : 6 colonnes désormais, [Nom du produit]
+   [Vendeur] [URL] [Budget approximatif] [Prioritaire] [×] — la 4e colonne
+   ("Prix cible €", input number) devient "Budget approximatif" (texte
+   libre), la 5e ("Prioritaire") est NOUVELLE : d'abord une case à cocher,
+   remplacée le même jour (2e demande explicite) par une étoile cliquable
+   ⭐/☆, même glyphe/couleur que le module dashboard (voir price-tracking.js
+   wishlistRowHtml) plutôt qu'un contrôle natif sans équivalent visuel là-bas.
+   Nom et URL restent flexibles (minmax + fr, comme le reste de l'app pour
+   des colonnes de texte de longueur variable), Vendeur/Budget/Prioritaire/×
+   fixes. */
 .price-tracking-config-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) 100px minmax(110px, 1.2fr) 80px 20px;
+  grid-template-columns: minmax(90px, 1fr) 100px minmax(110px, 1.2fr) 80px 20px 20px;
   gap: 6px;
   align-items: center;
 }
@@ -3367,6 +3560,20 @@ body.ultrawide .module-card { max-width: 500px; }
   font-family: var(--font-ui);
 }
 .price-tracking-config-row input:focus { outline: none; border-color: var(--accent); }
+/* Étoile "Prioritaire" (2026-09-08) — <button> réinitialisé (aucun fond/
+   bordure/padding natif de bouton), centrée dans sa colonne étroite (20px,
+   même largeur que ×). Couleur (#f59e0b actif/#6b7280 inactif) posée inline
+   par JS (voir renderPriceTrackingConfigSection), cette règle ne porte que
+   la taille/le curseur — communs aux 2 états. */
+.price-tracking-priority-star {
+  justify-self: center;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
 
 /* Config Rappels (page Paramètres) */
 .module-config-field.reminders-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
@@ -3573,19 +3780,21 @@ body.ultrawide .module-card { max-width: 500px; }
   border-radius: var(--radius-sm);
 }
 
-/* ─── Module : Suivi de prix Marchand (2026-08-30, sur demande explicite) ──
+/* ─── Module : Liste de souhaits (2026-08-30, sur demande explicite ;
+   refonte complète le 2026-09-08 — "Suivi de prix Marchand" devient une
+   liste statique, plus de fetch/prix/pastille de statut) ──────────────────
    Module Colis supprimé le 2026-08-31 (sur demande explicite) — ces classes
    étaient à l'origine calquées sur ses `.parcels-row-display` etc., gardées
    ici comme seule trace du design d'origine, mais chaque ligne est
    cliquable (ouvre la page produit) : cursor + hover ajoutés en
-   conséquence. */
+   conséquence. `.price-tracking-target`/`-dot`/`-value`/`-price`/
+   `-price-alert`/`-price-stale` (pastille de statut + prix, liées au fetch
+   retiré) SUPPRIMÉES le 2026-09-08 — plus aucun appelant (voir
+   price-tracking.js wishlistRowHtml, qui ne pose plus que
+   `.price-tracking-main`/`-label`/`-merchant` + `-star`, nouvelle, pour
+   l'étoile ⭐ prioritaire — color posée inline, voir price-tracking.js). */
 .price-tracking-module { height: 100%; }
 .price-tracking-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; height: 100%; }
-/* Redesign compact (2026-08-31, sur demande explicite) — remplace la mise en
-   page à 2 lignes (nom puis objectif, flèche de tendance séparée) par UNE
-   seule ligne dense : nom + marchand + objectif à gauche, pastille de statut
-   + prix à droite. Padding/gap resserrés (9px 10px/10px → 6px 8px/8px) pour
-   tenir plus de produits dans la hauteur de carte disponible. */
 .price-tracking-row {
   display: flex;
   align-items: center;
@@ -3615,25 +3824,6 @@ body.ultrawide .module-card { max-width: 500px; }
    demande explicite — remplace l'ancienne extraction depuis le domaine de
    l'URL, voir price-tracking.js priceVendorLabel), ex. "(Fnac)". */
 .price-tracking-merchant { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-.price-tracking-target { font-size: 11px; color: #fbbf24; flex-shrink: 0; }
-.price-tracking-value { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-/* Pastille de statut (2026-08-31, sur demande explicite — remplace la flèche
-   de tendance ↑/↓/→ ET le badge 🔔, tous deux retirés : redondants avec ce
-   que cette pastille exprime déjà à elle seule) : verte si le prix actuel
-   est au niveau ou sous l'objectif, rouge s'il est au-dessus, grise si
-   aucun objectif n'est défini (ou si le prix actuel est inconnu — voir
-   priceStatusDot, jamais rouge par défaut sur une donnée manquante). */
-.price-tracking-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.price-tracking-price { font-size: 13px; font-weight: normal; color: var(--text-primary); font-family: var(--font-mono); }
-/* Prix sous le seuil d'alerte (2026-08-31, sur demande explicite) — même
-   vert que la pastille pour ce cas, le vert seul suffit à repérer la ligne
-   au premier coup d'œil. */
-.price-tracking-price-alert { color: var(--accent-green); }
-/* Dernier prix connu, pas le prix actuel (2026-08-31, sur demande explicite,
-   toutes les méthodes de récupération ont échoué) : italique + couleur
-   atténuée pour signaler visuellement que la valeur peut être périmée, sans
-   pour autant la cacher comme un "Indisponible" sec. */
-.price-tracking-price-stale { font-style: italic; color: var(--text-secondary); font-weight: normal; }
 
 /* ─── Module : Cinéma — 3 sections (2026-08-10 → 2026-08-11 → 2026-08-15 →
    2026-08-15, sur demande explicite à chaque révision) : actus statiques
@@ -4029,16 +4219,21 @@ body.ultrawide .module-card { max-width: 500px; }
    — grille de 2 colonnes d'avatars de 76px, toujours sans nom visible par
    défaut (bulle CSS au survol, voir [data-name]::after plus bas), badge de
    notification en absolu sur le coin de l'avatar (ne le recouvre pas). */
-/* `height: 100%` retiré (2026-09-01, sur demande explicite, "auto-fit its
-   content... no empty space below the avatars") — la carte est maintenant
-   à hauteur AUTOMATIQUE (voir dashboard.js isAutoHeightKey, `youtube`
-   ajouté à cet ensemble le même jour) : `.module-card` n'a donc plus de
-   hauteur figée pour que `.youtube-module`/`.youtube-module-avatars-wrap`
-   puissent s'étirer dedans. Sans ce retrait, `flex: 1` sur
-   `.youtube-module-avatars-wrap` ci-dessous aurait continué à combler tout
-   l'espace vertical dont la carte hérite par ailleurs (defaultSize.h ou une
-   hauteur enregistrée après un ancien redimensionnement manuel) — c'était
-   très probablement la cause réelle de l'espace vide sous la grille. */
+/* `height: 100%` retiré le 2026-09-01 ("auto-fit its content... no empty
+   space below the avatars"), YouTube ajouté à dashboard.js isAutoHeightKey
+   le même jour. RETIRÉ de cet ensemble le 2026-09-08 (sur demande explicite)
+   — l'auto-height écrasait systématiquement toute taille choisie à la main
+   par l'utilisateur (poignée de redimensionnement) au chargement d'une
+   disposition sauvegardée, sans moyen de la conserver. YouTube est donc
+   revenu à une hauteur FIXE/redimensionnable normale (voir dashboard.js) ;
+   `.youtube-module`/`.youtube-module-avatars-wrap` restent volontairement
+   SANS hauteur explicite (`height`/`flex: 1`) — pas nécessaire pour du
+   contenu qui tient déjà dans la carte, et le défilement interne générique
+   de `.module-content` (overflow-y: auto, voir plus haut dans ce fichier)
+   prend le relais tout seul dès que la grille d'avatars dépasse une carte
+   redimensionnée plus petite qu'elle — voir `#module-youtube .module-content`
+   plus bas, dont le `overflow-y: hidden` (posé pour l'ancien comportement
+   auto-height) est retiré pour cette même raison. */
 .youtube-module { display: flex; flex-direction: column; }
 /* Bouton "Vérifier maintenant" — DÉPLACÉ dans `.module-header`, à droite du
    titre "YOUTUBE" (2026-09-01, 3e révision, sur demande explicite ; voir
@@ -4066,27 +4261,16 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .youtube-check-now-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .youtube-check-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-/* `flex: 1` retiré (même correctif que .youtube-module ci-dessus) — le wrap
-   ne fait plus que porter la grille, sans plus jamais s'étirer pour combler
-   une hauteur de carte désormais elle-même pilotée par le contenu. */
 .youtube-module-avatars-wrap { width: 100%; }
 /* Exactement 2 avatars par rangée (point 2 de la demande) — `repeat(2, ...)`
    plutôt que `auto-fill`/`auto-fit` : ces derniers ajusteraient eux-mêmes le
    nombre de colonnes selon la largeur disponible, alors que "exactly 2" doit
    rester vrai même si la carte est redimensionnée plus large à la main.
-   `overflow: hidden` sur les 2 axes (2026-09-01, sur demande explicite,
-   "remove the horizontal scrollbar... no scrollbars at all") — plus de
-   `height: 100%`/`overflow-y: auto` : la carte suit maintenant TOUJOURS
-   exactement la hauteur du contenu (voir dashboard.js isAutoHeightKey), il
-   n'y a donc plus jamais matière à défiler verticalement. `overflow-x:
-   hidden` remplace l'ancien `overflow-x: visible` (qui laissait
-   délibérément déborder la bulle CSS de survol, voir plus bas) — la bulle
-   se retrouve donc désormais tronquée au bord droit de la carte pour les
-   avatars de la colonne de droite, compromis accepté pour supprimer la
-   barre de défilement horizontale du canevas (le contenu invisible mais
-   toujours en boîte de la bulle, même en `visibility: hidden`, agrandissait
-   la zone de défilement du canevas dès lors que son ancêtre ne le clippait
-   plus). */
+   `overflow: hidden` — élément SANS hauteur explicite, donc sans effet de
+   clipping sur lui-même (sa boîte fait déjà exactement la hauteur de son
+   contenu) : garde ici seulement en défense en profondeur pour la bulle de
+   survol (voir `#module-youtube .module-content` juste en dessous, qui gère
+   le VRAI défilement/clipping vertical de la carte). */
 .youtube-module-avatars {
   display: grid;
   grid-template-columns: repeat(2, 76px);
@@ -4095,14 +4279,16 @@ body.ultrawide .module-card { max-width: 500px; }
   padding: 4px 2px;
   overflow: hidden;
 }
-/* `.module-content` retombe sur son `overflow-x: hidden` générique (voir
-   plus haut dans ce fichier, règle commune à tous les modules) — plus
-   besoin de la dérogation `overflow: visible` d'une révision précédente,
-   dont le seul but était de laisser passer la bulle de survol ; `overflow-y`
-   explicitement forcé à `hidden` ici (le générique est `auto`) pour
-   supprimer toute barre de défilement verticale résiduelle, cohérente avec
-   une carte désormais toujours exactement à la hauteur de son contenu. */
-#module-youtube .module-content { overflow-y: hidden; }
+/* `.module-content` retombe sur son `overflow-x: hidden`/`overflow-y: auto`
+   génériques (voir plus haut dans ce fichier, règle commune à tous les
+   modules à hauteur fixe/redimensionnable) — le `overflow-y: hidden` posé
+   ici le 2026-09-01 (pour l'ancien comportement auto-height, où la carte
+   suivait TOUJOURS exactement la hauteur du contenu, donc rien à faire
+   défiler) est retiré le 2026-09-08 : YouTube n'étant plus en auto-height
+   (voir dashboard.js isAutoHeightKey), une carte redimensionnée plus petite
+   que sa grille d'avatars a de nouveau besoin de ce défilement interne
+   plutôt que de re-agrandir la carte malgré elle. Aucune règle dédiée à
+   poser ici : le générique suffit une fois qu'on ne l'écrase plus. */
 /* Point 1 de la demande, littéralement "overflow-x: hidden on the module
    card" — défense en profondeur en plus de .module-content/.youtube-module-
    avatars ci-dessus : n'a normalement rien à clipper à ce niveau (le

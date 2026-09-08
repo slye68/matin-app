@@ -53,11 +53,13 @@ const MODULE_REGISTRY = {
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air',   icon: '🌡️', requiresGoogle: false, defaultSize: { w: 300, h: 200 }, refreshMs: 30 * 60 * 1000, theme: 'maison' },
   fuelPrices: { label: 'Carburants',    icon: '⛽', requiresGoogle: false, defaultSize: { w: 360, h: 320 }, refreshMs: 2 * 60 * 60 * 1000, theme: 'services' },
-  // Suivi de prix Marchand (2026-08-30, sur demande explicite) — pas de
-  // refreshMs ici : auto-refresh géré en interne (setInterval propre au
-  // module, voir price-tracking.js), même principe que Podcasts/ETF/
-  // Crypto/Spotify (voir commentaire d'en-tête plus haut sur ce point).
-  priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, defaultSize: { w: 340, h: 320 }, theme: 'services' },
+  // Liste de souhaits (2026-08-30, sur demande explicite ; refonte complète
+  // le 2026-09-08 — "Suivi de prix Marchand" devient une liste STATIQUE
+  // saisie à la main, plus aucun fetch réseau) — pas de refreshMs : rien à
+  // rafraîchir, price-tracking.js n'a plus de setInterval du tout (contraste
+  // avec Podcasts/ETF/Crypto/Spotify, qui gèrent eux un vrai auto-refresh
+  // interne, voir commentaire d'en-tête plus haut sur ce point).
+  priceTracking: { label: 'Liste de souhaits', icon: '🛒', requiresGoogle: false, defaultSize: { w: 340, h: 320 }, theme: 'services' },
   // Hauteur portée à 520px (depuis 320px) le 2026-08-15, sur demande
   // explicite — carte passée de 2 à 3 sections (actus statiques / à
   // l'affiche défilant compact / sorties à venir en diaporama), 320px ne
@@ -237,16 +239,23 @@ function isAutoHeightKey(key) {
   // une fois dépliées, au lieu de rester à taille fixe avec un défilement
   // interne.
   if (key === 'monEquipe') return true;
-  // YouTube (2026-09-01, sur demande explicite, "auto-fit its content...
-  // shrinks to fit exactly the avatar rows, no empty space below") — SANS
-  // ce correctif, la carte gardait la hauteur FIGÉE de defaultSize.h (ou
-  // celle enregistrée après un redimensionnement manuel), et
-  // .youtube-module-avatars-wrap { flex: 1 } l'étirait pour combler tout
-  // l'espace restant sous la grille d'avatars — c'était très probablement
-  // la vraie cause de l'espace vide signalé (voir aussi le retrait de
-  // `overflow-y: auto`/`flex: 1` dans style.css, devenus inutiles une fois
-  // la hauteur pilotée par le contenu plutôt que l'inverse).
-  if (key === 'youtube') return true;
+  // YouTube RETIRÉ de l'auto-height le 2026-09-08 (sur demande explicite) —
+  // l'ajout du 2026-09-01 ci-dessous avait un effet de bord réel non prévu :
+  // une disposition SAUVEGARDÉE (taille choisie à la main par l'utilisateur
+  // via la poignée de redimensionnement) était réappliquée au chargement,
+  // puis IMMÉDIATEMENT ré-agrandie pour "coller au contenu" — l'auto-height
+  // l'emportait toujours sur une taille manuelle, sans aucun moyen de la
+  // conserver. Corrigé en repassant YouTube en hauteur FIXE/redimensionnable
+  // normale (comme la grande majorité des modules) plutôt qu'en essayant de
+  // faire cohabiter les deux (aurait exigé de faire transiter un flag
+  // "taille manuelle" à travers ~6 points d'appel de isAutoHeightKey —
+  // beaucoup plus intrusif pour un seul module). Le défilement interne
+  // générique de `.module-content` (voir style.css, déjà utilisé par tous
+  // les modules à hauteur fixe) prend le relais quand la carte est
+  // redimensionnée plus petite que sa grille d'avatars — voir aussi
+  // `#module-youtube .module-content`, dont le `overflow-y: hidden` (posé le
+  // 2026-09-01 pour l'ancien comportement auto-height) est retiré pour cette
+  // même raison.
   // Anniversaires (2026-09-01, sur demande explicite, "remove the vertical
   // scrollbar — it appears even with only 1 entry") — même cause/même
   // correctif que YouTube ci-dessus : à hauteur FIGÉE (defaultSize.h),
@@ -347,13 +356,13 @@ function updateHeaderDate() {
 }
 
 // Prénom affiché dans la barre de titre (Paramètres → Profil), stocké dans
-// app.firstName. Rien n'est affiché si le champ est vide — pas de "Bonjour"
+// app.firstName. Rien n'est affiché si le champ est vide — pas de "👋"
 // sans prénom.
 async function updateHeaderGreeting() {
   const el = document.getElementById('headerGreeting');
   if (!el) return;
   const firstName = await window.matin.store.get('app.firstName');
-  el.textContent = firstName ? `👋 Bonjour ${firstName}` : '';
+  el.textContent = firstName ? `👋 ${firstName}` : '';
 }
 
 // Barre de recherche (moteur configurable, 2026-09-03, sur demande explicite
@@ -1422,20 +1431,31 @@ function initAppBackground() {
 // Tout le déplacement/masquage RÉEL des fenêtres vit côté process main (voir
 // main.js applyDisplayMode et alentours). Ce module ne fait plus QUE :
 // afficher/masquer le bouton "Réduire" et gérer Échap.
-function initDisplayMode() {
-  const collapseBtn = document.getElementById('btnCollapseToSun');
+// Visibilité de #btnCollapseToSun (2026-09-09, reconstruite sur demande
+// explicite — l'ancien toggle display vivait directement dans applyModeUI
+// ci-dessous, retiré avec le reste des références à ce bouton) : visible
+// UNIQUEMENT si le mode d'affichage "flottant" est actif ET que le mode
+// portrait ne l'est pas. `display-mode-floating` (classe déjà posée sur
+// <body> par applyModeUI) sert de condition existante pour détecter le mode
+// flottant actif — pas besoin d'un nouvel état séparé. Fonction top-level
+// (pas nichée dans initDisplayMode) : appelée aussi depuis le toggle portrait
+// de initDashboard, dans un autre scope.
+function updateCollapseBtnVisibility() {
+  const btn = document.getElementById('btnCollapseToSun');
+  if (!btn) return;
+  const isFloating = document.body.classList.contains('display-mode-floating');
+  const isPortrait = document.body.classList.contains('portrait-mode');
+  btn.style.display = (isFloating && !isPortrait) ? '' : 'none';
+}
 
+function initDisplayMode() {
   function applyModeUI(mode) {
     document.body.classList.toggle('display-mode-floating', mode === 'floating');
-    if (collapseBtn) collapseBtn.style.display = mode === 'floating' ? 'inline-flex' : 'none';
+    updateCollapseBtnVisibility();
   }
 
   window.matin.store.get('app.displayMode').then((mode) => applyModeUI(mode || 'fullscreen'));
   window.matin.displayMode.onUpdated((mode) => applyModeUI(mode));
-
-  collapseBtn?.addEventListener('click', () => {
-    window.matin.displayMode.collapseToSun().catch(err => console.error('[Matin] Échec réduction en icône flottante', err));
-  });
 
   // Échap réduit en icône flottante (mode "floating") — no-op côté main.js
   // hors de ce mode (voir main.js collapseToSun), donc pas besoin de
@@ -1934,6 +1954,25 @@ function applyScreenModeClass() {
   document.body.classList.toggle('standard', !ultrawide);
 }
 
+// Mode portrait (2026-09-07, sur demande explicite) — même principe EXACT
+// que .ultrawide ci-dessus, juste dans l'autre sens : borne la zone de
+// contenu à une largeur "2 colonnes" plutôt que de l'élargir. `full >
+// PORTRAIT_MAX_CONTENT_WIDTH` (voir dashboardContentBounds) ne s'applique
+// donc QUE si la fenêtre reste large (bascule logicielle du bouton, sans
+// rotation physique de l'écran) — une fenêtre déjà étroite (écran réellement
+// tourné/redimensionné) reflue naturellement sans borne artificielle.
+const PORTRAIT_MAX_CONTENT_WIDTH = 760;
+
+// Classe posée sur <body> (demandé explicitement, PAS sur <html>) — lue à la
+// fois par le CSS (largeur de carte plafonnée, barre de recherche élargie,
+// voir style.css) et par dashboardContentBounds ci-dessous (bornes de
+// placement des cartes, pour que les 2 restent cohérents).
+function applyScreenModeClass() {
+  const ultrawide = isUltrawideScreen();
+  document.body.classList.toggle('ultrawide', ultrawide);
+  document.body.classList.toggle('standard', !ultrawide);
+}
+
 // Zone de contenu effective pour le PLACEMENT des cartes (disposition par
 // défaut, Réorganiser, bornes de glisser-déposer/redimensionnement — voir
 // dashboardBounds juste en dessous) : pleine largeur normalement, mais
@@ -1941,9 +1980,24 @@ function applyScreenModeClass() {
 // côtés) quand `.ultrawide` est actif sur un écran plus large que cette
 // borne — sans ça, "centrer" ne serait qu'un effet visuel CSS pendant que
 // les cartes resteraient placables/dépliables sur toute la largeur réelle,
-// bien au-delà de la zone visuellement centrée.
+// bien au-delà de la zone visuellement centrée. `.portrait-mode` (2026-09-07)
+// suit exactement le même principe, borne resserrée plutôt qu'élargie —
+// vérifié EN PREMIER : les 2 classes ne devraient jamais être actives
+// ensemble en pratique (un écran réellement portrait n'est jamais aussi
+// ultrawide), mais si jamais c'était le cas, portrait doit l'emporter,
+// cohérent avec le bouton que l'utilisateur vient de cliquer en dernier.
 function dashboardContentBounds(dashboard) {
   const full = dashboard.clientWidth || 1200;
+  // Portrait : pleine largeur pour le placement libre des modules (2026-09-08,
+  // sur demande explicite — corrige un blocage réel du glisser-déposer : la
+  // zone bornée/centrée ci-dessous empêchait interact.js de déposer un module
+  // au-delà de x=580 sur un écran 1920px, alors que rien ne devrait limiter
+  // le DRAG lui-même). Le resserrement "2 colonnes" reste géré par
+  // reflowForPortrait() au moment du clic bouton, pas ici — pas besoin de
+  // brider le drag pour ça.
+  if (document.body.classList.contains('portrait-mode')) {
+    return { left: 0, width: full };
+  }
   if (document.body.classList.contains('ultrawide') && full > ULTRAWIDE_MAX_CONTENT_WIDTH) {
     return { left: (full - ULTRAWIDE_MAX_CONTENT_WIDTH) / 2, width: ULTRAWIDE_MAX_CONTENT_WIDTH };
   }
@@ -2296,7 +2350,7 @@ function initProfileSwitcher() {
 // ─── Sync Google Drive — indicateur titlebar (2026-08-21, voir main.js
 // performDriveLaunchSync/scheduleDriveUploadAfterChange) ───────────────────
 // Purement cosmétique : la synchronisation elle-même tourne entièrement côté
-// process main, ce code ne fait qu'afficher "✓ Données synchronisées" 3s
+// process main, ce code ne fait qu'afficher "✓ Saved" 3s
 // quand elle réussit. `getLastStatus()` rattrape une sync déjà terminée avant
 // que cet écouteur soit posé (voir preload.js) ; `onStatus` couvre le reste
 // de la session (rare en pratique, la sync de lancement ne se déclenche
@@ -2330,7 +2384,7 @@ function initDriveSyncIndicator(splashDone) {
     if (!status || status.type !== 'synced') return;
     Promise.resolve(splashDone).then(() => {
       console.log('[Drive Sync Debug] affichage de l’indicateur à', new Date().toISOString(), '— élément trouvé :', !!el);
-      el.textContent = '✓ Données synchronisées';
+      el.textContent = '✓ Saved';
       el.classList.add('visible');
       if (hideTimer) clearTimeout(hideTimer);
       hideTimer = setTimeout(() => {
@@ -2411,6 +2465,24 @@ async function initDashboard() {
   applyScreenModeClass();
   window.addEventListener('resize', applyScreenModeClass);
 
+  // Mode portrait (2026-09-07, sur demande explicite) — classe posée sur
+  // <body> AVANT tout calcul de placement ci-dessous (dashboardContentBounds
+  // en tient compte, voir plus haut, même principe que .ultrawide) : la
+  // disposition déjà enregistrée (portrait OU paysage, selon le mode actif
+  // au dernier enregistrement) s'affiche donc correctement dès ce premier
+  // rendu, sans re-calcul — seul un VRAI basculement (voir btnPortraitMode
+  // plus bas) redispose les cartes.
+  const isPortraitMode = await window.matin.store.get('ui.portraitMode').catch(() => false);
+  document.body.classList.toggle('portrait-mode', !!isPortraitMode);
+  // Ajout au-delà de la demande littérale (qui ne visait que le clic du
+  // bouton portrait et le changement de mode d'affichage) : initDisplayMode()
+  // est appelée plus tôt (ligne ~2428, avant ce bloc), donc son premier appel
+  // à updateCollapseBtnVisibility() peut s'exécuter AVANT que la classe
+  // portrait-mode ne soit posée ci-dessus (2 promesses IPC concurrentes, sans
+  // ordre garanti) — sans cet appel, l'état initial du bouton pourrait être
+  // faux dans ce cas de course.
+  updateCollapseBtnVisibility();
+
   const { left: contentLeft, width: containerWidth } = dashboardContentBounds(dashboard);
   const keysNeedingDefault = sorted.filter(([, m]) => !m.layout).map(([key]) => key);
   const defaults = shiftLayoutsX(computeDefaultLayout(keysNeedingDefault, containerWidth), contentLeft);
@@ -2454,6 +2526,15 @@ async function initDashboard() {
   }
 
   updateCanvasHeight(canvas);
+
+  // Filet de sécurité anti-débordement en mode portrait (2026-09-09, sur
+  // demande explicite — bug réel : "les modules débordent hors des limites
+  // de la fenêtre, l'utilisateur doit redimensionner manuellement pour les
+  // voir"). `clampCardsToPortraitWidth` (voir plus bas, définie près de
+  // `reflowForPortrait`) ne fait rien si `.portrait-mode` n'est pas actif à
+  // cet instant — appel systématique ici, sans condition, pour rester
+  // correct dans les 2 cas.
+  clampCardsToPortraitWidth();
 
   // Fige immédiatement toute disposition par défaut nouvellement calculée —
   // sinon un rechargement ultérieur la recalculerait à partir de zéro sans
@@ -2557,6 +2638,20 @@ async function initDashboard() {
     const rawLayouts = computeAutoArrangeLayout(style, cardsInfo, containerWidth);
     const newLayouts = shiftLayoutsX(rawLayouts, contentLeft);
     applyAutoArrangeLayouts(cards, newLayouts);
+    // Filet de sécurité portrait (2026-09-09, sur demande explicite — bug
+    // réel : un grand module comme YouTube/ETF garde sa largeur ACTUELLE
+    // (voir cardsInfo ci-dessus, `card.offsetWidth`) au lieu de s'adapter à
+    // une fenêtre portrait plus étroite — `packModulesIntoRows`/
+    // `computeAutoArrangeLayout` REPOSITIONNENT les cartes mais ne
+    // redimensionnent JAMAIS leur largeur, par conception (voir commentaire
+    // plus haut, "les modules gardent TOUJOURS leur taille actuelle") ; en
+    // portrait, `dashboardContentBounds` renvoie en plus la PLEINE largeur
+    // de la fenêtre (2026-09-08, pour ne pas brider le drag), pas la largeur
+    // resserrée de `reflowForPortrait` — un module resté large peut donc
+    // déborder après un "⊞ Réorganiser" déclenché depuis le mode portrait.
+    // Même filet que celui posé au chargement/redimensionnement (voir
+    // clampCardsToPortraitWidth plus bas) : no-op hors mode portrait.
+    clampCardsToPortraitWidth();
 
     const maxBottom = Object.values(rawLayouts).reduce((max, l) => Math.max(max, l.y + l.height), 0);
     const fits = maxBottom <= containerHeight;
@@ -2573,6 +2668,157 @@ async function initDashboard() {
       notice._hideTimer = setTimeout(() => notice.classList.remove('show'), 2000);
     }
   }
+
+  // ─── Mode portrait (2026-09-07, sur demande explicite) ───────────────────
+  // Bouton bascule (⇅ paysage / ↕ portrait) dans la barre d'outils — PAS un
+  // bouton flottant séparé, réutilise `.titlebar-btn`/`.titlebar-icon-btn`
+  // déjà en place pour Actualiser/Réorganiser/Paramètres (voir index.html),
+  // plus cohérent visuellement (couleurs de thème correctes en clair/sombre)
+  // qu'un bouton neuf aux couleurs codées en dur. Réutilise le remplisseur en
+  // rangées de "⊞ Réorganiser" (packModulesIntoRows) MAIS avec l'ordre de
+  // lecture ACTUEL des cartes (rangée puis colonne), pas un tri par
+  // catégorie : il s'agit de RESTACKER les mêmes modules dans une colonne
+  // plus étroite, pas de les mélanger comme le ferait un vrai Réorganiser.
+  // La largeur resserrée vient de `dashboardContentBounds`, déjà au courant
+  // de `.portrait-mode` (voir plus haut, PORTRAIT_MAX_CONTENT_WIDTH) — un
+  // seul point de vérité pour "quelle largeur de dépôt utiliser en ce moment",
+  // partagé avec le placement par défaut/les bornes de glisser-déposer.
+  function sortByCurrentPosition(cardsInfo, cardsByKey) {
+    return [...cardsInfo].sort((a, b) => {
+      const ca = cardsByKey.get(a.key), cb = cardsByKey.get(b.key);
+      const ya = parseFloat(ca.dataset.y) || 0, yb = parseFloat(cb.dataset.y) || 0;
+      if (Math.abs(ya - yb) > 40) return ya - yb; // rangées visuellement différentes
+      return (parseFloat(ca.dataset.x) || 0) - (parseFloat(cb.dataset.x) || 0);
+    });
+  }
+
+  function snapshotCurrentLayout(cards) {
+    const snapshot = {};
+    for (const card of cards) {
+      const key = card.id.replace('module-', '');
+      snapshot[key] = {
+        x: parseFloat(card.dataset.x) || 0,
+        y: parseFloat(card.dataset.y) || 0,
+        width: card.offsetWidth,
+        height: card.offsetHeight,
+        z: parseInt(card.style.zIndex, 10) || 10,
+      };
+    }
+    return snapshot;
+  }
+
+  function reflowForPortrait() {
+    const cards = Array.from(canvas.querySelectorAll('.module-card'));
+    if (!cards.length) return;
+    const cardsByKey = new Map(cards.map(c => [c.id.replace('module-', ''), c]));
+    const cardsInfo = cards.map(card => ({
+      key: card.id.replace('module-', ''),
+      width: card.offsetWidth,
+      height: card.offsetHeight,
+    }));
+    const ordered = sortByCurrentPosition(cardsInfo, cardsByKey);
+    // `dashboardContentBounds` renvoie désormais la pleine largeur en mode
+    // portrait (2026-09-08, voir son commentaire — le DRAG ne doit plus être
+    // bridé) : le reflow calcule donc SA PROPRE largeur resserrée ici plutôt
+    // que de la lire là-bas, pour garder l'empilement "2 colonnes" compact au
+    // clic bouton — `contentLeft` fixé à 0 (pas de centrage) pour que les
+    // modules commencent au bord gauche réel de l'écran, plus au milieu.
+    const fullWidth = dashboard.clientWidth || 1200;
+    const containerWidth = Math.min(PORTRAIT_MAX_CONTENT_WIDTH, fullWidth);
+    const contentLeft = 0;
+    const rawLayouts = packModulesIntoRows(ordered, containerWidth, AUTOARRANGE_GAP);
+    const newLayouts = shiftLayoutsX(rawLayouts, contentLeft);
+    applyAutoArrangeLayouts(cards, newLayouts);
+  }
+
+  // Filet de sécurité anti-débordement en mode portrait (2026-09-09, sur
+  // demande explicite — bug réel signalé : des modules apparaissent hors des
+  // limites de la fenêtre en portrait, obligeant à redimensionner
+  // manuellement). CAUSE RÉELLE trouvée dans ce fichier : `moduleConf.layout`
+  // (x/y/width enregistrés, voir plus haut `placeCard(card, layout, key)`)
+  // est réutilisé TEL QUEL au chargement, qu'il ait été enregistré en
+  // paysage ou en portrait — `reflowForPortrait()` ci-dessus ne s'exécute
+  // QUE sur un VRAI clic du bouton bascule (voir plus bas), jamais au
+  // chargement d'une page déjà en portrait (ex. après redémarrage de l'app,
+  // ou changement de profil dont la disposition sauvegardée est restée
+  // paysage alors que `ui.portraitMode` est global) ni après un
+  // redimensionnement de fenêtre pendant que ce mode est déjà actif. Une
+  // carte positionnée pour une fenêtre paysage large peut donc se retrouver
+  // hors des limites d'une fenêtre portrait plus étroite, sans qu'aucun code
+  // existant ne la ramène dans les clous.
+  // Ne REMPILE PAS tout comme reflowForPortrait (qui écraserait un
+  // arrangement manuel de l'utilisateur même s'il tient déjà dans la
+  // fenêtre) : ne touche qu'aux cartes RÉELLEMENT hors limites (largeur ou
+  // position x), via `placeCard` pour rester cohérente avec tout le reste
+  // (module-compact, updateSizeTier, topZ).
+  function clampCardsToPortraitWidth() {
+    if (!document.body.classList.contains('portrait-mode')) return;
+    const cards = Array.from(canvas.querySelectorAll('.module-card'));
+    if (!cards.length) return;
+    const containerWidth = Math.min(PORTRAIT_MAX_CONTENT_WIDTH, dashboard.clientWidth || 1200);
+    let changed = false;
+
+    for (const card of cards) {
+      const key = card.id.replace('module-', '');
+      const current = {
+        x: parseFloat(card.dataset.x) || 0,
+        y: parseFloat(card.dataset.y) || 0,
+        width: card.offsetWidth,
+        height: card.offsetHeight,
+        z: parseInt(card.style.zIndex, 10) || 10,
+      };
+      const width = Math.min(current.width, containerWidth);
+      const x = Math.min(current.x, Math.max(0, containerWidth - width));
+      if (width === current.width && x === current.x) continue; // déjà dans les clous
+
+      const clamped = { ...current, x, width };
+      placeCard(card, clamped, key);
+      if (modulesConf[key]) modulesConf[key].layout = clamped;
+      changed = true;
+    }
+
+    if (changed) {
+      updateCanvasHeight(canvas);
+      window.matin.modules.updateLayout(modulesConf)
+        .catch(err => console.error('[Matin] Échec sauvegarde du recadrage portrait', err));
+    }
+  }
+
+  // Redimensionnement de fenêtre pendant que le mode portrait est déjà actif
+  // (ex. rotation physique d'un écran externe après le chargement de l'app)
+  // — même filet de sécurité que ci-dessus, débattu (200ms) pour ne pas
+  // recalculer à chaque pixel pendant un redimensionnement en cours.
+  let portraitClampResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(portraitClampResizeTimer);
+    portraitClampResizeTimer = setTimeout(clampCardsToPortraitWidth, 200);
+  });
+
+  const btnPortraitMode = document.getElementById('btnPortraitMode');
+  btnPortraitMode?.addEventListener('click', async () => {
+    const turningOn = !document.body.classList.contains('portrait-mode');
+    const cards = Array.from(canvas.querySelectorAll('.module-card'));
+
+    if (turningOn) {
+      // Snapshot AVANT de basculer — c'est à CET état (paysage) que le
+      // bouton reviendra au prochain clic, persisté (pas juste en mémoire)
+      // pour survivre à un rechargement pendant que le mode portrait reste actif.
+      await window.matin.store.set('ui.portraitLandscapeSnapshot', snapshotCurrentLayout(cards))
+        .catch(err => console.error('[Matin] Échec sauvegarde de la disposition paysage', err));
+      document.body.classList.add('portrait-mode');
+      reflowForPortrait();
+    } else {
+      document.body.classList.remove('portrait-mode');
+      const snapshot = await window.matin.store.get('ui.portraitLandscapeSnapshot').catch(() => null);
+      if (snapshot) applyAutoArrangeLayouts(cards, snapshot);
+    }
+    updateCollapseBtnVisibility();
+
+    btnPortraitMode.textContent = turningOn ? '↕' : '⇅';
+    await window.matin.store.set('ui.portraitMode', turningOn)
+      .catch(err => console.error('[Matin] Échec sauvegarde du mode portrait', err));
+  });
+  if (btnPortraitMode) btnPortraitMode.textContent = document.body.classList.contains('portrait-mode') ? '↕' : '⇅';
 
   const autoArrangeConfirmOverlay = document.getElementById('autoArrangeConfirmOverlay');
   document.getElementById('btnAutoArrange')?.addEventListener('click', () => {
@@ -2730,11 +2976,20 @@ async function initDashboard() {
   // "Charger" ferme la popup (comme "Oui, réorganiser") pour laisser voir
   // tout de suite le résultat sur le dashboard, plutôt que de le masquer
   // derrière l'overlay.
+  // Confirmation native avant chargement (2026-09-09, sur demande explicite)
+  // — ajoutée en tête de chaque handler : si l'utilisateur annule, RIEN ne
+  // se passe (l'overlay "⊞ Réorganiser" reste ouvert, aucun appel à
+  // loadLayoutSlot), plutôt que d'annuler seulement le chargement après
+  // avoir déjà fermé la popup.
   document.getElementById('layoutSlotLoad1')?.addEventListener('click', () => {
+    const confirmed = confirm('Charger la disposition — êtes-vous sûr ?');
+    if (!confirmed) return;
     autoArrangeConfirmOverlay?.classList.remove('open');
     loadLayoutSlot(1);
   });
   document.getElementById('layoutSlotLoad2')?.addEventListener('click', () => {
+    const confirmed = confirm('Charger la disposition — êtes-vous sûr ?');
+    if (!confirmed) return;
     autoArrangeConfirmOverlay?.classList.remove('open');
     loadLayoutSlot(2);
   });

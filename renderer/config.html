@@ -220,6 +220,7 @@
       flex-shrink: 0;
       display: flex;
       gap: 4px;
+      margin-top: 48px;
       padding: 0 16px;
       border-bottom: 1px solid var(--border);
       overflow-x: auto;
@@ -1609,6 +1610,12 @@
           <div class="profiles-banner">
             <div class="profiles-banner-label">
               PROFILS
+              <!-- Ajouté le 2026-09-09, sur demande explicite. ÉCART signalé :
+                   la demande situait ce libellé dans config.js — c'est en
+                   réalité du HTML statique ici (config.html), le seul endroit
+                   où "PROFILS" apparaît comme titre de section ; config.js ne
+                   fait que peupler .profile-tabs juste en dessous. -->
+              <span class="profiles-hint">Je sauvegarde les modules choisis !</span>
               <!-- Voir showProfilesInfoPopup dans config.js — même popover
                    réutilisé que le bouton ℹ️ "Sites compatibles" du module
                    Suivi de prix (.price-tracking-info-popup). -->

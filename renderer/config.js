@@ -58,7 +58,7 @@ const MODULE_META = {
   fuelPrices: { label: 'Carburants',  icon: '⛽', requiresGoogle: false,
                 configField: { key: 'city', label: 'Ville / CP', placeholder: 'Lyon ou 69001' },
                 fuelTypesField: true },
-  priceTracking: { label: 'Suivi de prix', icon: '🛒', requiresGoogle: false, priceTrackingField: true },
+  priceTracking: { label: 'Liste de souhaits', icon: '🛒', requiresGoogle: false, priceTrackingField: true },
   cinema:     { label: 'Cinéma',      icon: '🎬', requiresGoogle: false }, // pas de config : scraping AlloCiné, aucune clé requise
   steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false }, // pas de config
   epicPromos: { label: 'Promos Epic Games', icon: '🎁', requiresGoogle: false }, // pas de config
@@ -200,7 +200,7 @@ let tabDragSrc = null;
 
 // ─── Sections repliables réutilisables (2026-08-16, sur demande explicite) ──
 // Appliqué à 4 sections de Paramètres pouvant contenir beaucoup de lignes
-// (YouTube jusqu'à 18 chaînes, ETF/Crypto jusqu'à N lignes de portefeuille,
+// (YouTube jusqu'à 20 chaînes, ETF/Crypto jusqu'à N lignes de portefeuille,
 // Prêts jusqu'à 5 prêts par groupe) : REPLIÉES PAR DÉFAUT, un en-tête
 // cliquable affiche un compte dynamique + une flèche ▶ qui pivote à 90°
 // (▶ → visuellement ▼) en 300ms. Même mécanique CSS que
@@ -365,13 +365,29 @@ const SPORTS_TEAMS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // (ol.js) — utilisée directement comme `option.value` par
 // sportsLeagueOptionsHtml plus haut, donc fiable sans avoir besoin d'un
 // log temporaire à l'exécution pour la confirmer une 2e fois.
+// `theSportsDbId` (2026-09-08, sur demande explicite) — id TheSportsDB
+// CONFIRMÉ À LA MAIN pour 4 clubs jusqu'ici ; `null` pour les autres (pas
+// encore vérifiés) — voir teamSelect 'change' plus bas (STEP 2) et ol.js
+// render() (STEP 3, court-circuite lookupteam.php ET searchteams.php quand
+// cet id est déjà connu).
 const BETCLIC_ELITE_TEAMS = [
-  'ASVEL Villeurbanne', 'Cholet Basket', 'JDA Dijon', 'Fos Provence Basket',
-  'BCM Gravelines-Dunkerque', 'JL Bourg-en-Bresse', 'Le Mans Sarthe Basket',
-  'Limoges CSP', 'Metropolitans 92', 'Monaco Basket', 'SLUC Nancy',
-  'Nanterre 92', 'Paris Basketball', 'Élan Béarnais Pau-Lacq-Orthez',
-  'Chorale de Roanne', 'SIG Strasbourg',
-].sort((a, b) => a.localeCompare(b, 'fr'));
+  { id: 'asvel',      displayName: 'ASVEL Villeurbanne',    theSportsDbId: null },
+  { id: 'cholet',     displayName: 'Cholet Basket',         theSportsDbId: null },
+  { id: 'dijon',      displayName: 'JDA Dijon',             theSportsDbId: null },
+  { id: 'fos',        displayName: 'Fos Provence Basket',   theSportsDbId: null },
+  { id: 'gravelines', displayName: 'Gravelines-Dunkerque',  theSportsDbId: '135239' },
+  { id: 'jlbourg',    displayName: 'Bourg-en-Bresse',       theSportsDbId: '135234' },
+  { id: 'lemans',     displayName: 'Le Mans Sarthe Basket', theSportsDbId: null },
+  { id: 'limoges',    displayName: 'Limoges',               theSportsDbId: '135242' },
+  { id: 'metro92',    displayName: 'Metropolitans 92',      theSportsDbId: null },
+  { id: 'monaco',     displayName: 'Monaco Basket',         theSportsDbId: null },
+  { id: 'nancy',      displayName: 'SLUC Nancy',            theSportsDbId: null },
+  { id: 'nanterre',   displayName: 'Nanterre 92',           theSportsDbId: null },
+  { id: 'paris',      displayName: 'Paris Basketball',      theSportsDbId: null },
+  { id: 'orthez',     displayName: 'Élan Béarnais',         theSportsDbId: '135248' },
+  { id: 'roanne',     displayName: 'Chorale de Roanne',     theSportsDbId: null },
+  { id: 'strasbourg', displayName: 'SIG Strasbourg',        theSportsDbId: null },
+].sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
 
 async function fetchLeagueTeams(league) {
   // Branche AU TOUT DÉBUT, avant le cache/tout appel réseau — même forme
@@ -383,7 +399,10 @@ async function fetchLeagueTeams(league) {
   // cette même liste derrière un TTL de 7 jours pour rien.
   if (league.value === 'betclic.elite') {
     console.log(`[Config] Équipes ${league.value} — liste statique en dur (${BETCLIC_ELITE_TEAMS.length}), aucune API fiable pour ce championnat`);
-    return BETCLIC_ELITE_TEAMS.map(strTeam => ({ strTeam }));
+    // `theSportsDbId` transmis tel quel (STEP 1) — porté par `{ strTeam }`
+    // comme un champ additionnel, voir sportsTeamOptionsHtml plus bas (STEP 2)
+    // qui le pose en `data-thesportsdbid` sur chaque <option>.
+    return BETCLIC_ELITE_TEAMS.map(t => ({ strTeam: t.displayName, theSportsDbId: t.theSportsDbId }));
   }
 
   const cacheKey = `matin-espn-teams-${league.value}`;
@@ -447,8 +466,13 @@ async function resolveTheSportsDbIdTeam(name) {
 // la dernière sélection) reste un identifiant stable d'une réouverture de
 // Paramètres à l'autre pour ré-présélectionner la bonne option.
 function sportsTeamOptionsHtml(teams, league, selectedName) {
+  // `data-thesportsdbid` (2026-09-08, STEP 2) — vide pour toute équipe SANS
+  // id confirmé à la main (résultat ESPN normal, ou entrée Betclic Élite pas
+  // encore vérifiée, voir BETCLIC_ELITE_TEAMS) : le <select> 'change' plus
+  // bas retombe alors sur resolveTheSportsDbIdTeam (recherche réseau par
+  // nom), comportement inchangé pour ces équipes-là.
   const options = teams.map(t => `
-    <option value="${t.strTeam}" data-name="${t.strTeam}" data-sport="${league.sport}" ${t.strTeam === selectedName ? 'selected' : ''}>${t.strTeam}</option>
+    <option value="${t.strTeam}" data-name="${t.strTeam}" data-sport="${league.sport}" data-thesportsdbid="${t.theSportsDbId || ''}" ${t.strTeam === selectedName ? 'selected' : ''}>${t.strTeam}</option>
   `).join('');
   // Placeholder désactivé en tête (2026-09-05) — sélectionné par défaut tant
   // qu'aucune équipe de CETTE liste ne correspond à `selectedName` (ex.
@@ -690,7 +714,7 @@ function showProfilesInfoPopup(anchorEl) {
   popup.className = 'price-tracking-info-popup';
   popup.innerHTML = `
     <div class="price-tracking-info-title">💡 Utilisation sur plusieurs PC</div>
-    <div class="price-tracking-info-warning">Si vous utilisez Matin sur plusieurs PC, nous vous recommandons d'utiliser 1 profil par appareil (ex. « Bureau » sur votre PC fixe, « Portable » sur votre laptop). Chaque profil conserve sa propre disposition adaptée à son écran.</div>
+    <div class="price-tracking-info-warning">Si vous utilisez Matin sur plusieurs PC, nous vous recommandons d'utiliser 1 profil par appareil (ex. « Bureau » sur votre PC fixe, « Portable » sur votre laptop).</div>
   `;
   document.body.appendChild(popup);
 
@@ -1389,11 +1413,21 @@ function createModuleRow(key, mod, meta) {
       // TheSportsDB (voir fetchLeagueTeams ci-dessus) : un choix explicite
       // déclenche ICI la résolution réseau par nom (voir
       // resolveTheSportsDbIdTeam), pas à la construction de la liste.
+      // `data-thesportsdbid` (2026-09-08, STEP 2) — id confirmé à la main
+      // (voir BETCLIC_ELITE_TEAMS) : utilisé directement, résolution réseau
+      // entièrement court-circuitée pour ces équipes-là.
       teamSelect.addEventListener('change', async (e) => {
         const opt = e.target.selectedOptions[0];
         if (!opt || !opt.value) return;
         const name = opt.dataset.name;
         const sport = opt.dataset.sport;
+        const knownIdTeam = opt.dataset.thesportsdbid;
+        if (knownIdTeam) {
+          console.log(`[Config] idTeam TheSportsDB confirmé à la main pour "${name}" : ${knownIdTeam} — recherche réseau ignorée`);
+          applyTeamSelection(knownIdTeam, name, sport);
+          refreshSources(name, { knownCategory: sport });
+          return;
+        }
         statusEl.textContent = 'Résolution de l\'équipe…';
         listEl.innerHTML = '';
         try {
@@ -2227,11 +2261,12 @@ function renderFdjGameConfig(game, gameConfig) {
   return section;
 }
 
-// ─── Suivi de prix Marchand (libellé + URL produit + prix cible, max 10)
-// (2026-08-30, sur demande explicite) — même structure que l'ancien module
-// Colis (supprimé le 2026-08-31, sur demande explicite), sa grille 4 colonnes
-// (1.2fr 1.2fr 0.8fr 22px) tombe pile pour ce module : label | URL | prix
-// cible | ×, à la place de label | n° suivi | indice transporteur | ×.
+// ─── Liste de souhaits (libellé + vendeur + URL + budget approximatif +
+// prioritaire, max 10) (2026-09-08, sur demande explicite — refonte
+// complète depuis "Suivi de prix Marchand" : plus de prix cible ni de fetch
+// réseau, voir price-tracking.js) — même grille dédiée
+// `.price-tracking-config-row` que l'ancienne version (voir style.css),
+// élargie d'une colonne pour la case "Prioritaire".
 const MAX_PRICE_TRACKING = 10;
 
 function renderPriceTrackingConfigSection(mod) {
@@ -2242,9 +2277,9 @@ function renderPriceTrackingConfigSection(mod) {
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field parcels-config-field';
   wrap.innerHTML = `
-    <label>Mes produits suivis (max ${MAX_PRICE_TRACKING})</label>
+    <label>Mes articles (max ${MAX_PRICE_TRACKING})</label>
     <div class="parcels-list"></div>
-    <button type="button" class="etf-add-line-btn price-tracking-add-btn">+ Ajouter un produit</button>
+    <button type="button" class="etf-add-line-btn price-tracking-add-btn">+ Ajouter un article</button>
   `;
 
   const listEl = wrap.querySelector('.parcels-list');
@@ -2253,24 +2288,41 @@ function renderPriceTrackingConfigSection(mod) {
   function renderItems() {
     listEl.innerHTML = '';
     items.forEach((item) => {
-      // Grille DÉDIÉE .price-tracking-config-row (2026-08-31, sur demande
-      // explicite — voir style.css) : plus .parcels-row générique, 5
-      // colonnes avec largeurs précises [Nom][Vendeur][URL][Prix cible][×].
+      // Grille DÉDIÉE .price-tracking-config-row (voir style.css) : 6
+      // colonnes [Nom][Vendeur][URL][Budget][Prioritaire][×] — remplace
+      // l'ancienne colonne "Prix cible" (input number) par "Budget
+      // approximatif" (texte libre, ex. "150 €") + une étoile cliquable
+      // "Prioritaire" (2026-09-08, sur demande explicite, remplace la case à
+      // cocher d'origine — même glyphe ⭐/couleur que le module dashboard,
+      // voir price-tracking.js wishlistRowHtml, plutôt qu'un contrôle natif
+      // qui n'a pas d'équivalent visuel là-bas).
       const row = document.createElement('div');
       row.className = 'price-tracking-config-row';
       row.innerHTML = `
         <input type="text" class="parcels-label-input" placeholder="Ex : Casque Bluetooth" value="${item.label || ''}">
         <input type="text" class="price-tracking-vendor-input" placeholder="Ex : Fnac" value="${item.vendor || ''}">
-        <input type="text" class="parcels-tracking-input" placeholder="URL du produit Marchand" value="${item.url || ''}">
-        <input type="number" min="0" step="0.01" class="price-tracking-target-input" placeholder="0.00" value="${item.targetPrice ?? ''}">
-        <button type="button" class="row-delete-btn price-tracking-delete-btn" title="Supprimer ce produit">×</button>
+        <input type="text" class="parcels-tracking-input" placeholder="URL du produit" value="${item.url || ''}">
+        <input type="text" class="price-tracking-budget-input" placeholder="ex : 150 €" value="${item.budget || ''}">
+        <button type="button" class="price-tracking-priority-star" title="Marquer comme prioritaire" style="color:${item.priority === true ? '#f59e0b' : '#6b7280'}">${item.priority === true ? '⭐' : '☆'}</button>
+        <button type="button" class="row-delete-btn price-tracking-delete-btn" title="Supprimer cet article">×</button>
       `;
 
       row.querySelector('.parcels-label-input').addEventListener('input', (e) => { item.label = e.target.value; });
       row.querySelector('.price-tracking-vendor-input').addEventListener('input', (e) => { item.vendor = e.target.value; });
       row.querySelector('.parcels-tracking-input').addEventListener('input', (e) => { item.url = e.target.value.trim(); });
-      row.querySelector('.price-tracking-target-input').addEventListener('input', (e) => {
-        item.targetPrice = e.target.value === '' ? null : parseFloat(e.target.value);
+      row.querySelector('.price-tracking-budget-input').addEventListener('input', (e) => { item.budget = e.target.value; });
+      // Bascule true/false au clic — `item` est une référence directe dans
+      // `mod.config.items` (même tableau que `renderPriceTrackingConfigSection`
+      // reçoit), donc modifier `item.priority` ici suffit à persister le
+      // changement au prochain "Enregistrer" comme n'importe quel autre champ
+      // de cette section, sans écriture disque dédiée. Glyphe/couleur mis à
+      // jour directement sur le bouton plutôt qu'un re-render complet de la
+      // liste (renderItems()), qui perdrait le focus courant si l'utilisateur
+      // enchaîne plusieurs clics sur des étoiles différentes.
+      row.querySelector('.price-tracking-priority-star').addEventListener('click', (e) => {
+        item.priority = item.priority !== true;
+        e.currentTarget.textContent = item.priority ? '⭐' : '☆';
+        e.currentTarget.style.color = item.priority ? '#f59e0b' : '#6b7280';
       });
 
       row.querySelector('.price-tracking-delete-btn').addEventListener('click', () => {
@@ -2287,12 +2339,12 @@ function renderPriceTrackingConfigSection(mod) {
   function syncAddBtn() {
     const maxed = items.length >= MAX_PRICE_TRACKING;
     addBtn.disabled = maxed;
-    addBtn.title = maxed ? `Maximum de ${MAX_PRICE_TRACKING} produits atteint` : '';
+    addBtn.title = maxed ? `Maximum de ${MAX_PRICE_TRACKING} articles atteint` : '';
   }
 
   addBtn.addEventListener('click', () => {
     if (items.length >= MAX_PRICE_TRACKING) return;
-    items.push({ label: '', vendor: '', url: '', targetPrice: null });
+    items.push({ label: '', vendor: '', url: '', budget: '', priority: false });
     renderItems();
     syncAddBtn();
   });
@@ -2414,8 +2466,9 @@ function renderPodcastConfigSection(mod) {
 }
 
 // ─── YouTube Notifications (résolution de chaîne + liste) ──────────────────
-// (2026-08-15, sur demande explicite) Jusqu'à 18 chaînes (10→18, 2026-09-01,
-// sur demande explicite), chacune saisie par nom ou URL — résolue
+// (2026-08-15, sur demande explicite) Jusqu'à 20 chaînes (10→18 le
+// 2026-09-01, puis 18→20 le 2026-09-08, sur demande explicite à chaque
+// fois), chacune saisie par nom ou URL — résolue
 // automatiquement en ID de chaîne via l'API YouTube Data v3 (Search, ou
 // Channels si l'URL contient déjà `channel/UC...`, moins coûteux en quota).
 // La résolution nécessite un compte Google connecté avec le scope
@@ -2423,7 +2476,7 @@ function renderPodcastConfigSection(mod) {
 // module dashboard lui-même (youtube.js), qui ne lit ensuite QUE le flux RSS
 // public de chaque chaîne déjà résolue (aucune auth requise pour ça, donc
 // `MODULE_META.youtube.requiresGoogle` reste `false`).
-const MAX_YOUTUBE_CHANNELS = 18;
+const MAX_YOUTUBE_CHANNELS = 20;
 
 async function youtubeFetchChannelById(channelId, accessToken) {
   const params = new URLSearchParams({ part: 'snippet', id: channelId });
@@ -3714,14 +3767,44 @@ async function renderDisplayModeOptions() {
   container.innerHTML = DISPLAY_MODE_OPTIONS.map(opt => `
     <button type="button" class="display-mode-option ${opt.key === current ? 'selected' : ''}" data-key="${opt.key}">
       <span class="display-mode-option-icon">${opt.emoji}</span>
-      <span class="display-mode-option-label">${opt.label}</span>
+      <span class="display-mode-option-label">${opt.label}</span>${opt.key === 'floating' ? '<span class="badge-beta">Bêta</span>' : ''}
     </button>`).join('');
+
+  // Note d'info sous l'option "Icône flottante" (2026-09-09, sur demande
+  // explicite) — insérée comme sibling APRÈS `container` plutôt que DEDANS
+  // (`.display-mode-options` est en `display:flex` ROW : un <p> ajouté via
+  // `container.innerHTML` serait rendu comme un 3e item de la rangée, à côté
+  // des boutons, pas en dessous du tout). Id fixe + garde contre les appels
+  // répétés de cette fonction (à chaque ouverture de Personnaliser) — sinon
+  // dupliquée à chaque fois, seul `container.innerHTML` étant réinitialisé
+  // ci-dessus, pas ses siblings.
+  if (!document.getElementById('displayModeFloatingHint')) {
+    container.insertAdjacentHTML('afterend', '<p class="config-hint" id="displayModeFloatingHint">En mode icône flottante, un raccourci apparaît dans la barre du haut (mode paysage uniquement).</p>');
+  }
 
   container.querySelectorAll('.display-mode-option').forEach(btn => {
     btn.addEventListener('click', async () => {
       const key = btn.dataset.key;
       await window.matin.displayMode.set(key);
       container.querySelectorAll('.display-mode-option').forEach(b => b.classList.toggle('selected', b === btn));
+
+      // Ferme Paramètres en plus de basculer le mode (2026-09-09, sur demande
+      // explicite) — `window.matin.displayMode.set('floating')` masque déjà
+      // mainWindow IMMÉDIATEMENT et sans reload (voir main.js applyDisplayMode,
+      // appelé synchrone dans le handler IPC `app:setDisplayMode` : aucun
+      // changement nécessaire de ce côté-là, déjà correct). Ce qui manquait :
+      // la fenêtre Paramètres ELLE-MÊME (une 2e BrowserWindow séparée, PAS un
+      // `#configOverlay` dans cette page) restait ouverte à l'écran à côté du
+      // soleil, contredisant "seule l'icône soleil reste visible". Même
+      // correctif déjà appliqué au bouton "Réduire" du dashboard (voir
+      // dashboard.js initDisplayMode, `collapseBtn` → `window.matin.window.
+      // closeConfig()`), ici dans l'autre sens : c'est CETTE fenêtre qui doit
+      // se fermer elle-même, pas une fenêtre tierce qu'on referme depuis
+      // l'extérieur — même appel IPC (`window:closeConfig`, main.js),
+      // disponible ici aussi (même preload.js pour les 2 fenêtres).
+      if (key === 'floating') {
+        window.matin.window.closeConfig().catch(err => console.error('[Config] Échec fermeture Paramètres', err));
+      }
     });
   });
 }

@@ -1200,7 +1200,28 @@ window.MatinModules.ol = {
         // tapé un nom.
         console.log(`[Sports] idTeam connu depuis Paramètres (${config.idTeam}) — recherche TheSportsDB par nom ignorée`);
         idTeam = config.idTeam;
-        ({ strSport, website } = await fetchTeamMeta(idTeam, team));
+        if (/^\d+$/.test(idTeam)) {
+          // idTeam TheSportsDB CONFIRMÉ À LA MAIN (2026-09-08, sur demande
+          // explicite — voir BETCLIC_ELITE_TEAMS/config.js STEP 1-2) :
+          // lookupteam.php (fetchTeamMeta) court-circuité EN PLUS de
+          // searchteams.php ci-dessus. Emplacement RETENU pour ce
+          // court-circuit plutôt que dans fetchTeamId (suggéré comme piste
+          // dans la demande, "ou là où la recherche TheSportsDB a lieu") :
+          // fetchTeamId ne reçoit que `team`/`expectedCategory`, jamais
+          // `config`, et n'est de toute façon PAS appelée dans cette branche
+          // (voir le `else` plus bas) — un id purement numérique vient
+          // forcément d'une source déjà vérifiée (id confirmé à la main dans
+          // le menu déroulant, ou CLUB_ID_OVERRIDES), aucune raison de
+          // revalider par un appel réseau supplémentaire. `website: null` —
+          // ni lookupteam.php ni searchteams.php n'est appelé ici, donc
+          // aucun site officiel disponible pour ces équipes tant qu'aucun
+          // CLUB_WEBSITE_OVERRIDES dédié n'existe pour elles.
+          console.log(`[Sports] idTeam TheSportsDB hardcodé utilisé : ${idTeam} (${team})`);
+          strSport = config.sport === 'basketball' ? 'Basketball' : 'Soccer';
+          website = null;
+        } else {
+          ({ strSport, website } = await fetchTeamMeta(idTeam, team));
+        }
       } else {
         // Config historique, ou "Autre équipe" (texte libre) — comportement
         // d'origine inchangé : recherche approximative par nom.
