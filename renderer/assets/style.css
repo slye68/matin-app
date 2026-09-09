@@ -146,6 +146,35 @@ html.dashboard-window[data-color-scheme="light"] {
   --text-muted:    #6b7280;
 }
 
+/* Mode clair — champ montant du module Change : color:#ffffff codé en dur
+   devient illisible sur fond clair (2026-09-09, sur demande explicite) */
+:root[data-color-scheme="light"] .currency-amount-input {
+  color: var(--text-primary);
+  color-scheme: light;
+}
+
+/* Mode clair — ville/distance du module Carburants : color:#e8eaf0 codé en
+   dur (décision 2026-08-31) devient illisible sur fond clair (2026-09-09,
+   sur demande explicite) */
+:root[data-color-scheme="light"] .fuel-station-city {
+  color: var(--text-secondary);
+}
+
+/* Mode clair — carburants : nom du carburant en rouge et agrandi,
+   montant en € légèrement agrandi (2026-09-09, sur demande explicite) */
+:root[data-color-scheme="light"] .fuel-price-label {
+  color: #ef4444;
+  font-size: 11px; /* 9px → 11px */
+}
+:root[data-color-scheme="light"] .fuel-price-value {
+  font-size: 13px; /* 11px → 13px */
+}
+
+/* Mode clair — KASA : watts en rouge au lieu de jaune (2026-09-09, sur demande explicite) */
+:root[data-color-scheme="light"] .kasa-device-watts {
+  color: #ef4444;
+}
+
 /* ─── Reset ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -468,6 +497,13 @@ body.ultrawide .titlebar-search { width: 40vw; }
   stroke: #111111;
 }
 
+/* Prénom (Caveat) en vert foncé — mode clair uniquement (2026-09-09, sur
+   demande explicite — le vert menthe #34d399 est trop pâle sur fond crème) */
+:root[data-color-scheme="light"] .app-greeting {
+  color: #15803d;
+  text-shadow: none;
+}
+
 /* ─── Mode portrait (2026-09-07, sur demande explicite) ──────────────────── */
 /* Bouton bascule mis en évidence (fond accentué) pendant que le mode est
    actif — seul retour visuel direct sur l'état du bouton lui-même, le reste
@@ -626,6 +662,47 @@ body.ultrawide .module-card { max-width: 500px; }
    ci-dessus, en thème clair — LIVE! utilise un ID plutôt que [data-theme]
    mais reste conceptuellement une "bordure colorée de catégorie". */
 :root[data-color-scheme="light"] #module-live { border-color: rgba(239, 68, 68, 0.7); }
+
+/* ─── Bandeaux de module — fond coloré pleine largeur (2026-09-09, sur
+   demande explicite : meilleure lisibilité des bandeaux en mode clair et
+   sombre ; Finance en orange foncé en mode sombre).
+   Extension pleine largeur : margin: -14px -16px 0 compense exactement le
+   padding: 14px 16px de .module-card ; padding: 14px 16px le restaure pour
+   que le contenu reste aligné. border-radius: 13px 13px 0 0 = radius-lg (14px)
+   moins la bordure 1px (radius intérieur ≈ 13px). */
+
+.module-card[data-theme] .module-header,
+#module-live .module-header {
+  margin: -14px -16px 0;
+  padding: 14px 16px;
+  border-radius: 13px 13px 0 0;
+}
+
+/* Fonds mode sombre ─────────────────────────────────────────────────── */
+.module-card[data-theme="finance"]      .module-header { background: rgba(180,  83,   9, 0.38); }
+.module-card[data-theme="football"]     .module-header { background: rgba( 37,  99, 235, 0.25); }
+.module-card[data-theme="basket"]       .module-header { background: rgba(234,  88,  12, 0.28); }
+.module-card[data-theme="other-sports"] .module-header { background: rgba(  5, 150, 105, 0.22); }
+.module-card[data-theme="actualites"]   .module-header { background: rgba( 67,  56, 202, 0.28); }
+.module-card[data-theme="fdj"]          .module-header { background: rgba( 22, 163,  74, 0.22); }
+.module-card[data-theme="musique"]      .module-header { background: rgba(147,  51, 234, 0.28); }
+.module-card[data-theme="maison"]       .module-header { background: rgba(  8, 145, 178, 0.22); }
+.module-card[data-theme="services"]     .module-header { background: rgba(100, 116, 139, 0.18); }
+.module-card[data-theme="perso"]        .module-header { background: rgba(219,  39, 119, 0.22); }
+#module-live                             .module-header { background: rgba(220,  38,  38, 0.30); }
+
+/* Fonds mode clair — opacité réduite sur fond crème ─────────────────── */
+:root[data-color-scheme="light"] .module-card[data-theme="finance"]      .module-header { background: rgba(180,  83,   9, 0.11); }
+:root[data-color-scheme="light"] .module-card[data-theme="football"]     .module-header { background: rgba( 37,  99, 235, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="basket"]       .module-header { background: rgba(234,  88,  12, 0.10); }
+:root[data-color-scheme="light"] .module-card[data-theme="other-sports"] .module-header { background: rgba(  5, 150, 105, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="actualites"]   .module-header { background: rgba( 67,  56, 202, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="fdj"]          .module-header { background: rgba( 22, 163,  74, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="musique"]      .module-header { background: rgba(147,  51, 234, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="maison"]       .module-header { background: rgba(  8, 145, 178, 0.09); }
+:root[data-color-scheme="light"] .module-card[data-theme="services"]     .module-header { background: rgba(100, 116, 139, 0.08); }
+:root[data-color-scheme="light"] .module-card[data-theme="perso"]        .module-header { background: rgba(219,  39, 119, 0.09); }
+:root[data-color-scheme="light"] #module-live                             .module-header { background: rgba(220,  38,  38, 0.09); }
 
 /* RÉÉCRITES le 2026-09-04 (sur demande explicite, réécriture complète de
    live.js/config.js) — noms de classes `.live-match-*` CONSERVÉS pour les
@@ -929,6 +1006,13 @@ body.ultrawide .module-card { max-width: 500px; }
    avec cette couleur dédiée qui l'emporte sur le muet par défaut de
    `.module-badge` (sélecteur par id, plus spécifique que la classe seule). */
 #badge-weather, #badge-airQuality { color: #fbbf24; }
+
+/* Mode clair — badge ville Météo et Qualité de l'air en bleu foncé
+   (2026-09-09, sur demande explicite — #fbbf24 jaune illisible sur fond clair) */
+:root[data-color-scheme="light"] #badge-weather,
+:root[data-color-scheme="light"] #badge-airQuality {
+  color: #1e40af;
+}
 
 /* ─── Module : Météo ─────────────────────────────────────────── */
 .weather-main {
@@ -1674,6 +1758,9 @@ body.ultrawide .module-card { max-width: 500px; }
 #module-gaming .sports-ticker-source { color: #ec4899; }
 #module-science .sports-ticker-source { color: #22c55e; }
 #module-sante .sports-ticker-source   { color: #67e8f9; }
+/* Modules Actualités (France/Tech/Bourse/Gaming/Sciences/Santé) —
+   1 ligne de plus entre chaque titre (2026-09-09, sur demande explicite) */
+.module-card[data-theme="actualites"] .sports-ticker-vitem { padding-bottom: 26px; }
 /* Heure de publication, imbriquée dans .sports-ticker-source — Sports
    uniquement (2026-09-01, sur demande explicite, "L'ÉQUIPE · 14h32", voir
    ol.js) — `text-transform:none` ANNULE explicitement l'uppercase hérité du
@@ -2274,6 +2361,32 @@ body.ultrawide .module-card { max-width: 500px; }
 /* 🌫️ Dégradé doux (clair) — blanc vers gris clair, direction fixe. */
 .app-background-layer.bg-gradient {
   background: linear-gradient(160deg, #ffffff 0%, #eef0f4 55%, #dfe3e9 100%);
+}
+
+/* ❄️ Fonds d'hiver photographiques/illustrés — mode clair uniquement */
+.app-background-layer.bg-winter-frost {
+  background-image: url('wallpapers/winter-frost.jpg');
+  background-size: cover; background-position: center;
+}
+.app-background-layer.bg-winter-pines {
+  background-image: url('wallpapers/winter-pines.jpg');
+  background-size: cover; background-position: center;
+}
+.app-background-layer.bg-winter-peaks {
+  background-image: url('wallpapers/winter-peaks.jpg');
+  background-size: cover; background-position: center;
+}
+.app-background-layer.bg-winter-mist {
+  background-image: url('wallpapers/winter-mist.jpg');
+  background-size: cover; background-position: center 60%;
+}
+.app-background-layer.bg-winter-illus {
+  background-image: url('wallpapers/winter-illus.jpg');
+  background-size: cover; background-position: center;
+}
+.app-background-layer.bg-winter-sea {
+  background-image: url('wallpapers/winter-sea.jpg');
+  background-size: cover; background-position: center;
 }
 
 /* ─── Toast "⊞ Réorganiser" (2026-08-10, sur demande explicite) ─────────────

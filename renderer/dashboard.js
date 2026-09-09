@@ -427,7 +427,7 @@ function initThemeSync() {
 // thème affiché en ce moment ne rend rien plutôt que de s'afficher hors
 // contexte (ex. après un changement de thème sans repasser par Personnaliser).
 const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain', 'lac'];
-const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient'];
+const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient', 'winter-frost', 'winter-pines', 'winter-peaks', 'winter-mist', 'winter-illus', 'winter-sea'];
 const APP_BACKGROUND_STAR_COUNT = 140;
 const APP_BACKGROUND_PARTICLE_COUNT = 26;
 const APP_BACKGROUND_RAIN_COUNT = 60;

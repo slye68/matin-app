@@ -247,6 +247,12 @@
     .config-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
     .config-tab.drag-over { background: var(--accent-glow); }
     .config-tab-icon { font-size: 14px; }
+    /* Mode clair — onglets et boutons du menu plus foncés (2026-09-09, sur
+       demande explicite — var(--text-secondary) #374151 jugé trop pâle sur
+       fond blanc) */
+    :root[data-color-scheme="light"] .config-tab       { color: #1f2937; }
+    :root[data-color-scheme="light"] .config-tab:hover:not(.active) { color: #111827; }
+    :root[data-color-scheme="light"] .google-btn        { color: #111827; }
 
     .config-tabpanels { flex: 1; min-height: 0; position: relative; }
     .config-tabpanel {
@@ -838,23 +844,33 @@
       align-items: center;
       gap: 6px;
       padding: 6px 10px;
-      background: var(--bg-panel-alt);
-      border: 1.5px solid var(--border);
+      /* Bleu foncé fixe, comme l'encadré .theme-toggle-row qui les contient
+         (2026-09-09, sur demande explicite — même raison/même teinte que
+         .google-btn ci-dessus). */
+      background: #1a2440;
+      border: 1.5px solid rgba(79, 142, 247, 0.3);
       border-radius: 99px;
-      color: var(--text-secondary);
+      color: #b8c2d9;
       font-size: 12px;
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
-    .profile-tab:hover { background: var(--bg-hover); }
-    .profile-tab.active { border-color: var(--accent); color: var(--text-primary); }
+    .profile-tab:hover { background: #243158; }
+    .profile-tab.active { border-color: var(--accent); color: #e8eaf0; }
     .profile-tab-dot {
       width: 7px; height: 7px;
       border-radius: 50%;
       background: var(--text-muted);
       flex-shrink: 0;
     }
-    .profile-tab.active .profile-tab-dot { background: var(--accent-green); }
+    .profile-tab.active .profile-tab-dot {
+      background: #f97316;
+      animation: profile-dot-blink 1.3s ease-in-out infinite;
+    }
+    @keyframes profile-dot-blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.15; }
+    }
     .profile-tab-name { font-weight: 600; }
     .profile-tab-edit, .profile-tab-save {
       opacity: 0.6;
@@ -862,6 +878,16 @@
       border-radius: var(--radius-sm);
     }
     .profile-tab-edit:hover, .profile-tab-save:hover { opacity: 1; background: var(--bg-panel); }
+
+    /* Les overrides mode clair posées ici initialement (couleur .google-btn/
+       .profile-tab/.profile-tab.active + filtres .profile-tab-save/
+       .profile-tab-edit) ont toutes été RETIRÉES le même jour (2026-09-09,
+       demande suivante, "fond bleu foncé comme l'encadré") : .google-btn/
+       .profile-tab ont désormais un fond bleu foncé FIXE dans les 2 thèmes
+       (voir leurs règles de base plus haut, #1a2440) — tout ce qui
+       compensait ici un ancien fond CLAIR (texte quasi-noir, icône 💾
+       passée en noir via brightness(0)) serait devenu illisible sur ce
+       nouveau fond sombre, dans les 2 thèmes désormais. */
 
     /* Panneau d'édition (renommer + activation automatique) — masqué par
        défaut, ouvert par le ✏️ d'un onglet (voir config.js). `width: 280px`
@@ -1002,15 +1028,22 @@
       align-items: center;
       gap: 8px;
       padding: 9px 14px;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
+      /* Bleu foncé fixe, comme l'encadré .theme-toggle-row qui les contient
+         (2026-09-09, sur demande explicite — même 1er ton que son dégradé,
+         voir .theme-toggle-row plus haut) : PAS var(--bg-panel)/
+         var(--text-primary), qui suivent le thème clair/sombre — ce fond
+         reste fixe dans les 2 thèmes (comme .app-logo/.profil-details-label
+         ci-dessus), un texte/fond qui suivrait le thème clair y jurerait
+         ou deviendrait illisible dessus. */
+      background: #1a2440;
+      border: 1px solid rgba(79, 142, 247, 0.3);
       border-radius: var(--radius-md);
-      color: var(--text-primary);
+      color: #e8eaf0;
       font-size: 13px;
       cursor: pointer;
       transition: background 0.15s;
     }
-    .google-btn:hover { background: var(--bg-hover); }
+    .google-btn:hover { background: #243158; }
 
     /* Sauvegardes (2026-08-10) */
     .backups-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1324,6 +1357,31 @@
     }
     .personnaliser-thumb-gradient {
       background: linear-gradient(160deg, #ffffff 0%, #eef0f4 55%, #dfe3e9 100%);
+    }
+
+    .personnaliser-thumb-winter-frost {
+      background-image: url('assets/wallpapers/winter-frost.jpg');
+      background-size: cover; background-position: center;
+    }
+    .personnaliser-thumb-winter-pines {
+      background-image: url('assets/wallpapers/winter-pines.jpg');
+      background-size: cover; background-position: center 70%;
+    }
+    .personnaliser-thumb-winter-peaks {
+      background-image: url('assets/wallpapers/winter-peaks.jpg');
+      background-size: cover; background-position: center;
+    }
+    .personnaliser-thumb-winter-mist {
+      background-image: url('assets/wallpapers/winter-mist.jpg');
+      background-size: cover; background-position: center 65%;
+    }
+    .personnaliser-thumb-winter-illus {
+      background-image: url('assets/wallpapers/winter-illus.jpg');
+      background-size: cover; background-position: center;
+    }
+    .personnaliser-thumb-winter-sea {
+      background-image: url('assets/wallpapers/winter-sea.jpg');
+      background-size: cover; background-position: center;
     }
 
     .save-btn {

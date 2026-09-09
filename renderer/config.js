@@ -3703,6 +3703,12 @@ const PERSONNALISER_OPTIONS = [
   { key: 'paper',     emoji: '📄', label: 'Grain de papier', theme: 'light' },
   { key: 'geometric', emoji: '📐', label: 'Lignes géométriques', theme: 'light' },
   { key: 'gradient',  emoji: '🌫️', label: 'Dégradé doux', theme: 'light' },
+  { key: 'winter-frost', emoji: '🧊', label: 'Givre sur vitre',        theme: 'light' },
+  { key: 'winter-pines', emoji: '🌲', label: 'Sapins dans la brume',    theme: 'light' },
+  { key: 'winter-peaks', emoji: '🏔️', label: 'Cime enneigée',           theme: 'light' },
+  { key: 'winter-mist',  emoji: '🌁', label: 'Arbres dans la neige',    theme: 'light' },
+  { key: 'winter-illus', emoji: '❄️', label: 'Montagnes illustrées',     theme: 'light' },
+  { key: 'winter-sea',   emoji: '🌊', label: "Horizon d'hiver",          theme: 'light' },
 ];
 
 async function initPersonnaliserSection() {

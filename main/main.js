@@ -556,20 +556,44 @@ function snapshotModuleStates() {
 // setMergedModules plus haut. Une clé du profil absente des modules ACTUELS
 // (module retiré du catalogue depuis la sauvegarde du profil) est ignorée
 // plutôt que ressuscitée.
+//
+// DURCI le 2026-09-09 (sur demande explicite, bug signalé : "activer/
+// désactiver LIVE FOOT dans un profil affecte tous les profils") — l'ancienne
+// version ne traitait QUE les clés présentes dans `statesByKey` (le snapshot
+// du profil) : une clé ACTUELLEMENT présente dans le store mais jamais
+// capturée dans CE profil (module ajouté/modifié après le dernier 💾 de ce
+// profil précis) n'était TOUCHÉE PAR AUCUNE des 2 branches — ni "restaurée"
+// (absente de statesByKey), ni "ignorée proprement" (le commentaire ci-dessus
+// ne couvre que le cas inverse) : elle gardait silencieusement sa valeur
+// PARTAGÉE d'avant le changement de profil, donnant l'impression que ce
+// module ignore le système de profils alors que tous les autres (déjà
+// capturés dans les 2 profils) basculent normalement. Toute clé du store
+// ABSENTE de `statesByKey` est désormais explicitement désactivée pour ce
+// profil — un profil qui n'a jamais capturé un module le traite comme
+// éteint, jamais comme "whatever the previous profile left behind".
 function applyModuleStatesSection(statesByKey) {
   if (!statesByKey || typeof statesByKey !== 'object') return;
   const configModules = store.get('modules') || {};
   const userdataModules = userdataStore.get('modules') || {};
   let configChanged = false;
   let userdataChanged = false;
-  for (const [key, state] of Object.entries(statesByKey)) {
-    if (!state) continue;
+
+  const applyState = (key, state) => {
     const target = USERDATA_MODULE_KEYS.has(key) ? userdataModules : configModules;
-    if (!target[key]) continue;
+    if (!target[key]) return;
     target[key].enabled = state.enabled === true;
     if (state.layout) target[key].layout = state.layout;
     if (USERDATA_MODULE_KEYS.has(key)) userdataChanged = true; else configChanged = true;
+  };
+
+  for (const [key, state] of Object.entries(statesByKey)) {
+    if (!state) continue;
+    applyState(key, state);
   }
+  for (const key of new Set([...Object.keys(configModules), ...Object.keys(userdataModules)])) {
+    if (!(key in statesByKey)) applyState(key, { enabled: false, layout: null });
+  }
+
   if (configChanged) safeStoreSet('modules', configModules);
   if (userdataChanged) userdataStore.set('modules', userdataModules);
 }
