@@ -1049,7 +1049,7 @@ function autoRestoreUserdataIfEmpty() {
         try {
           new Notification({
             title: 'Matin — Restauration automatique',
-            body: `Vos données (ETF, Crypto, Prêts...) semblaient vides au lancement : restaurées depuis la sauvegarde du ${new Date(b.mtimeMs).toLocaleString('fr-FR')}.`,
+            body: `Vos données (ETF, Crypto, Mon Prêt...) semblaient vides au lancement : restaurées depuis la sauvegarde du ${new Date(b.mtimeMs).toLocaleString('fr-FR')}.`,
           }).show();
         } catch (err) {
           console.error('[Matin] Échec notification de restauration automatique', err);
@@ -2080,6 +2080,16 @@ ipcMain.handle('modules:updateCollapsed', (_e, { key, collapsed }) => {
 // Navigation
 ipcMain.handle('window:openConfig', (_e, opts) => createConfigWindow(opts));
 ipcMain.handle('window:closeConfig', () => { if (configWindow) configWindow.close(); });
+// Portrait (2026-09-09, sur demande explicite — la disposition "Portrait
+// rangé 4" va jusqu'à x:1062, largeur insuffisante si la fenêtre reste plus
+// étroite que ça) — n'AGRANDIT que si besoin, ne rétrécit jamais une fenêtre
+// déjà plus large (voir dashboard.js btnPortraitMode, qui appelle ceci
+// uniquement quand on ACTIVE le portrait, jamais en le désactivant).
+ipcMain.on('window:ensure-width', (_e, minW) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const [w, h] = mainWindow.getSize();
+  if (w < minW) mainWindow.setSize(minW, h);
+});
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 
 // Flux RSS nécessitant un fetch sans restriction CORS (le process main n'est

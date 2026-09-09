@@ -766,8 +766,9 @@ body.ultrawide .module-card { max-width: 500px; }
    — `.module-title-group` n'enveloppe `.module-title` que pour les modules
    qui ONT un sous-titre (voir createModuleCard), donc n'affecte aucun autre
    module. Colonne (pas ligne comme `.module-title`) pour empiler titre fixe
-   ("PRÊTS IMMOBILIERS", en majuscules via `.module-title` ci-dessus) et
-   sous-titre (nom du groupe, ex. "Maison Francheleins") l'un sous l'autre. */
+   ("MON PRÊT", en majuscules via `.module-title` ci-dessus — renommé depuis
+   "PRÊTS IMMOBILIERS" le 2026-09-09, sur demande explicite) et sous-titre
+   (nom du groupe, ex. "Maison Francheleins") l'un sous l'autre. */
 .module-title-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .module-subtitle {
   font-size: 11px;
@@ -1659,6 +1660,20 @@ body.ultrawide .module-card { max-width: 500px; }
   color: var(--text-muted);
   margin-right: 5px;
 }
+/* Couleur du libellé de source par catégorie. Scopé par id de carte
+   (`#module-<clé>`, PAS `[data-module]` : dashboard.js ne pose jamais cet
+   attribut, voir createModuleCard) pour ne pas affecter le ticker Sports qui
+   partage la même classe .sports-ticker-source. font-weight:600 déjà posé
+   ci-dessus. France/Tech/Bourse/Gaming affichent un VRAI nom de source ici
+   (voir renderSourcesRssModule dans rss-feed.js) ; Sciences/Santé réutilisent
+   la même classe pour une heure relative ("il y a 2h") — colorée elle aussi,
+   sur demande explicite (2026-09-09), faute d'afficher un nom de source. */
+#module-france .sports-ticker-source { color: #3b82f6; }
+#module-tech .sports-ticker-source   { color: #f97316; }
+#module-bourse .sports-ticker-source { color: #eab308; }
+#module-gaming .sports-ticker-source { color: #ec4899; }
+#module-science .sports-ticker-source { color: #22c55e; }
+#module-sante .sports-ticker-source   { color: #67e8f9; }
 /* Heure de publication, imbriquée dans .sports-ticker-source — Sports
    uniquement (2026-09-01, sur demande explicite, "L'ÉQUIPE · 14h32", voir
    ol.js) — `text-transform:none` ANNULE explicitement l'uppercase hérité du

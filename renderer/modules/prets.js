@@ -450,7 +450,7 @@ window.MatinModules.prets = {
       // prêt à paliers, c'est le palier en cours qui compte dans le total du
       // groupe, pas une valeur figée qui pourrait dater d'un palier déjà passé.
       const totalCurrentMonthly = validCalcs.reduce((sum, c) => sum + c.calc.currentPayment, 0);
-      const groupName = (config?.name || '').trim() || 'Prêts';
+      const groupName = (config?.name || '').trim() || 'Mon Prêt';
 
       container.innerHTML = `
         <div class="prets-module ${privacy ? 'prets-privacy-on' : ''} ${collapsed ? 'prets-collapsed' : ''}">

@@ -100,7 +100,7 @@ const MODULE_META = {
   // réutilisé tel quel pour le nom du groupe (même mécanisme que le nom
   // d'équipe Sport), `pretsLoansField` déclenche la section imbriquée listant
   // les prêts DE CE groupe (jusqu'à 5, voir renderPretsLoansSection).
-  prets: { label: 'Prêts',   icon: '🏠', requiresGoogle: false,
+  prets: { label: 'Mon Prêt',   icon: '🏠', requiresGoogle: false,
            configField: { key: 'name', label: 'Nom du groupe', placeholder: 'Résidence principale' },
            pretsLoansField: true },
   // LIVE FOOT! (2026-08-11, sur demande explicite) — voir renderer/modules/
@@ -3605,7 +3605,7 @@ async function renderBackupsList() {
       const row = btn.closest('.backups-row');
       const file = row.dataset.file;
       const dateLabel = row.dataset.dateLabel;
-      if (!confirm(`Restaurer la sauvegarde du ${dateLabel} ?\n\nTOUTES les données actuelles (ETF, Crypto, Prêts, Podcasts, FDJ, réglages...) seront remplacées par celles de cette sauvegarde.`)) return;
+      if (!confirm(`Restaurer la sauvegarde du ${dateLabel} ?\n\nTOUTES les données actuelles (ETF, Crypto, Mon Prêt, Podcasts, FDJ, réglages...) seront remplacées par celles de cette sauvegarde.`)) return;
 
       btn.disabled = true;
       btn.textContent = 'Restauration…';
@@ -3664,7 +3664,7 @@ async function renderDriveSection() {
 
   document.getElementById('btnDriveForceRestore')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
-    if (!confirm('Restaurer depuis Google Drive ?\n\nTOUTES les données actuelles (ETF, Crypto, Prêts, Podcasts, FDJ, réglages...) seront remplacées par celles de Drive — même si votre version locale est plus récente.')) return;
+    if (!confirm('Restaurer depuis Google Drive ?\n\nTOUTES les données actuelles (ETF, Crypto, Mon Prêt, Podcasts, FDJ, réglages...) seront remplacées par celles de Drive — même si votre version locale est plus récente.')) return;
 
     btn.disabled = true;
     btn.textContent = 'Restauration…';

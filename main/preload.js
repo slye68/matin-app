@@ -109,6 +109,12 @@ contextBridge.exposeInMainWorld('matin', {
   window: {
     openConfig: (opts) => ipcRenderer.invoke('window:openConfig', opts),
     closeConfig: () => ipcRenderer.invoke('window:closeConfig'),
+    // Portrait (2026-09-09, sur demande explicite) — s'assure que la fenêtre
+    // fait au moins `minW` de large (jamais ne la rétrécit) au moment où le
+    // mode portrait s'active, voir dashboard.js btnPortraitMode. `send` (pas
+    // `invoke`) : fire-and-forget, aucune réponse attendue, même schéma que
+    // `sun:move` ci-dessous.
+    ensureWidth: (minW) => ipcRenderer.send('window:ensure-width', minW),
   },
 
   // ── Shell ─────────────────────────────────────────────────────────────────

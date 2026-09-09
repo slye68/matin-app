@@ -118,7 +118,7 @@ const MODULE_REGISTRY = {
   // de la date du jour, doivent donc se recalculer de temps en temps même
   // sans interaction (24h : la variation jour à jour est de toute façon
   // imperceptible pour un prêt qui se mesure en mois).
-  prets: { label: 'Prêts', icon: '🏠', requiresGoogle: false, defaultSize: { w: 360, h: 420 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'finance' },
+  prets: { label: 'Mon Prêt', icon: '🏠', requiresGoogle: false, defaultSize: { w: 360, h: 420 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'finance' },
   // LIVE FOOT! (2026-08-11, sur demande explicite ; renommé "LIVE!" →
   // "LIVE FOOT!" le 2026-09-01, 2e demande explicite, libellé affiché
   // uniquement — la clé interne `live` reste inchangée) — pas de refreshMs :
@@ -272,13 +272,14 @@ function resolveModuleTitle(key, meta, config) {
   if (isSportsKey(key)) return config?.team?.trim() || meta.label;
   // Prêts (2026-09-01, sur demande explicite — remplace l'ancien comportement
   // où le nom du groupe (ex. "Maison Francheleins") remplaçait ENTIÈREMENT le
-  // titre de carte) : le titre est désormais TOUJOURS "Prêts immobiliers",
+  // titre de carte) : le titre est désormais TOUJOURS "Mon prêt" (renommé
+  // depuis "Prêts immobiliers" le 2026-09-09, sur demande explicite),
   // identique sur toutes les instances (prets/prets_2../prets_5) — le nom du
   // groupe passe en sous-titre, voir resolveModuleSubtitle/createModuleCard
   // ci-dessous. `.module-title` met déjà tout en majuscules via CSS
-  // (text-transform:uppercase), d'où "Prêts immobiliers" ici plutôt que déjà
-  // en capitales.
-  if (isPretsKey(key)) return 'Prêts immobiliers';
+  // (text-transform:uppercase), d'où "Mon prêt" ici plutôt que déjà en
+  // capitales.
+  if (isPretsKey(key)) return 'Mon prêt';
   // Mon Équipe (2026-08-15, sur demande explicite) — "le nom de l'équipe en
   // en-tête" : même mécanisme que Sports ci-dessus, le titre de CARTE
   // affiche le nom réellement saisi plutôt que le libellé générique "Mon
@@ -1954,15 +1955,6 @@ function applyScreenModeClass() {
   document.body.classList.toggle('standard', !ultrawide);
 }
 
-// Mode portrait (2026-09-07, sur demande explicite) — même principe EXACT
-// que .ultrawide ci-dessus, juste dans l'autre sens : borne la zone de
-// contenu à une largeur "2 colonnes" plutôt que de l'élargir. `full >
-// PORTRAIT_MAX_CONTENT_WIDTH` (voir dashboardContentBounds) ne s'applique
-// donc QUE si la fenêtre reste large (bascule logicielle du bouton, sans
-// rotation physique de l'écran) — une fenêtre déjà étroite (écran réellement
-// tourné/redimensionné) reflue naturellement sans borne artificielle.
-const PORTRAIT_MAX_CONTENT_WIDTH = 760;
-
 // Classe posée sur <body> (demandé explicitement, PAS sur <html>) — lue à la
 // fois par le CSS (largeur de carte plafonnée, barre de recherche élargie,
 // voir style.css) et par dashboardContentBounds ci-dessous (bornes de
@@ -2447,7 +2439,7 @@ async function initDashboard() {
   window.matin.getAutoRestoreNotice().then((notice) => {
     if (!notice) return;
     const dateLabel = new Date(notice.mtimeMs).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
-    alert(`Vos données (ETF, Crypto, Prêts...) semblaient vides au lancement.\n\nElles ont été restaurées automatiquement depuis la sauvegarde du ${dateLabel}.`);
+    alert(`Vos données (ETF, Crypto, Mon Prêt...) semblaient vides au lancement.\n\nElles ont été restaurées automatiquement depuis la sauvegarde du ${dateLabel}.`);
   }).catch(err => console.error('[Matin] Échec lecture notice de restauration automatique', err));
 
   const dashboard   = document.getElementById('dashboard');
@@ -2523,6 +2515,18 @@ async function initDashboard() {
     }
 
     toLoad.push([key, meta, moduleConf]);
+  }
+
+  // Rechargement automatique du dernier slot Réorganiser actif (2026-09-09,
+  // sur demande explicite, remplace la tentative précédente par snapshot
+  // pré-reload) — voir `loadLayoutSlot` (plus bas dans cette fonction,
+  // disponible ici par hoisting) qui pose `matin-last-active-slot` une fois
+  // le layout appliqué. Délai 100ms : laisse le temps aux cartes ci-dessus
+  // d'être posées dans le DOM avant que `loadLayoutSlot` ne les cherche via
+  // `canvas.querySelectorAll('.module-card')`.
+  const lastSlot = localStorage.getItem('matin-last-active-slot');
+  if (lastSlot) {
+    setTimeout(() => loadLayoutSlot(lastSlot), 100);
   }
 
   updateCanvasHeight(canvas);
@@ -2680,9 +2684,9 @@ async function initDashboard() {
   // catégorie : il s'agit de RESTACKER les mêmes modules dans une colonne
   // plus étroite, pas de les mélanger comme le ferait un vrai Réorganiser.
   // La largeur resserrée vient de `dashboardContentBounds`, déjà au courant
-  // de `.portrait-mode` (voir plus haut, PORTRAIT_MAX_CONTENT_WIDTH) — un
-  // seul point de vérité pour "quelle largeur de dépôt utiliser en ce moment",
-  // partagé avec le placement par défaut/les bornes de glisser-déposer.
+  // de `.portrait-mode` (voir plus haut) — un seul point de vérité pour
+  // "quelle largeur de dépôt utiliser en ce moment", partagé avec le
+  // placement par défaut/les bornes de glisser-déposer.
   function sortByCurrentPosition(cardsInfo, cardsByKey) {
     return [...cardsInfo].sort((a, b) => {
       const ca = cardsByKey.get(a.key), cb = cardsByKey.get(b.key);
@@ -2708,6 +2712,21 @@ async function initDashboard() {
   }
 
   function reflowForPortrait() {
+    // Sauté une seule fois après un reload déclenché par une sauvegarde de
+    // paramètres (voir le flag posé juste avant `window.location.reload()`
+    // plus bas, sur 'modules:updated') — sans ce garde-fou, ce reflow
+    // écrasait la disposition qui vient d'être restaurée correctement par
+    // `placeCard` au chargement (bug signalé, 2026-09-09). Le flag est retiré
+    // immédiatement après lecture, donc un VRAI clic ultérieur sur le bouton
+    // bascule portrait (ou un lancement normal de l'app, qui ne pose jamais
+    // ce flag) continue de déclencher le reflow normalement. Posé en TOUTE
+    // PREMIÈRE ligne (avant même les déclarations ci-dessous) pour sauter le
+    // reflow avant le moindre calcul.
+    if (localStorage.getItem('matin-skip-portrait-reflow')) {
+      localStorage.removeItem('matin-skip-portrait-reflow');
+      console.log('[Portrait] Skip reflow');
+      return;
+    }
     const cards = Array.from(canvas.querySelectorAll('.module-card'));
     if (!cards.length) return;
     const cardsByKey = new Map(cards.map(c => [c.id.replace('module-', ''), c]));
@@ -2717,14 +2736,16 @@ async function initDashboard() {
       height: card.offsetHeight,
     }));
     const ordered = sortByCurrentPosition(cardsInfo, cardsByKey);
-    // `dashboardContentBounds` renvoie désormais la pleine largeur en mode
-    // portrait (2026-09-08, voir son commentaire — le DRAG ne doit plus être
-    // bridé) : le reflow calcule donc SA PROPRE largeur resserrée ici plutôt
-    // que de la lire là-bas, pour garder l'empilement "2 colonnes" compact au
-    // clic bouton — `contentLeft` fixé à 0 (pas de centrage) pour que les
-    // modules commencent au bord gauche réel de l'écran, plus au milieu.
-    const fullWidth = dashboard.clientWidth || 1200;
-    const containerWidth = Math.min(PORTRAIT_MAX_CONTENT_WIDTH, fullWidth);
+    // Plafond `PORTRAIT_MAX_CONTENT_WIDTH` (760px) RETIRÉ ici (2026-09-09, sur
+    // demande explicite — constat réel : la disposition "Portrait rangé 4"
+    // sauvegardée place des modules jusqu'à x:1062px (842+220), largement
+    // au-delà de ce plafond, qui compressait donc tout au reflow suivant).
+    // `containerWidth` utilise désormais la vraie largeur du conteneur
+    // (`dashboard.clientWidth`), avec `window.innerWidth` en 2e repli si la
+    // 1re mesure est nulle (ex. élément pas encore dans le DOM) — `contentLeft`
+    // reste à 0 (pas de centrage) pour que les modules commencent au bord
+    // gauche réel de l'écran, pas au milieu.
+    const containerWidth = dashboard.clientWidth || window.innerWidth || 1200;
     const contentLeft = 0;
     const rawLayouts = packModulesIntoRows(ordered, containerWidth, AUTOARRANGE_GAP);
     const newLayouts = shiftLayoutsX(rawLayouts, contentLeft);
@@ -2755,7 +2776,14 @@ async function initDashboard() {
     if (!document.body.classList.contains('portrait-mode')) return;
     const cards = Array.from(canvas.querySelectorAll('.module-card'));
     if (!cards.length) return;
-    const containerWidth = Math.min(PORTRAIT_MAX_CONTENT_WIDTH, dashboard.clientWidth || 1200);
+    // Plafond `PORTRAIT_MAX_CONTENT_WIDTH` (760px) RETIRÉ ici (2026-09-09, sur
+    // demande explicite — même correctif que reflowForPortrait plus haut,
+    // oublié ici lors de ce 1er passage : cette fonction reclampait x:842 →
+    // x:540 à CHAQUE init/resize/reload, quelle que soit la largeur réelle de
+    // la fenêtre, et persistait en plus cette valeur clampée sur disque via
+    // `modulesConf`/`updateLayout` ci-dessous). `containerWidth` utilise
+    // désormais la vraie largeur du conteneur, comme `reflowForPortrait`.
+    const containerWidth = dashboard.clientWidth || window.innerWidth || 1200;
     let changed = false;
 
     for (const card of cards) {
@@ -2806,7 +2834,13 @@ async function initDashboard() {
       await window.matin.store.set('ui.portraitLandscapeSnapshot', snapshotCurrentLayout(cards))
         .catch(err => console.error('[Matin] Échec sauvegarde de la disposition paysage', err));
       document.body.classList.add('portrait-mode');
-      reflowForPortrait();
+      // Largeur mini 1100px (2026-09-09, sur demande explicite — la
+      // disposition "Portrait rangé 4" va jusqu'à x:1062) : n'agrandit la
+      // fenêtre que si elle est plus étroite, ne la rétrécit jamais (voir
+      // main.js, handler 'window:ensure-width'). Seulement à l'ACTIVATION du
+      // portrait, jamais à la désactivation (retour en paysage n'a pas cette
+      // contrainte).
+      window.matin.window.ensureWidth(1100);
     } else {
       document.body.classList.remove('portrait-mode');
       const snapshot = await window.matin.store.get('ui.portraitLandscapeSnapshot').catch(() => null);
@@ -2814,11 +2848,11 @@ async function initDashboard() {
     }
     updateCollapseBtnVisibility();
 
-    btnPortraitMode.textContent = turningOn ? '↕' : '⇅';
+    btnPortraitMode.textContent = turningOn ? '↕' : '⇔';
     await window.matin.store.set('ui.portraitMode', turningOn)
       .catch(err => console.error('[Matin] Échec sauvegarde du mode portrait', err));
   });
-  if (btnPortraitMode) btnPortraitMode.textContent = document.body.classList.contains('portrait-mode') ? '↕' : '⇅';
+  if (btnPortraitMode) btnPortraitMode.textContent = document.body.classList.contains('portrait-mode') ? '↕' : '⇔';
 
   const autoArrangeConfirmOverlay = document.getElementById('autoArrangeConfirmOverlay');
   document.getElementById('btnAutoArrange')?.addEventListener('click', () => {
@@ -2938,6 +2972,13 @@ async function initDashboard() {
       clearTimeout(notice._hideTimer);
       notice._hideTimer = setTimeout(() => notice.classList.remove('show'), 2000);
     }
+
+    // Mémorise le dernier slot chargé (2026-09-09, sur demande explicite) —
+    // relu par initDashboard() au démarrage pour le réappliquer après un
+    // reload déclenché par la sauvegarde des paramètres (voir onUpdated plus
+    // bas). Après les 2 `return` anticipés ci-dessus : ne mémorise que si le
+    // layout a RÉELLEMENT été appliqué.
+    localStorage.setItem('matin-last-active-slot', slot);
   }
 
   // Dialogue de nommage (2026-08-31, 2e révision, sur demande explicite) —
@@ -3014,7 +3055,15 @@ async function initDashboard() {
   // Écouter les mises à jour de modules depuis config (ajout/suppression de
   // module, changement de config) — pas déclenché par nos propres sauvegardes
   // de disposition, qui passent par le canal silencieux modules:updateLayout.
-  window.matin.modules.onUpdated(() => window.location.reload());
+  // Flag posé juste avant le reload (2026-09-09, bug signalé "youtube passe
+  // de x:842 à x:314 après sauvegarde des paramètres en mode portrait") : lu
+  // au tout début de reflowForPortrait() (voir plus haut) pour sauter le
+  // reflow qui suit ce reload précis, sans jamais affecter le tout premier
+  // lancement de l'app (qui ne pose jamais ce flag).
+  window.matin.modules.onUpdated(() => {
+    localStorage.setItem('matin-skip-portrait-reflow', '1');
+    window.location.reload();
+  });
 
   // Chargement des modules EN PARALLÈLE (voir loadModule) — pas d'await
   // bloquant pour le reste de la fonction, mais on le garde ici pour que les
