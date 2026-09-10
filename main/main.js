@@ -610,6 +610,10 @@ function saveProfileSnapshot(key, name) {
     ...existing,
     name: (name || '').trim() || existing.name,
     theme: store.get('app.theme') || 'dark',
+    // Fond d'écran (2026-09-10, sur demande explicite — bug signalé : perdu
+    // au switch de profil, faute d'être sauvegardé ici). Même défaut 'none'
+    // que app:setBackground ci-dessous.
+    background: store.get('app.background') || 'none',
     modules: snapshotModuleStates(),
   };
   backupStoreBeforeWrite();
@@ -632,6 +636,19 @@ function performProfileSwitch(key) {
   if (target.theme) {
     safeStoreSet('app.theme', target.theme);
     broadcastTheme(target.theme);
+  }
+  // Fond d'écran (2026-09-10, sur demande explicite — même bug/même
+  // mécanisme que le thème ci-dessus). `target.background` peut être absent
+  // sur un profil sauvegardé avant ce correctif (ancien snapshot sans cette
+  // clé) — `!== undefined` distingue ce cas (rien à restaurer, on laisse le
+  // fond actuel tel quel) de 'none' (valeur explicite, un vrai fond à
+  // restaurer). Même validation de type que app:setBackground plus bas.
+  if (target.background !== undefined) {
+    const safeBackground = typeof target.background === 'string' ? target.background : 'none';
+    safeStoreSet('app.background', safeBackground);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('background:updated', safeBackground);
+    }
   }
   profiles.active = key;
   userdataStore.set('profiles', profiles);
@@ -2104,6 +2121,17 @@ ipcMain.handle('modules:updateCollapsed', (_e, { key, collapsed }) => {
 // Navigation
 ipcMain.handle('window:openConfig', (_e, opts) => createConfigWindow(opts));
 ipcMain.handle('window:closeConfig', () => { if (configWindow) configWindow.close(); });
+// Mode démo (2026-09-10, voir renderer/demo-mode.js runDemoLight / preload.js
+// demo.configTab/configClickBtn) — simple relais dashboard → fenêtre config,
+// aucune logique propre : la fenêtre config n'est pas accessible directement
+// depuis le dashboard (2 renderers séparés), ce canal IPC fait juste transiter
+// l'action par le process main.
+ipcMain.handle('demo:configTab', (_e, tabId) => {
+  if (configWindow && !configWindow.isDestroyed()) configWindow.webContents.send('demo:setTab', tabId);
+});
+ipcMain.handle('demo:configClickBtn', (_e, btnId) => {
+  if (configWindow && !configWindow.isDestroyed()) configWindow.webContents.send('demo:clickBtn', btnId);
+});
 // Portrait (2026-09-09, sur demande explicite — la disposition "Portrait
 // rangé 4" va jusqu'à x:1062, largeur insuffisante si la fenêtre reste plus
 // étroite que ça) — n'AGRANDIT que si besoin, ne rétrécit jamais une fenêtre

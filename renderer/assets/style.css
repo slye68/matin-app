@@ -1531,8 +1531,8 @@ body.ultrawide .module-card { max-width: 500px; }
 .monequipe-info-date  { color: #4f8ef7; }
 /* Type en bleu, date+heure fusionnées en vert (2026-08-31, sur demande
    explicite — voir mon-equipe.js). */
-.monequipe-info-type  { color: #4f8ef7; }
-.monequipe-info-datetime { color: #34d399; }
+.monequipe-info-type  { color: #ffffff; text-transform: uppercase; }
+.monequipe-info-datetime { color: var(--accent-yellow); }
 /* Score en tête de ligne "Matchs passés" — SUPPRIMÉE (2026-09-03, sur
    demande explicite) : remplacée par .monequipe-result-score plus bas, même
    format que "Dernier résultat" désormais (uniformisation demandée), plus
@@ -1583,7 +1583,7 @@ body.ultrawide .module-card { max-width: 500px; }
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #4f8ef7;
+  color: #ffffff;
   background: rgba(79, 142, 247, 0.16);
   padding: 3px 9px;
   border-radius: 99px;
@@ -1626,8 +1626,9 @@ body.ultrawide .module-card { max-width: 500px; }
    "Extérieur". Pas de variable --accent-orange dans ce projet (voir
    #f59e0b utilisé tel quel ailleurs, ex. thème Finance) donc hex brut ici
    aussi, pour les 2 couleurs. */
-.monequipe-team-us       { color: #f59e0b; }
-.monequipe-team-opponent { color: #fca5a5; }
+/* Notre équipe en vert foncé, adversaire en rouge (2026-09-10, sur demande explicite) */
+.monequipe-team-us       { color: #15803d; }
+.monequipe-team-opponent { color: #ef4444; }
 .monequipe-next-vs {
   font-size: 11px;
   font-weight: 400;

@@ -254,6 +254,27 @@
     :root[data-color-scheme="light"] .config-tab:hover:not(.active) { color: #111827; }
     :root[data-color-scheme="light"] .google-btn        { color: #111827; }
 
+    /* Mon Équipe — dropdowns en sombre (2026-09-10, sur demande explicite,
+       2e révision : `color-scheme: dark` seul laissait le popup d'options
+       dans le gris sombre générique de Chromium, pas la teinte noire/panel de
+       l'app — `background-color`/`color` posés directement sur <option>,
+       que Chromium respecte indépendamment de color-scheme). Classes réelles
+       (voir config.js monequipe-venue-select/monequipe-competition-select/
+       monequipe-sport-select) — pas de wrapper `.monequipe-config` ni
+       `#moduleMonEquipeConfig` dans ce fichier. Ne s'applique jamais en mode
+       clair. */
+    :root:not([data-color-scheme="light"]) .monequipe-venue-select,
+    :root:not([data-color-scheme="light"]) .monequipe-competition-select,
+    :root:not([data-color-scheme="light"]) .monequipe-sport-select {
+      color-scheme: dark;
+    }
+    :root:not([data-color-scheme="light"]) .monequipe-venue-select option,
+    :root:not([data-color-scheme="light"]) .monequipe-competition-select option,
+    :root:not([data-color-scheme="light"]) .monequipe-sport-select option {
+      background-color: var(--bg-panel);
+      color: var(--text-primary);
+    }
+
     .config-tabpanels { flex: 1; min-height: 0; position: relative; }
     .config-tabpanel {
       position: absolute;
@@ -1673,11 +1694,10 @@
                    réalité du HTML statique ici (config.html), le seul endroit
                    où "PROFILS" apparaît comme titre de section ; config.js ne
                    fait que peupler .profile-tabs juste en dessous. -->
-              <span class="profiles-hint">Je sauvegarde les modules choisis !</span>
               <!-- Voir showProfilesInfoPopup dans config.js — même popover
                    réutilisé que le bouton ℹ️ "Sites compatibles" du module
                    Suivi de prix (.price-tracking-info-popup). -->
-              <button type="button" class="profiles-info-btn" id="profilesInfoBtn" title="Utilisation sur plusieurs PC">ℹ︎</button>
+              <button type="button" class="profiles-info-btn" id="profilesInfoBtn" title="Ici, je mémorise mes modules sur un profil !">ℹ︎</button>
             </div>
             <div class="profile-tabs" id="profileTabs"></div>
           </div>
@@ -1857,7 +1877,11 @@
       <div class="personnaliser-section-title">Mode d'affichage</div>
       <div class="display-mode-options" id="displayModeOptions"></div>
 
-      <div class="personnaliser-section-title">Fond du dashboard</div>
+      <div class="personnaliser-section-title" style="display:flex;align-items:center;gap:6px;">
+        Fond du dashboard
+        <button type="button" id="fondInfoBtn"
+          style="background:none;border:none;cursor:pointer;font-size:12px;padding:0;line-height:1;color:#3b82f6;opacity:0.85;letter-spacing:normal;">ℹ︎</button>
+      </div>
       <div class="personnaliser-options" id="personnaliserOptions"></div>
 
       <button type="button" class="backups-modal-close" id="btnPersonnaliserClose">Fermer</button>

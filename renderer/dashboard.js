@@ -325,8 +325,6 @@ const MODULE_CLICK_URLS = {
   fdjEurodreams: 'https://www.fdj.fr/jeux-de-tirage/eurodreams',
   steamPromos: 'https://store.steampowered.com/specials',
   epicPromos: 'https://store.epicgames.com/fr/free-games',
-  kasa: 'https://www.kasasmart.com',
-  tradfri: 'https://www.ikea.com/fr/fr/cat/smarta-hem-hs001/',
   weather: 'https://meteofrance.com',
   maps: 'https://maps.google.com',
   live: 'https://www.lequipe.fr/Football/',
@@ -2376,7 +2374,7 @@ function initDriveSyncIndicator(splashDone) {
     if (!status || status.type !== 'synced') return;
     Promise.resolve(splashDone).then(() => {
       console.log('[Drive Sync Debug] affichage de l’indicateur à', new Date().toISOString(), '— élément trouvé :', !!el);
-      el.textContent = '✓ Saved';
+      el.textContent = '✓';
       el.classList.add('visible');
       if (hideTimer) clearTimeout(hideTimer);
       hideTimer = setTimeout(() => {

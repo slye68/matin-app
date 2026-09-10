@@ -589,6 +589,13 @@ async function initConfig() {
   // doublon avec le bouton natif Windows en haut à droite, voir titleBarOverlay
   // dans main.js/createConfigWindow) — plus de listener à attacher ici.
   document.getElementById('btnSave').addEventListener('click', saveConfig);
+
+  // Mode démo (2026-09-10, voir renderer/demo-mode.js runDemoLight, piloté
+  // depuis le dashboard via preload.js demo.configTab/configClickBtn →
+  // main.js → ici) — même pattern que theme.onUpdated ci-dessus
+  // (ipcRenderer.on, pas de namespace onIpc générique dans ce projet).
+  window.matin.demo?.onSetTab((tabId) => setActiveTab(tabId));
+  window.matin.demo?.onClickBtn((btnId) => document.getElementById(btnId)?.click());
 }
 
 // ─── Thème clair/sombre (2026-08-08, sur demande explicite) ────────────────
@@ -699,6 +706,11 @@ async function initProfileTabs() {
     e.stopPropagation();
     showProfilesInfoPopup(e.currentTarget);
   });
+
+  document.getElementById('fondInfoBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showFondInfoPopup(e.currentTarget);
+  });
 }
 
 // Réutilise le même popover que showPriceTrackingInfoPopup ci-dessus (.price-
@@ -713,8 +725,35 @@ function showProfilesInfoPopup(anchorEl) {
   popup.id = 'profilesInfoPopup';
   popup.className = 'price-tracking-info-popup';
   popup.innerHTML = `
+    <div class="price-tracking-info-warning" style="margin-bottom:6px;">📌 Ici, je mémorise mes modules sur un profil !</div>
     <div class="price-tracking-info-title">💡 Utilisation sur plusieurs PC</div>
     <div class="price-tracking-info-warning">Si vous utilisez Matin sur plusieurs PC, nous vous recommandons d'utiliser 1 profil par appareil (ex. « Bureau » sur votre PC fixe, « Portable » sur votre laptop).</div>
+  `;
+  document.body.appendChild(popup);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  popup.style.top = `${rect.bottom + 6}px`;
+  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popupRect.width - 8))}px`;
+
+  const closeOnOutsideClick = (e) => {
+    if (popup.contains(e.target)) return;
+    popup.remove();
+    document.removeEventListener('click', closeOnOutsideClick, true);
+  };
+  setTimeout(() => document.addEventListener('click', closeOnOutsideClick, true), 0);
+}
+
+function showFondInfoPopup(anchorEl) {
+  document.getElementById('priceTrackingInfoPopup')?.remove();
+  document.getElementById('profilesInfoPopup')?.remove();
+  document.getElementById('fondInfoPopup')?.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'fondInfoPopup';
+  popup.className = 'price-tracking-info-popup';
+  popup.innerHTML = `
+    <div class="price-tracking-info-warning">💾 Pensez à enregistrer votre profil après chaque modification pour conserver le fond d'écran associé.</div>
   `;
   document.body.appendChild(popup);
 

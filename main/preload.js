@@ -105,6 +105,20 @@ contextBridge.exposeInMainWorld('matin', {
     setAutoSwitch: (key, enabled, days)  => ipcRenderer.invoke('profiles:setAutoSwitch', { key, enabled, days }),
   },
 
+  // ── Mode démo (2026-09-10, voir renderer/demo-mode.js runDemoLight) — pilote
+  // la navigation d'onglets/boutons de la fenêtre Paramètres DEPUIS le
+  // dashboard (2 fenêtres Electron séparées, aucun accès direct au DOM de
+  // l'une depuis l'autre) : configTab/configClickBtn relaient l'action au
+  // process main (voir main.js demo:configTab/demo:configClickBtn), qui la
+  // repousse à son tour vers la fenêtre config via demo:setTab/demo:clickBtn
+  // (voir config.js). ──────────────────────────────────────────────────────
+  demo: {
+    configTab: (tabId) => ipcRenderer.invoke('demo:configTab', tabId),
+    configClickBtn: (btnId) => ipcRenderer.invoke('demo:configClickBtn', btnId),
+    onSetTab: (cb) => ipcRenderer.on('demo:setTab', (_e, tabId) => cb(tabId)),
+    onClickBtn: (cb) => ipcRenderer.on('demo:clickBtn', (_e, btnId) => cb(btnId)),
+  },
+
   // ── Fenêtres ──────────────────────────────────────────────────────────────
   window: {
     openConfig: (opts) => ipcRenderer.invoke('window:openConfig', opts),

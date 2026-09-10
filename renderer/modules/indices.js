@@ -47,6 +47,17 @@
  * réexécuté en entier, un fetch RÉSEAU FRAIS à chaque cycle, jamais de cache
  * interne à ce fichier qui pourrait à lui seul expliquer un chiffre plus
  * vieux que ~5 min + le délai Yahoo ci-dessus.
+ *
+ * RE-DIAGNOSTIQUÉ le 2026-09-10 (signalement "935 minutes de retard", refresh
+ * soi-disant cassé) : mécanisme ci-dessus reconfirmé intact (aucun cache/TTL/
+ * condition d'heures de marché ajoutés ni trouvés depuis). Un délai à 3
+ * chiffres correspond à un marché FERMÉ (nuit, week-end, jour férié) — Yahoo
+ * renvoie alors le `regularMarketTime` de la DERNIÈRE clôture, qui ne
+ * rajeunit évidemment pas tant que le marché n'a pas rouvert, quelle que soit
+ * la fréquence de rafraîchissement. `indicesFmtDelayNote` (plus bas)
+ * distingue désormais ce cas ("Marché probablement fermé — dernière clôture
+ * il y a Xh Ymin") du délai typique de quelques minutes en séance, pour ne
+ * plus laisser croire à un rafraîchissement bloqué.
  */
 window.MatinModules = window.MatinModules || {};
 
@@ -112,6 +123,32 @@ function indicesGainClass(n) {
   return n == null ? '' : (n >= 0 ? 'up' : 'down');
 }
 
+// Libellé de la note de délai (2026-09-10, sur demande explicite — bug
+// signalé : "935 minutes de retard", refresh soi-disant cassé). Investigation
+// menée dans CE fichier : AUCUN cache/TTL/condition d'heures de marché
+// n'existe ici, `render()` refait un fetch réseau complet à CHAQUE appel
+// (Promise.allSettled ci-dessous, aucune variable de cache), et
+// `MODULE_REGISTRY.indices.refreshMs` (dashboard.js, 5 min) déclenche bien ce
+// `render()` toutes les 5 min sans interruption (voir scheduleModuleRefresh,
+// dashboard.js — `setInterval` inconditionnel). `maxDelay` vient de
+// `regularMarketTime`, un champ RENVOYÉ PAR YAHOO, jamais mis en cache
+// localement — un delta de 935 min (~15h35) correspond exactement à une nuit
+// complète marché fermé (ex. consulté le matin avant l'ouverture, dernière
+// clôture = la veille au soir), pas à un rafraîchissement bloqué : re-fetcher
+// plus souvent ne changerait RIEN, Yahoo renverrait le même `regularMarketTime`
+// tant que le marché n'a pas rouvert. Modifier `refreshMs` aurait donc été un
+// correctif sans effet sur ce symptôme précis — non appliqué. Seul changement
+// réel : ce libellé, pour ne plus donner l'impression d'un bug quand le délai
+// dépasse largement les ~15-20 min typiques de latence Yahoo déjà documentés
+// plus haut (voir en-tête de fichier, diagnostic du 2026-09-01).
+function indicesFmtDelayNote(minutes) {
+  if (minutes <= 60) return `Cours différés (Yahoo Finance) — dernière donnée il y a ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const duration = m ? `${h} h ${m} min` : `${h} h`;
+  return `Marché probablement fermé — dernière clôture connue il y a ${duration}`;
+}
+
 function indicesTileHtml(def, quote) {
   const hasError = !quote || quote.currentPrice == null;
   return `
@@ -157,7 +194,7 @@ window.MatinModules.indices = {
       container.innerHTML = `
         <div class="indices-module">
           <div class="indices-grid">${defs.map((d, i) => indicesTileHtml(d, quotes[i])).join('')}</div>
-          ${maxDelay != null ? `<div class="indices-delay-note">Cours différés (Yahoo Finance) — dernière donnée il y a ${maxDelay} min</div>` : ''}
+          ${maxDelay != null ? `<div class="indices-delay-note">${indicesFmtDelayNote(maxDelay)}</div>` : ''}
         </div>
       `;
 
