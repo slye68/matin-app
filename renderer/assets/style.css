@@ -3393,33 +3393,100 @@ body.ultrawide .module-card { max-width: 500px; }
 .tradfri-scene-btn:hover { border-color: var(--accent); color: var(--accent); }
 .tradfri-scene-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ─── Module : Somfy TaHoma Switch (2026-09-12, sur demande explicite) ────
+/* ─── Module : Somfy TaHoma Switch (2026-09-12/13, sur demande explicite —
+   RESTAURÉ le 2026-09-13 : ce bloc avait été écrasé par une sauvegarde
+   concurrente d'une autre session sur ce même fichier, retombée sur une
+   version antérieure au contrôle par pourcentage — le renderer
+   (somfy-tahoma.js) utilisait déjà .somfy-btn-open/.somfy-slider/
+   .somfy-bulk-*, sans plus aucune règle CSS correspondante entre-temps,
+   d'où la perte de couleur/relief signalée. ────────────────────────────
    Réutilise .kasa-device/.kasa-device-name/.kasa-devices/.kasa-module tels
-   quels (même besoin visuel que Kasa/Trådfri) — seuls l'état (ouvert/fermé/
-   position %) et les 3 boutons Ouvrir/Stop/Fermer sont propres à ce module. */
-.tahoma-device-state {
+   quels (même besoin visuel que Kasa/Trådfri), mais empilé en COLONNE (pas
+   la ligne unique de Kasa/Trådfri) : nom au-dessus, contrôles (▲ slider %▼)
+   en dessous — le slider a besoin de plus de largeur qu'une simple rangée
+   de boutons n'en laisserait à côté du nom. */
+.tahoma-device { flex-direction: column; align-items: stretch; }
+/* "Tout ouvrir"/"Tout fermer" — au-dessus de la liste, mêmes couleurs
+   vert/rouge que les flèches individuelles pour que l'association d'action
+   soit immédiate. */
+.somfy-bulk-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.somfy-bulk-btn {
+  flex: 1;
+  padding: 6px 10px;
   font-size: 12px;
   font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+}
+.somfy-bulk-open {
+  color: #ffffff;
+  background: linear-gradient(180deg, #22c55e, #16a34a);
+  border: 1px solid #15803d;
+  box-shadow: 0 2px 0 #15803d, 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.somfy-bulk-close {
+  color: #ffffff;
+  background: linear-gradient(180deg, #ef4444, #dc2626);
+  border: 1px solid #b91c1c;
+  box-shadow: 0 2px 0 #b91c1c, 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.somfy-bulk-btn:hover { filter: brightness(1.08); }
+.somfy-bulk-btn:active { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
+
+/* Relief — fond dégradé + ombre portée pour un effet de bouton physique
+   légèrement en saillie ; `:active` inverse l'ombre (translateY + ombre
+   réduite) pour simuler un enfoncement au clic. */
+.somfy-shutter-controls { display: flex; align-items: center; gap: 8px; }
+.somfy-btn-open,
+.somfy-btn-close {
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+}
+.somfy-btn-open {
+  color: #ffffff;
+  background: linear-gradient(180deg, #22c55e, #16a34a);
+  border: 1px solid #15803d;
+  box-shadow: 0 2px 0 #15803d, 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.somfy-btn-close {
+  color: #ffffff;
+  background: linear-gradient(180deg, #ef4444, #dc2626);
+  border: 1px solid #b91c1c;
+  box-shadow: 0 2px 0 #b91c1c, 0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.somfy-btn-open:hover,
+.somfy-btn-close:hover { filter: brightness(1.08); }
+.somfy-btn-open:active,
+.somfy-btn-close:active { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
+.somfy-btn-open:disabled,
+.somfy-btn-close:disabled { opacity: 0.5; cursor: not-allowed; filter: none; transform: none; }
+.somfy-slider {
+  flex: 1;
+  min-width: 0;
+  margin: 0 8px;
+  accent-color: #f97316;
+}
+/* Relief sur le curseur du slider — `accent-color` seul donne un curseur
+   plat ; Chromium/Electron acceptent `::-webkit-slider-thumb` pour y ajouter
+   une ombre portée sans casser la teinte posée par `accent-color`. */
+.somfy-slider::-webkit-slider-thumb { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+.somfy-slider:disabled { opacity: 0.5; cursor: not-allowed; }
+.somfy-slider:disabled::-webkit-slider-thumb { box-shadow: none; }
+.somfy-percent {
+  font-size: 12px;
   color: var(--text-secondary);
+  min-width: 32px;
+  text-align: right;
   flex-shrink: 0;
 }
-.tahoma-device-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.tahoma-btn {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-.tahoma-btn:hover { border-color: var(--accent); color: var(--accent); }
-.tahoma-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Config ETF/Crypto — lignes du portefeuille (page Paramètres, config.js,
    meta.linesField, réutilisé tel quel par les deux modules). N'avait jusqu'ici
