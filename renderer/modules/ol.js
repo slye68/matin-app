@@ -121,10 +121,43 @@ const TEAM_ALIAS_GROUPS = [
   { keywords: ['asvel', 'ldlc asvel', 'villeurbanne'] },
 ];
 
+// Dernier mot comme mot-clé supplémentaire (2026-09-11, sur demande explicite
+// — "équipe NBA ajoutée via NBA : pas d'actus ; la même ajoutée via 'Autre
+// équipe' (ex. 'Pistons') : BasketUSA s'affiche correctement") — cause RÉELLE
+// trouvée : `config.team` diffère selon le chemin d'ajout. "Autre équipe" =
+// texte tapé à la main (l'utilisateur écrit naturellement le surnom court,
+// "Pistons") ; menu déroulant ligue/équipe (NBA, mais aussi toute
+// KNOWN_LEAGUES) = nom COMPLET renvoyé par ESPN, "Detroit Pistons" (voir
+// config.js applyTeamSelection/sportsTeamOptionsHtml, data-name = ESPN
+// displayName). Sans ce correctif, une équipe hors des 3 groupes ci-dessus
+// n'avait QUE ce nom complet comme mot-clé unique — `containsWholeWord`
+// cherche alors la phrase ENTIÈRE "detroit pistons" collée, que la presse
+// française (dont BasketUSA) n'écrit quasiment jamais ainsi : elle dit "les
+// Pistons", jamais "Detroit Pistons" en un seul bloc — d'où 0 match, 0 article,
+// malgré un flux par ailleurs valide (voir fetchRssItems). Le dernier mot d'un
+// nom à plusieurs mots ("pistons") est ajouté comme mot-clé SUPPLÉMENTAIRE
+// (jamais en remplacement du nom complet, gardé aussi) — généralise
+// automatiquement, pour les 27 équipes NBA (et toute autre équipe non listée
+// ci-dessus) sans alias à écrire à la main pour chacune, ce qui marchait déjà
+// nativement en mode "Autre équipe" (l'utilisateur tape déjà le mot court).
+// COMPROMIS ASSUMÉ, comme le "ol" à 2 lettres déjà accepté ci-dessus : un
+// dernier mot générique (ex. "Heat", "Magic", "Jazz" en NBA) peut en théorie
+// matcher un article sans rapport avec CE club précis — risque jugé faible en
+// pratique, les sources RSS de ce module sont déjà filtrées par SPORT (jamais
+// un agrégateur généraliste, voir fetchNewsItems), donc un article basket
+// contenant "Heat" y parle presque toujours du Miami Heat. Un club dont ça
+// poserait vraiment problème peut recevoir son propre groupe dans
+// TEAM_ALIAS_GROUPS, comme Lyon/PSG/ASVEL.
 function buildTeamContext(team) {
   const base = (team || '').trim().toLowerCase();
   const group = TEAM_ALIAS_GROUPS.find(g => g.keywords.includes(base));
-  return group ? group : { keywords: base ? [base] : [] };
+  if (group) return group;
+  if (!base) return { keywords: [] };
+
+  const words = base.split(/\s+/).filter(Boolean);
+  const keywords = [base];
+  if (words.length > 1) keywords.push(words[words.length - 1]);
+  return { keywords };
 }
 
 function escapeRegExp(str) {
@@ -792,6 +825,21 @@ async function fetchRssItems(url, limit = 8) {
   try {
     xmlText = await window.matin.rss.fetchFeed(url);
     console.log(`[Sports] Flux OK (direct) : ${url}`);
+    // Réponse XML brute (2026-09-11, sur demande explicite, "logge la réponse
+    // brute en console pour voir ce qui est reçu" — rapport BasketUSA : "le
+    // flux retourne bien des articles mais ils ne s'affichent pas") — permet
+    // de confirmer à l'œil que le flux renvoie bien du XML RSS valide, sans
+    // rouvrir l'URL à la main. Diagnostic du rapport ci-dessus, pour mémoire :
+    // le XML de basketusa.com/feed/ est bien formé (vérifié en direct,
+    // balises <item>/<title>/<link>/<pubDate> toutes équilibrées, aucune
+    // entité invalide hors CDATA) — CE N'EST PAS un bug de parsing. Le
+    // filtre équipe (matchTeamDetail plus bas) écarte légitimement les
+    // articles ne mentionnant pas l'équipe suivie ; avec une seule source
+    // généraliste (~20 items par récupération), le tirage peut ne
+    // contenir aucune mention de l'équipe suivie ce jour-là — voir le log
+    // "aucun des N article(s) récupéré(s) ne mentionne..." plus bas, qui
+    // distingue déjà ce cas d'un vrai flux vide/invalide.
+    console.log(`[Sports] Réponse brute (${url}) :`, xmlText);
   } catch (err) {
     console.warn(`[Sports] Flux INACCESSIBLE (direct) : ${url} — ${err.message}`);
     // Repli jina.ai Reader — PRÉCISION IMPORTANTE (redemandé le 2026-08-16,
@@ -1089,6 +1137,23 @@ const KNOWN_LEAGUES = [
     espnSportPath: 'basketball',
     espnSlug: 'nba',
   },
+  // Top 14 (2026-09-11, sur demande explicite) — pas de `espnSportPath`/
+  // `espnSlug` : ESPN ne couvre pas ce championnat (aucun slug connu, même
+  // absence que Betclic Élite/French LNB côté ESPN, voir TOP14_TEAMS/
+  // fetchLeagueTeams dans config.js) — laissés `undefined` volontairement,
+  // déjà géré sans crash par fetchEspnScoreboardFallback (`if
+  // (!league?.espnSlug || !league?.espnSportPath) return null;`) et par
+  // ESPN_SPORT_PATH_BY_CATEGORY (repli `|| null` si la catégorie est absente
+  // de cette table). Les 14 équipes ont un idTeam TheSportsDB CONFIRMÉ à la
+  // main (voir TOP14_TEAMS, config.js) : le prochain match passe donc
+  // directement par TheSportsDB eventsnext.php, sans jamais avoir besoin du
+  // repli ESPN.
+  {
+    value: 'top14',
+    label: '🏉 Top 14',
+    sport: 'rugby',
+    theSportsDbLeague: 'French Top 14',
+  },
 ];
 window.MatinModules.olKnownLeagues = KNOWN_LEAGUES;
 
@@ -1112,10 +1177,23 @@ window.MatinModules.olKnownLeagues = KNOWN_LEAGUES;
 // Appliqué AVANT tout appel réseau (voir fetchTeamId ci-dessous) : recherche
 // par nom entièrement court-circuitée dès qu'un mot-clé correspond, pas
 // seulement une correction après coup du résultat.
+//
+// Saint-Étienne (Ligue 2) — ajouté le 2026-09-11, sur demande explicite
+// ("l'équipe Saint-Étienne n'est pas trouvée via TheSportsDB"). Même
+// symptôme que PSG ci-dessus, vérifié EN DIRECT contre l'API réelle (curl,
+// 2026-09-11) : `searchteams.php?t=` renvoie `{"teams":null}` pour "Saint-
+// Étienne" ET pour "Saint-Etienne" (sans accent) — aucune des 2 formes ne
+// résout quoi que ce soit, contrairement au cas PSG où une SEULE forme
+// (sans tiret) fonctionnait. idTeam **133717** confirmé via
+// `lookupteam.php?id=133717` → strTeam "Saint-Étienne", strSport "Soccer",
+// strLeague "French Ligue 2" — correspond exactement à l'ID/l'URL fournis
+// dans la demande (thesportsdb.com/team/133717-saint-Étienne).
 const CLUB_ID_OVERRIDES = [
   { keyword: 'psg', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
   { keyword: 'paris saint-germain', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
   { keyword: 'paris saint germain', idTeam: '133714', strSport: 'Soccer', strLeague: 'French Ligue 1' },
+  { keyword: 'saint-étienne', idTeam: '133717', strSport: 'Soccer', strLeague: 'French Ligue 2' },
+  { keyword: 'saint-etienne', idTeam: '133717', strSport: 'Soccer', strLeague: 'French Ligue 2' },
 ];
 
 function resolveClubIdOverride(team) {

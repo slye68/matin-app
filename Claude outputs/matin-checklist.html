@@ -1,0 +1,472 @@
+<title>Checklist Test Matin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=Inter:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --bg:          #0f1117;
+    --surface:     #16202e;
+    --surface2:    #1e2d40;
+    --border:      #263347;
+    --text:        #e2e8f0;
+    --text-sub:    #7c93ad;
+    --accent:      #3b82f6;
+    --accent-soft: rgba(59,130,246,.12);
+    --success:     #22c55e;
+    --success-soft:rgba(34,197,94,.12);
+    --warn:        #f59e0b;
+    --warn-soft:   rgba(245,158,11,.10);
+    --danger:      #ef4444;
+    --radius:      10px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:          #f0f4f8;
+      --surface:     #ffffff;
+      --surface2:    #f8fafc;
+      --border:      #dde4ed;
+      --text:        #1e293b;
+      --text-sub:    #64748b;
+      --accent-soft: rgba(59,130,246,.08);
+      --success-soft:rgba(34,197,94,.08);
+      --warn-soft:   rgba(245,158,11,.08);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:          #f0f4f8;
+    --surface:     #ffffff;
+    --surface2:    #f8fafc;
+    --border:      #dde4ed;
+    --text:        #1e293b;
+    --text-sub:    #64748b;
+    --accent-soft: rgba(59,130,246,.08);
+    --success-soft:rgba(34,197,94,.08);
+    --warn-soft:   rgba(245,158,11,.08);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding-block: 32px;
+    padding-inline: 20px;
+  }
+
+  .wrap { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Header ── */
+  .header { display: flex; flex-direction: column; gap: 6px; }
+  .header-eyebrow {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(22px, 5vw, 30px);
+    font-weight: 700;
+    color: var(--text);
+    text-wrap: balance;
+    line-height: 1.2;
+  }
+  .header-sub { font-size: 13px; color: var(--text-sub); }
+
+  /* ── Machine switcher ── */
+  .machine-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px;
+    display: flex;
+    gap: 4px;
+  }
+  .machine-btn {
+    flex: 1;
+    padding: 8px 0;
+    border: none;
+    border-radius: 7px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-sub);
+    transition: background .15s, color .15s;
+  }
+  .machine-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* ── Progress strip ── */
+  .progress-area { display: flex; flex-direction: column; gap: 6px; }
+  .progress-header { display: flex; justify-content: space-between; align-items: center; }
+  .progress-label { font-size: 12px; font-weight: 600; color: var(--text-sub); letter-spacing: .04em; text-transform: uppercase; }
+  .progress-count { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .progress-bar-track {
+    height: 5px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 99px;
+    transition: width .3s ease;
+  }
+  .progress-bar-fill.done { background: var(--success); }
+
+  /* ── Section ── */
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header:hover { background: var(--surface2); }
+  .section-icon { font-size: 16px; line-height: 1; }
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    flex: 1;
+    color: var(--text);
+  }
+  .section-badge {
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: var(--surface2);
+    color: var(--text-sub);
+    transition: background .2s, color .2s;
+  }
+  .section-badge.all-done { background: var(--success-soft); color: var(--success); }
+  .section-chevron {
+    font-size: 11px;
+    color: var(--text-sub);
+    transition: transform .2s;
+  }
+  .section.collapsed .section-chevron { transform: rotate(-90deg); }
+  .section.collapsed .section-body { display: none; }
+
+  .section-body { padding: 4px 0; }
+
+  /* ── Item ── */
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .check-item:hover { background: var(--surface2); }
+  .check-item.checked .item-label { color: var(--text-sub); text-decoration: line-through; text-decoration-color: var(--border); }
+
+  .check-box {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border-radius: 5px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .15s;
+    margin-top: 1px;
+  }
+  .check-item.checked .check-box {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .check-tick {
+    display: none;
+    width: 10px;
+    height: 10px;
+  }
+  .check-item.checked .check-tick { display: block; }
+
+  .item-text { display: flex; flex-direction: column; gap: 2px; }
+  .item-label { font-size: 14px; color: var(--text); line-height: 1.4; }
+  .item-hint { font-size: 12px; color: var(--text-sub); }
+
+  .item-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 5px;
+    vertical-align: middle;
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+
+  /* ── All-done banner ── */
+  .done-banner {
+    display: none;
+    background: var(--success-soft);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    color: var(--success);
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+  }
+  .done-banner.visible { display: block; }
+
+  @media (max-width: 420px) {
+    .item-label { font-size: 13px; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="header">
+    <div class="header-eyebrow">Matin!* v0.1.0 — Windows</div>
+    <h1>Checklist de test</h1>
+    <div class="header-sub">À valider sur chaque PC avant soumission Microsoft Store</div>
+  </div>
+
+  <div class="machine-bar">
+    <button class="machine-btn active" onclick="switchMachine(0)">💻 PC 1</button>
+    <button class="machine-btn" onclick="switchMachine(1)">💻 PC 2</button>
+  </div>
+
+  <div class="progress-area">
+    <div class="progress-header">
+      <span class="progress-label">Progression</span>
+      <span class="progress-count" id="progressCount">0 / 0</span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="done-banner" id="doneBanner">✅ Toutes les vérifications sont complètes pour ce PC !</div>
+</div>
+
+<script>
+const SECTIONS = [
+  {
+    id: 'install',
+    icon: '📦',
+    title: 'Installation',
+    items: [
+      { id: 'i1', label: "L'exe se copie sans erreur (clé USB / Drive)" },
+      { id: 'i2', label: "SmartScreen s'affiche → Informations complémentaires → Exécuter quand même", hint: "Normal sur exe non signé — disparaîtra avec Trusted Signing" },
+      { id: 'i3', label: "L'installation se termine correctement" },
+      { id: 'i4', label: "L'app se lance après installation" },
+      { id: 'i5', label: "L'icône apparaît dans la barre des tâches" },
+    ]
+  },
+  {
+    id: 'display',
+    icon: '🖥️',
+    title: 'Affichage & résolution',
+    items: [
+      { id: 'd1', label: "La fenêtre s'ouvre à une taille correcte (~1400×900 ou adaptée)" },
+      { id: 'd2', label: "Le texte est lisible — pas trop petit, pas flou" },
+      { id: 'd3', label: "Les modules s'affichent sur toute la grille sans débordement" },
+      { id: 'd4', label: "Mode sombre correct (couleurs, contrastes)" },
+      { id: 'd5', label: "Mode clair correct (couleurs, contrastes)" },
+      { id: 'd6', label: "La fenêtre est redimensionnable sans casse visuelle" },
+    ]
+  },
+  {
+    id: 'modules',
+    icon: '⚡',
+    title: 'Modules — chargement',
+    items: [
+      { id: 'm1', label: "Météo se charge et affiche une ville" },
+      { id: 'm2', label: "Actualités (France / Tech) affichent des articles" },
+      { id: 'm3', label: "Indices / ETF affichent des données récentes", hint: "Vérifier l'horodatage — pas plus de 30 min de retard" },
+      { id: 'm4', label: "Carburants affiche les prix" },
+      { id: 'm5', label: "FDJ affiche les derniers tirages" },
+      { id: 'm6', label: "Gmail se connecte", tag: "Google requis" },
+      { id: 'm7', label: "Agenda affiche les événements", tag: "Google requis" },
+      { id: 'm8', label: "Spotify affiche la piste en cours ou la liste", tag: "Spotify requis" },
+      { id: 'm9', label: "Aucun module n'affiche [ERR] ou reste vide sans explication" },
+    ]
+  },
+  {
+    id: 'profiles',
+    icon: '🔀',
+    title: 'Profils & thèmes',
+    items: [
+      { id: 'p1', label: "Le switch de profil s'applique (modules + thème)" },
+      { id: 'p2', label: "Le fond d'écran est conservé après un switch de profil" },
+      { id: 'p3', label: "La disposition des modules est conservée après un switch de profil" },
+      { id: 'p4', label: "Le bascule clair ↔ sombre fonctionne depuis les Paramètres" },
+    ]
+  },
+  {
+    id: 'settings',
+    icon: '⚙️',
+    title: 'Paramètres',
+    items: [
+      { id: 's1', label: "La fenêtre Paramètres s'ouvre (bouton ⚙️)" },
+      { id: 's2', label: "Les onglets (Finance, Actualités, Loisirs…) sont cliquables" },
+      { id: 's3', label: "Activer / désactiver un module prend effet immédiatement" },
+      { id: 's4', label: "La sauvegarde affiche ✓ puis disparaît" },
+      { id: 's5', label: "Les Paramètres se ferment correctement" },
+    ]
+  },
+  {
+    id: 'demo',
+    icon: '🎬',
+    title: 'Mode démo',
+    items: [
+      { id: 'demo1', label: "Ctrl+Shift+D lance la démo sombre sans erreur" },
+      { id: 'demo2', label: "Ctrl+Shift+L lance la démo claire sans erreur" },
+      { id: 'demo3', label: "Le thème est correctement restauré à la fin de chaque démo" },
+    ]
+  },
+  {
+    id: 'perf',
+    icon: '📊',
+    title: 'Performance & stabilité',
+    items: [
+      { id: 'perf1', label: "L'app ne rame pas après 5 min d'utilisation" },
+      { id: 'perf2', label: "La mémoire reste stable (pas de fuite visible sur plusieurs minutes)" },
+      { id: 'perf3', label: "Aucun crash au cours de la session de test" },
+    ]
+  },
+  {
+    id: 'system',
+    icon: '🪟',
+    title: 'Comportement système',
+    items: [
+      { id: 'sys1', label: "Fermeture par × ou Alt+F4 fonctionne" },
+      { id: 'sys2', label: "Réouverture de l'app après fermeture fonctionne" },
+      { id: 'sys3', label: "La désinstallation depuis Windows ne laisse pas de traces" },
+    ]
+  },
+];
+
+// State: two machines, each with a map of checked IDs
+const state = [new Set(), new Set()];
+let currentMachine = 0;
+
+function totalItems() {
+  return SECTIONS.reduce((a, s) => a + s.items.length, 0);
+}
+
+function buildSections() {
+  const container = document.getElementById('sections');
+  container.innerHTML = '';
+  SECTIONS.forEach(sec => {
+    const el = document.createElement('div');
+    el.className = 'section';
+    el.dataset.secId = sec.id;
+
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.innerHTML = `
+      <span class="section-icon">${sec.icon}</span>
+      <span class="section-title">${sec.title}</span>
+      <span class="section-badge" id="badge-${sec.id}">0/${sec.items.length}</span>
+      <span class="section-chevron">▼</span>
+    `;
+    header.addEventListener('click', () => {
+      el.classList.toggle('collapsed');
+    });
+
+    const body = document.createElement('div');
+    body.className = 'section-body';
+
+    sec.items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'check-item';
+      row.dataset.itemId = item.id;
+      row.innerHTML = `
+        <div class="check-box">
+          <svg class="check-tick" viewBox="0 0 10 10" fill="none">
+            <polyline points="1.5,5 4,7.5 8.5,2" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="item-text">
+          <span class="item-label">${item.label}${item.tag ? `<span class="item-tag">${item.tag}</span>` : ''}</span>
+          ${item.hint ? `<span class="item-hint">${item.hint}</span>` : ''}
+        </div>
+      `;
+      row.addEventListener('click', () => toggleItem(item.id, sec.id));
+      body.appendChild(row);
+    });
+
+    el.appendChild(header);
+    el.appendChild(body);
+    container.appendChild(el);
+  });
+  refreshUI();
+}
+
+function toggleItem(itemId, secId) {
+  const s = state[currentMachine];
+  if (s.has(itemId)) s.delete(itemId);
+  else s.add(itemId);
+  refreshUI();
+}
+
+function refreshUI() {
+  const s = state[currentMachine];
+  const total = totalItems();
+  let totalDone = 0;
+
+  SECTIONS.forEach(sec => {
+    let secDone = 0;
+    sec.items.forEach(item => {
+      const row = document.querySelector(`.check-item[data-item-id="${item.id}"]`);
+      if (!row) return;
+      const checked = s.has(item.id);
+      if (checked) { row.classList.add('checked'); secDone++; totalDone++; }
+      else row.classList.remove('checked');
+    });
+    const badge = document.getElementById('badge-' + sec.id);
+    if (badge) {
+      badge.textContent = `${secDone}/${sec.items.length}`;
+      badge.classList.toggle('all-done', secDone === sec.items.length);
+    }
+  });
+
+  const pct = total ? Math.round(totalDone / total * 100) : 0;
+  document.getElementById('progressCount').textContent = `${totalDone} / ${total}`;
+  const fill = document.getElementById('progressFill');
+  fill.style.width = pct + '%';
+  fill.classList.toggle('done', pct === 100);
+
+  document.getElementById('doneBanner').classList.toggle('visible', pct === 100);
+}
+
+function switchMachine(idx) {
+  currentMachine = idx;
+  document.querySelectorAll('.machine-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  refreshUI();
+}
+
+buildSections();
+</script>

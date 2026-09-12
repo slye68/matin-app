@@ -32,8 +32,31 @@ window.SportsSources = (function () {
       { label: 'RMC Sport', url: 'https://rmcsport.bfmtv.com/rss/football/' },
       { label: 'Foot Mercato', url: 'https://www.footmercato.net/flux-rss/' },
     ],
+    // BeBasket REMPLACÉE par BasketUSA le 2026-09-11, sur demande explicite
+    // ("module Sports / NBA, remplace la source actuelle par BasketUSA") —
+    // vérifié en direct avant remplacement : basketusa.com/feed/ répond 200,
+    // XML valide, 20 items, chacun avec title/link/pubDate bien formés (RFC
+    // 2822 avec offset explicite +0200) et un contenu francophone centré NBA.
+    //
+    // L'Équipe Basket RÉTABLIE le même jour (2e demande explicite, rapport
+    // "BasketUSA retourne bien des articles mais ils ne s'affichent pas") —
+    // diagnostic complet (voir ol.js fetchRssItems) : le XML de BasketUSA est
+    // bien formé, CE N'ÉTAIT PAS un bug de parsing. Le vrai mécanisme en jeu
+    // (voir ol.js fetchNewsItems/matchTeamDetail, "AUCUN repli agrégateur") :
+    // chaque article doit mentionner NOMMÉMENT l'équipe suivie pour être
+    // affiché — avec UNE SEULE source généraliste (~20 items par
+    // récupération), le tirage du jour peut ne contenir aucune mention de
+    // l'équipe précise suivie, même si le flux est parfaitement valide. Garder
+    // les 2 sources augmente le nombre d'articles candidats (jusqu'à ~70 au
+    // lieu de 20) sans réintroduire de repli hors-sujet (principe déjà établi
+    // dans ol.js, non remis en cause ici). NUANCE toujours valable : cette
+    // catégorie `basketball` est PARTAGÉE par TOUTES les équipes suivies (NBA
+    // ET Betclic Élite/LNB, voir KNOWN_LEAGUES dans ol.js — les 2 ont
+    // `sport: 'basketball'`) — L'Équipe Basket couvrant aussi le basket
+    // français, sa réintroduction profite en particulier aux profils Betclic
+    // Élite, en plus d'aider la NBA.
     basketball: [
-      { label: 'BeBasket', url: 'https://www.bebasket.fr/feed/' },
+      { label: 'BasketUSA', url: 'https://www.basketusa.com/feed/' },
       { label: "L'Équipe Basket", url: 'https://dwh.lequipe.fr/api/edito/rss?path=/Basket' },
     ],
     rugby: [

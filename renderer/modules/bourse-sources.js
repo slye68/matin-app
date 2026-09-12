@@ -31,17 +31,36 @@
  *     même un 410 Gone ("actualites/flux-rss/") — signe d'un flux RSS
  *     délibérément retiré du site plutôt que simplement déplacé, aucune
  *     balise d'autodiscovery trouvée sur la page d'accueil pour confirmer une
- *     éventuelle URL de remplacement.
+ *     éventuelle URL de remplacement. RE-VÉRIFIÉE le 2026-09-11 (nouvelle
+ *     demande explicite de remplacer Yahoo Finance PAR Boursorama) : toujours
+ *     404 sur l'URL demandée (boursorama.com/rss/actualites) ET sur 7 autres
+ *     variantes essayées ce jour-là, toujours aucune balise d'autodiscovery
+ *     sur la page d'accueil — confirmation indépendante, 10 jours plus tard,
+ *     que ce n'était pas un problème réseau ponctuel du 1er diagnostic.
+ *
+ * Yahoo Finance — RETIRÉ ENTIÈREMENT le 2026-09-11, sur demande explicite
+ * ("remplace la source Yahoo Finance par Boursorama... supprime tout le code
+ * lié à Yahoo Finance qui ne serait plus utile"). Avait été diagnostiqué et
+ * réparé plus tôt le même jour (URL périmée avec `&region=FR&lang=fr-FR`,
+ * causant un 404 intermittent — corrigée en retirant ces 2 paramètres), mais
+ * cette réparation est devenue sans objet : Boursorama, la source demandée en
+ * remplacement, s'est révélée MORTE à la vérification (voir bullet ci-dessus)
+ * — Challenges Économie l'a donc remplacée à la place (voir plus bas),
+ * trouvée et vérifiée en direct le même jour via la balise d'autodiscovery de
+ * challenges.fr (200, XML valide, 50 articles, titre/lien/date présents pour
+ * chacun).
  */
 window.BOURSE_NEWS_SOURCES = [
-  { url: 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EFCHI&region=FR&lang=fr-FR', label: 'Yahoo Finance' },
+  { url: 'https://www.challenges.fr/category/rss/economie', label: 'Challenges Économie' },
   { url: 'https://www.bfmtv.com/rss/economie/', label: 'BFM Business' },
   { url: 'https://feed.prismamediadigital.com/v1/cap/rss?limit=20', label: 'Capital' },
 ];
 
 // Coché par défaut tant que l'utilisateur n'a jamais touché à la config
 // (`modules.bourse.config.sources` absent) — Yahoo Finance était la seule
-// source avant l'ajout de ces cases à cocher, comportement conservé à
-// l'identique pour une installation existante (demandé explicitement : "keep
-// as default").
+// source par défaut avant l'ajout de ces cases à cocher (comportement gardé
+// à l'identique pour une installation existante à l'époque, "keep as
+// default") ; Challenges Économie a pris sa place le 2026-09-11 (Yahoo
+// retiré du catalogue, voir en-tête de fichier) — même position [0], même
+// principe.
 window.BOURSE_DEFAULT_SOURCES = [window.BOURSE_NEWS_SOURCES[0].url];

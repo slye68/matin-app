@@ -63,6 +63,37 @@ const RSS_FEED_DEFS = {
       'https://www.lequotidiendumedecin.fr/rss.xml',
     ],
   },
+  // Actus sportives — passée à 2 sources EN PARALLÈLE le 2026-09-11, sur
+  // demande explicite ("RMC Sport + Eurosport, mélangées et triées par date
+  // décroissante") : `sources` (pas `url`) pour prendre la branche
+  // multi-flux de makeRssModule ci-dessous, DÉJÀ le tri par date demandé
+  // (`items.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))`,
+  // partagée avec Sciences/Santé) — rien à ajouter côté rendu.
+  //
+  // Eurosport ABANDONNÉE, non ajoutée — vérifiée en direct ce jour-là :
+  // `eurosport.fr/rss.xml` (URL demandée) → 404, ET la page d'accueil
+  // elle-même → 403 (donc aucune balise d'autodiscovery consultable), ET 3
+  // variantes d'URL supplémentaires → 404/403. Confirme, indépendamment, un
+  // constat déjà documenté ailleurs dans ce projet (voir sports-sources.js/
+  // bourse-sources.js) : Eurosport bloque tout accès non-navigateur au
+  // niveau du site ENTIER, pas seulement son flux RSS — un problème de
+  // blocage, pas une URL à corriger.
+  //
+  // Remplacée par L'ÉQUIPE (choix de l'utilisateur, AskUserQuestion, plutôt
+  // que d'inventer une source non demandée) — mais l'URL PRÉCÉDEMMENT
+  // configurée ici (lequipe.fr/rss/actu_rss.xml, seule source jusqu'ici)
+  // s'est révélée ELLE AUSSI morte à la vérification (404, bug préexistant
+  // découvert en passant, sans rapport avec Eurosport) : remplacée par
+  // dwh.lequipe.fr/api/edito/rss?path=/Football, déjà vérifiée fonctionnelle
+  // et utilisée ailleurs dans ce projet (voir sports-sources.js CATALOG.
+  // football) — cohérent avec RMC Sport, football également (URL demandée :
+  // .../rss/football/).
+  sportNews: {
+    sources: [
+      'https://rmcsport.bfmtv.com/rss/football/',
+      'https://dwh.lequipe.fr/api/edito/rss?path=/Football',
+    ],
+  },
 };
 
 // Sports (ol.js) utilise `items.length * 6, min 24s` (relevé de 5/20 le
@@ -339,3 +370,4 @@ window.MatinModules.gaming = {
 };
 window.MatinModules.science = makeRssModule('science');
 window.MatinModules.sante = makeRssModule('sante');
+window.MatinModules.sportNews = makeRssModule('sportNews');

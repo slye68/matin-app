@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld('matin', {
     rename:        (key, name)           => ipcRenderer.invoke('profiles:rename', { key, name }),
     switch:        (key)                 => ipcRenderer.invoke('profiles:switch', key),
     setAutoSwitch: (key, enabled, days)  => ipcRenderer.invoke('profiles:setAutoSwitch', { key, enabled, days }),
+    // Fond d'écran du profil ACTIF (2026-09-13, sur demande explicite) — voir
+    // main.js profiles:saveActiveBackground : met à jour UNIQUEMENT ce champ,
+    // pas un instantané complet comme `save` ci-dessus.
+    saveActiveBackground: ()             => ipcRenderer.invoke('profiles:saveActiveBackground'),
   },
 
   // ── Mode démo (2026-09-10, voir renderer/demo-mode.js runDemoLight) — pilote
@@ -198,6 +202,30 @@ contextBridge.exposeInMainWorld('matin', {
     setPlugState: (params) => ipcRenderer.invoke('tradfri:setPlugState', params),
     activateScene: (params) => ipcRenderer.invoke('tradfri:activateScene', params),
     turnAll: (params) => ipcRenderer.invoke('tradfri:turnAll', params),
+  },
+
+  // ── Climatisation FGLair (Fujitsu, compte cloud Ayla Networks EU, exécuté
+  // dans le process main — CORS, comme Hue/TaHoma) — email/mot de passe
+  // JAMAIS transmis par l'appelant pour getDevices/getProperties/setProperty
+  // (lus directement depuis `modules.fglair.config` côté main.js, voir
+  // fglairAuthedFetch) ; seul testConnection en a besoin, pour tester une
+  // saisie pas encore enregistrée. Token en mémoire côté main.js uniquement,
+  // jamais transitié ici. ────────────────────────────────────────────────
+  fglair: {
+    testConnection: (email, password)    => ipcRenderer.invoke('fglair:testConnection', { email, password }),
+    getDevices:     ()                   => ipcRenderer.invoke('fglair:getDevices'),
+    getProperties:  (dsn)                => ipcRenderer.invoke('fglair:getProperties', dsn),
+    setProperty:    (propertyKey, value) => ipcRenderer.invoke('fglair:setProperty', { propertyKey, value }),
+  },
+
+  // ── Somfy TaHoma Switch (API locale, exécuté dans le process main — HTTPS
+  // certificat auto-signé + cookie de session, voir main.js ipcMain.handle
+  // ('tahoma:...')) — ip/email/password toujours transmis par l'appelant
+  // (mod.config déjà en mémoire côté renderer), même convention que
+  // window.matin.hue/tradfri ci-dessus. ──────────────────────────────────
+  somfyTahoma: {
+    discover: (params) => ipcRenderer.invoke('tahoma:discover', params),
+    sendCommand: (params) => ipcRenderer.invoke('tahoma:sendCommand', params),
   },
 
   // ── Carburants (data.economie.gouv.fr, exécuté dans le process main) ───────

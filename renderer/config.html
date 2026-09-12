@@ -1418,15 +1418,63 @@
       transition: opacity 0.15s;
     }
     .save-btn:hover { opacity: 0.9; }
+    /* Bug signalé (2026-09-11, sur demande explicite) : invisible sur un
+       laptop 14" (résolution différente du PC fixe). Investigation faite —
+       AUCUNE position absolue/px fixe, AUCUN z-index, AUCUNE media query ne
+       cible `.save-notice`/`.save-btn`/`.config-footer` nulle part dans ce
+       fichier ni dans `style.css` : `.config-footer` (flex-shrink:0) est un
+       simple enfant flex de `.config-wrap`, à la suite de `.config-tabpanels`
+       (flex:1, min-height:0, défilement INTERNE) — layout déjà 100%
+       responsive, la fenêtre elle-même se dimensionnant à 95% de l'écran
+       RÉEL au lancement (voir main.js createConfigWindow, `workArea.height`).
+       Cause certaine NON confirmée (pas de reproduction possible sur ce
+       poste) — 2 changements défensifs appliqués quand même, sans rien
+       casser côté paysage/desktop : (1) ✓ (U+2713, glyphe seul) → ✅ (emoji
+       coloré, rendu par Segoe UI Emoji sur Windows — bien plus visible/
+       distinct qu'un simple trait fin, quelle que soit la mise à l'échelle
+       DPI) ; (2) `font-size` 11px → 13px, pour rester lisible sur un écran
+       plus petit/dense. Si le symbole reste invisible malgré ça, la cause
+       probable serait alors la FENÊTRE elle-même (positionnement/DPI),
+       pas ce CSS — à vérifier en priorité sur le laptop concerné. */
     .save-notice {
       text-align: center;
-      font-size: 11px;
+      font-size: 13px;
       color: var(--accent-green);
       margin-top: 8px;
       opacity: 0;
       transition: opacity 0.3s;
     }
     .save-notice.show { opacity: 1; }
+    /* Couleur assombrie en mode clair UNIQUEMENT (2026-09-11, sur demande
+       explicite — "trop peu visible... couleur trop flashy sur fond blanc").
+       ÉCART assumé par rapport à une modif de `--accent-green` (style.css) :
+       cette variable est PARTAGÉE par des dizaines d'autres éléments dans
+       toute l'app (gains ETF, victoires Sports, boules FDJ, indices en
+       hausse...) et son commentaire dans style.css documente une décision
+       DÉLIBÉRÉE et déjà TESTÉE EN DIRECT de la garder identique dans les 2
+       thèmes ("contraste correctement sur un fond sombre COMME clair") — la
+       modifier globalement aurait résolu ce ticket en cassant potentiellement
+       la lisibilité de tous ces autres éléments, jamais signalés comme
+       problématiques. Corrigé ICI seulement, scopé à `.save-notice`, sans
+       toucher `--accent-green` ni le mode sombre (`:root[data-color-scheme=
+       "light"]` ne s'applique qu'en clair, par construction). */
+    :root[data-color-scheme="light"] .save-notice { color: #2e7d32; }
+
+    /* Note de confidentialité, tout en bas de Paramètres (2026-09-12, sur
+       demande explicite, précisée après clarification — "sous le bouton
+       Enregistrer") — texte statique, jamais caché/révélé comme
+       `.save-notice` juste au-dessus (pas de `.show`/opacity, toujours
+       visible). Discrète (petite, `--text-muted`) pour ne pas rivaliser
+       visuellement avec le bouton Enregistrer ni la confirmation de
+       sauvegarde, mais lisible dans les 2 thèmes (`--text-muted` déjà
+       redéfini en mode clair, voir style.css). */
+    .privacy-notice {
+      text-align: center;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
 
     .row-add-btn {
       width: 20px;
@@ -1522,6 +1570,65 @@
     }
     .fdj-sub-row-wrap:last-child { margin-bottom: 0; }
     .fdj-sub-row { cursor: default; }
+
+    /* Regroupement visuel Sports/LIVE FOOT!/Mon Équipe (2026-09-12, sur
+       demande explicite) — un seul encadré par famille, style demandé
+       explicitement (valeurs hex précises, PAS var(--border) etc. — repris
+       tel quel plutôt que substitué par les tokens existants du projet,
+       légèrement différents). Voir config.js createModuleGroup/
+       MODULE_GROUP_DEFS pour la génération. */
+    .module-group {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .module-group-header {
+      background: #f9fafb;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    /* Mode sombre */
+    [data-color-scheme="dark"] .module-group {
+      border-color: #374151;
+    }
+    [data-color-scheme="dark"] .module-group-header {
+      background: #1f2937;
+      border-color: #374151;
+    }
+
+    /* Complète le style demandé ci-dessus (bouton "+"/corps/séparateurs, non
+       fournis dans la demande) — bouton "+" porte AUSSI `.row-add-btn` (voir
+       createModuleGroup, config.js) pour reprendre tel quel son style
+       existant (cercle 20px, bordure pointillée). `.module-group-body`
+       enveloppe les `.module-row-wrap` de chaque instance ; ligne fine entre
+       elles (PAS après la dernière) via border-bottom, "séparées par une
+       ligne fine" demandé explicitement — `.module-row` PERD son propre
+       cadre (fond/bordure/radius, voir sa règle de base plus haut) une fois
+       à l'intérieur d'un groupe : sinon chaque instance resterait sa propre
+       carte imbriquée DANS l'encadré du groupe, au lieu d'une simple ligne
+       séparée par un filet, comme demandé. */
+    .module-group-title { display: flex; align-items: center; gap: 6px; }
+    .module-group-body { padding: 0; }
+    .module-group-body > .module-row-wrap {
+      margin-bottom: 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .module-group-body > .module-row-wrap:last-child { border-bottom: none; }
+    .module-group-body .module-row {
+      background: none;
+      border: none;
+      border-radius: 0;
+      padding: 8px 14px;
+    }
+    [data-color-scheme="dark"] .module-group-body > .module-row-wrap {
+      border-color: #374151;
+    }
 
     /* Grilles + codes d'un seul jeu (Loto / EuroMillions / EuroDreams) */
     .module-config-field.fdj-config-field {
@@ -1697,7 +1804,7 @@
               <!-- Voir showProfilesInfoPopup dans config.js — même popover
                    réutilisé que le bouton ℹ️ "Sites compatibles" du module
                    Suivi de prix (.price-tracking-info-popup). -->
-              <button type="button" class="profiles-info-btn" id="profilesInfoBtn" title="Ici, je mémorise mes modules sur un profil !">ℹ︎</button>
+              <button type="button" class="profiles-info-btn" id="profilesInfoBtn" title="Je mémorise les modules actifs, le thème et la disposition actuelle en place.">ℹ︎</button>
             </div>
             <div class="profile-tabs" id="profileTabs"></div>
           </div>
@@ -1804,7 +1911,8 @@
 
     <div class="config-footer">
       <button class="save-btn" id="btnSave">Enregistrer</button>
-      <div class="save-notice" id="saveNotice">✓ Configuration enregistrée</div>
+      <div class="save-notice" id="saveNotice">✅ Configuration enregistrée</div>
+      <p class="privacy-notice">🔒 Vos données restent privées — toutes les informations sont sauvegardées uniquement en local (sur votre PC) et sur votre Google Drive personnel. Aucune donnée n'est transmise à un serveur externe.</p>
     </div>
   </div>
 

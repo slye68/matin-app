@@ -65,6 +65,8 @@ const MODULE_META = {
   hue:        { label: 'Philips Hue', icon: '💡', requiresGoogle: false, hueField: true },
   kasa:       { label: 'TP-Link Kasa', icon: '🔌', requiresGoogle: false, kasaField: true },
   tradfri:    { label: 'IKEA Trådfri', icon: '💡', requiresGoogle: false, tradfriField: true },
+  somfyTahoma: { label: 'Somfy TaHoma', icon: '🪟', requiresGoogle: false, somfyTahomaField: true },
+  fglair:     { label: 'Climatisation', icon: '🌡️', requiresGoogle: false, fglairField: true },
   reminders:  { label: 'Rappels',     icon: '⏰', requiresGoogle: false, remindersField: true },
   // 4 modules ajoutés le 2026-08-06 (sur demande explicite)
   currency:    { label: 'Change',        icon: '💱', requiresGoogle: false }, // pas de config : devises/montant en état local du module (comme Maps)
@@ -75,6 +77,7 @@ const MODULE_META = {
   gaming:      { label: 'Gaming',        icon: '🎮', requiresGoogle: false, newsSourcesField: { catalog: 'GAMING_NEWS_SOURCES', defaults: 'GAMING_DEFAULT_SOURCES' } },
   // 3 modules ajoutés le 2026-08-07 (sur demande explicite)
   sante:     { label: 'Santé',         icon: '⚕️', requiresGoogle: false }, // pas de config : 2 sources fixes (voir rss-feed.js — Pourquoi Docteur retiré, flux mort)
+  sportNews: { label: 'Actus sportives', icon: '📰', requiresGoogle: false }, // pas de config : 1 source fixe (L'Équipe, voir rss-feed.js)
   // Pas de champ de config interactif : nécessite le compte Google déjà
   // connecté (scope People API contacts.readonly). `hintText` (2026-09-01,
   // sur demande explicite) affiche un simple rappel texte de la provenance
@@ -180,12 +183,12 @@ const DEFAULT_TAB_ORDER = TAB_DEFS.map(t => t.id);
 // aussi, même cause, même correctif.
 const TAB_MODULE_ORDER = {
   finance:    ['etf', 'crypto', 'currency', 'indices', 'prets'],
-  actualites: ['france', 'tech', 'bourse', 'science', 'gaming', 'sante'],
+  actualites: ['france', 'tech', 'bourse', 'science', 'gaming', 'sante', 'sportNews'],
   // Sports (2026-09-01, sur demande explicite) : 'ol'/'live'/'monEquipe'
   // sortis de Loisirs, qui ne garde que les modules de détente pure.
   sports:     ['ol', 'live', 'monEquipe'],
   loisirs:    ['fdj', 'cinema', 'steamPromos', 'epicPromos', 'spotify', 'podcast', 'youtube'],
-  maison:     ['hue', 'kasa', 'tradfri'],
+  maison:     ['hue', 'kasa', 'tradfri', 'somfyTahoma', 'fglair'],
   // Maps → Utile (2026-09-01, sur demande explicite) — retiré de Services.
   // Gmail/Agenda → Services (2026-09-01, 2e demande explicite le même jour)
   // — retirés d'Utile, qui garde Rappels/Météo/Qualité de l'air/Tâches
@@ -366,27 +369,57 @@ const SPORTS_TEAMS_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // sportsLeagueOptionsHtml plus haut, donc fiable sans avoir besoin d'un
 // log temporaire à l'exécution pour la confirmer une 2e fois.
 // `theSportsDbId` (2026-09-08, sur demande explicite) — id TheSportsDB
-// CONFIRMÉ À LA MAIN pour 4 clubs jusqu'ici ; `null` pour les autres (pas
+// CONFIRMÉ À LA MAIN pour 8 clubs jusqu'ici (Le Mans Sarthe Basket, Élan
+// Chalon, Boulazac Basket Dordogne ajoutés le 2026-09-11 lors d'une mise à
+// jour de la liste, searchteams.php vérifié en direct pour chacun — Saint-
+// Quentin Basketball ajouté le même jour avec id `141490` transmis
+// directement par l'utilisateur, revérifié ici via lookupteam.php avant
+// application) ; `null` pour les autres (pas
 // encore vérifiés) — voir teamSelect 'change' plus bas (STEP 2) et ol.js
 // render() (STEP 3, court-circuite lookupteam.php ET searchteams.php quand
 // cet id est déjà connu).
 const BETCLIC_ELITE_TEAMS = [
   { id: 'asvel',      displayName: 'ASVEL Villeurbanne',    theSportsDbId: null },
+  { id: 'boulazac',   displayName: 'Boulazac Basket Dordogne', theSportsDbId: '136264' },
+  { id: 'chalon',     displayName: 'Élan Chalon',            theSportsDbId: '135235' },
   { id: 'cholet',     displayName: 'Cholet Basket',         theSportsDbId: null },
   { id: 'dijon',      displayName: 'JDA Dijon',             theSportsDbId: null },
-  { id: 'fos',        displayName: 'Fos Provence Basket',   theSportsDbId: null },
   { id: 'gravelines', displayName: 'Gravelines-Dunkerque',  theSportsDbId: '135239' },
   { id: 'jlbourg',    displayName: 'Bourg-en-Bresse',       theSportsDbId: '135234' },
-  { id: 'lemans',     displayName: 'Le Mans Sarthe Basket', theSportsDbId: null },
+  { id: 'lemans',     displayName: 'Le Mans Sarthe Basket', theSportsDbId: '135241' },
   { id: 'limoges',    displayName: 'Limoges',               theSportsDbId: '135242' },
-  { id: 'metro92',    displayName: 'Metropolitans 92',      theSportsDbId: null },
-  { id: 'monaco',     displayName: 'Monaco Basket',         theSportsDbId: null },
   { id: 'nancy',      displayName: 'SLUC Nancy',            theSportsDbId: null },
   { id: 'nanterre',   displayName: 'Nanterre 92',           theSportsDbId: null },
   { id: 'paris',      displayName: 'Paris Basketball',      theSportsDbId: null },
-  { id: 'orthez',     displayName: 'Élan Béarnais',         theSportsDbId: '135248' },
+  { id: 'orthez',     displayName: 'Élan Béarnais Pau Orthez', theSportsDbId: '135248' },
   { id: 'roanne',     displayName: 'Chorale de Roanne',     theSportsDbId: null },
+  { id: 'saintquentin', displayName: 'Saint-Quentin Basketball', theSportsDbId: '141490' },
   { id: 'strasbourg', displayName: 'SIG Strasbourg',        theSportsDbId: null },
+].sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
+
+// Top 14 (Rugby) — liste statique en dur (2026-09-11, sur demande explicite),
+// même raison que BETCLIC_ELITE_TEAMS ci-dessus : ESPN ne couvre pas ce
+// championnat (pas de espnSportPath/espnSlug dans KNOWN_LEAGUES/ol.js).
+// `theSportsDbId` fourni DIRECTEMENT dans la demande pour les 14 équipes (pas
+// de vérification via lookupteam.php faite ici, contrairement aux ids
+// BETCLIC_ELITE_TEAMS ajoutés au fil de plusieurs demandes) — même mécanisme
+// de court-circuit que Betclic Élite (voir teamSelect 'change' plus bas,
+// STEP 2, et ol.js render() STEP 3).
+const TOP14_TEAMS = [
+  { id: 'ubb',         displayName: 'Union Bordeaux-Bègles',     theSportsDbId: '135329' },
+  { id: 'castres',     displayName: 'Castres Olympique',         theSportsDbId: '135331' },
+  { id: 'paloise',     displayName: 'Section Paloise',           theSportsDbId: '137384' },
+  { id: 'lou',         displayName: 'Lyon OU',                   theSportsDbId: '135341' },
+  { id: 'rochelais',   displayName: 'Stade Rochelais',           theSportsDbId: '135340' },
+  { id: 'sfp',         displayName: 'Stade Français Paris',      theSportsDbId: '135337' },
+  { id: 'bayonnais',   displayName: 'Aviron Bayonnais',          theSportsDbId: '135328' },
+  { id: 'rct',         displayName: 'RC Toulonnais',             theSportsDbId: '135338' },
+  { id: 'usap',        displayName: 'USA Perpignan',             theSportsDbId: '137386' },
+  { id: 'toulousain',  displayName: 'Stade Toulousain',          theSportsDbId: '135339' },
+  { id: 'asm',         displayName: 'ASM Clermont Auvergne',     theSportsDbId: '135332' },
+  { id: 'montpellier', displayName: 'Montpellier Hérault Rugby', theSportsDbId: '135334' },
+  { id: 'vannes',      displayName: 'Vannes',                    theSportsDbId: '144865' },
+  { id: 'racing92',    displayName: 'Racing Métro 92',           theSportsDbId: '135336' },
 ].sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
 
 async function fetchLeagueTeams(league) {
@@ -403,6 +436,10 @@ async function fetchLeagueTeams(league) {
     // comme un champ additionnel, voir sportsTeamOptionsHtml plus bas (STEP 2)
     // qui le pose en `data-thesportsdbid` sur chaque <option>.
     return BETCLIC_ELITE_TEAMS.map(t => ({ strTeam: t.displayName, theSportsDbId: t.theSportsDbId }));
+  }
+  if (league.value === 'top14') {
+    console.log(`[Config] Équipes ${league.value} — liste statique en dur (${TOP14_TEAMS.length}), aucune API fiable pour ce championnat`);
+    return TOP14_TEAMS.map(t => ({ strTeam: t.displayName, theSportsDbId: t.theSportsDbId }));
   }
 
   const cacheKey = `matin-espn-teams-${league.value}`;
@@ -539,6 +576,42 @@ function addLiveInstance() {
 }
 
 function removeLiveInstance(key) {
+  delete modulesState[key];
+  renderTabPanels();
+}
+
+// ─── Instances multiples (module Mon Équipe) ────────────────────────────────
+// Même principe exact que Sports ci-dessus (voir dashboard.js isMonEquipeKey),
+// plafonné à 3 (pas 5 comme Sports/Prêts — confirmé explicitement : CHAQUE
+// équipe reste sa PROPRE carte dashboard, indépendamment déplaçable, PAS un
+// empilement de sections dans une seule carte) : "monEquipe" garde la clé de
+// base, "monEquipe_2"/"monEquipe_3" sont les 2 instances supplémentaires
+// possibles, chacune avec son propre config complet (équipe/sport/catégorie/
+// calendrier/résultats).
+const MAX_MON_EQUIPE_INSTANCES = 3;
+
+function isMonEquipeKey(key) {
+  return key === 'monEquipe' || key === 'monEquipe_2' || key === 'monEquipe_3';
+}
+
+function addMonEquipeInstance() {
+  const count = Object.keys(modulesState).filter(isMonEquipeKey).length;
+  if (count >= MAX_MON_EQUIPE_INSTANCES) return;
+
+  let n = 2;
+  while (modulesState[`monEquipe_${n}`]) n++;
+
+  const positions = Object.values(modulesState).map(m => m.position);
+  const nextPosition = positions.length ? Math.max(...positions) + 1 : 0;
+
+  modulesState[`monEquipe_${n}`] = {
+    enabled: true, position: nextPosition,
+    config: { teamName: '', sport: 'football', category: '', upcoming: [], results: [] },
+  };
+  renderTabPanels();
+}
+
+function removeMonEquipeInstance(key) {
   delete modulesState[key];
   renderTabPanels();
 }
@@ -725,7 +798,7 @@ function showProfilesInfoPopup(anchorEl) {
   popup.id = 'profilesInfoPopup';
   popup.className = 'price-tracking-info-popup';
   popup.innerHTML = `
-    <div class="price-tracking-info-warning" style="margin-bottom:6px;">📌 Ici, je mémorise mes modules sur un profil !</div>
+    <div class="price-tracking-info-warning" style="margin-bottom:6px;">📌 Je mémorise les modules actifs, le thème et la disposition actuelle en place.</div>
     <div class="price-tracking-info-title">💡 Utilisation sur plusieurs PC</div>
     <div class="price-tracking-info-warning">Si vous utilisez Matin sur plusieurs PC, nous vous recommandons d'utiliser 1 profil par appareil (ex. « Bureau » sur votre PC fixe, « Portable » sur votre laptop).</div>
   `;
@@ -1016,14 +1089,14 @@ function renderTabPanels() {
         if (fdjKeys.length) panel.appendChild(createFdjGroup(fdjKeys));
         return;
       }
-      if (entry === 'ol') {
-        Object.keys(modulesState)
-          .filter(isSportsKey)
-          .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0))
-          .forEach((key) => {
-            const meta = MODULE_META[key] ?? MODULE_META.ol;
-            panel.appendChild(createModuleRow(key, modulesState[key], meta));
-          });
+      // Sports/LIVE FOOT!/Mon Équipe (2026-09-12, sur demande explicite) —
+      // regroupées visuellement dans un seul encadré (voir createModuleGroup
+      // plus bas) au lieu de lignes à plat. Prêts N'EST PAS dans les "3
+      // familles" demandées pour ce regroupement, reste inchangé juste
+      // en dessous.
+      if (entry === 'ol' || entry === 'live' || entry === 'monEquipe') {
+        const group = createModuleGroup(entry);
+        if (group) panel.appendChild(group);
         return;
       }
       if (entry === 'prets') {
@@ -1032,16 +1105,6 @@ function renderTabPanels() {
           .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0))
           .forEach((key) => {
             const meta = MODULE_META[key] ?? MODULE_META.prets;
-            panel.appendChild(createModuleRow(key, modulesState[key], meta));
-          });
-        return;
-      }
-      if (entry === 'live') {
-        Object.keys(modulesState)
-          .filter(isLiveKey)
-          .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0))
-          .forEach((key) => {
-            const meta = MODULE_META[key] ?? MODULE_META.live;
             panel.appendChild(createModuleRow(key, modulesState[key], meta));
           });
         return;
@@ -1182,17 +1245,17 @@ function createModuleRow(key, mod, meta) {
   // (2026-08-08, étendu 2026-09-05), même principe pour les trois : le
   // bouton "+" ne vit que sur la clé de base ('ol'/'prets'/'live'), le "×"
   // sur les instances ajoutées uniquement.
-  const showAddInstance = key === 'ol' || key === 'prets' || key === 'live';
-  const showDelete = (isSportsKey(key) && key !== 'ol') || (isPretsKey(key) && key !== 'prets') || (isLiveKey(key) && key !== 'live');
-  const sportsMaxed = Object.keys(modulesState).filter(isSportsKey).length >= MAX_SPORTS_INSTANCES;
+  // Bouton "+" — SEUL Prêts le garde EN LIGNE sur sa 1re instance (2026-09-12,
+  // sur demande explicite) : Sports/LIVE FOOT!/Mon Équipe sont désormais
+  // regroupés visuellement (voir createModuleGroup plus bas) et leur "+" vit
+  // dans l'en-tête du groupe à la place — Prêts N'EST PAS dans les "3
+  // familles" demandées pour ce regroupement, son comportement reste
+  // inchangé.
+  const showAddInstance = key === 'prets';
+  const showDelete = (isSportsKey(key) && key !== 'ol') || (isPretsKey(key) && key !== 'prets') || (isLiveKey(key) && key !== 'live') || (isMonEquipeKey(key) && key !== 'monEquipe');
   const pretsMaxed = Object.keys(modulesState).filter(isPretsKey).length >= MAX_PRETS_INSTANCES;
-  const liveMaxed = Object.keys(modulesState).filter(isLiveKey).length >= MAX_LIVE_INSTANCES;
-  const maxedOut = key === 'prets' ? pretsMaxed : key === 'live' ? liveMaxed : sportsMaxed;
-  const addTitle = key === 'prets'
-    ? (pretsMaxed ? 'Maximum de 5 groupes atteint' : 'Ajouter un groupe')
-    : key === 'live'
-      ? (liveMaxed ? 'Maximum de 2 directs atteint' : 'Ajouter un direct')
-      : (sportsMaxed ? 'Maximum de 5 équipes atteint' : 'Ajouter une équipe');
+  const maxedOut = pretsMaxed;
+  const addTitle = pretsMaxed ? 'Maximum de 5 groupes atteint' : 'Ajouter un groupe';
   const deleteTitle = isPretsKey(key) ? 'Supprimer ce groupe' : isLiveKey(key) ? 'Supprimer ce direct' : 'Supprimer cette équipe';
 
   row.innerHTML = `
@@ -1227,9 +1290,7 @@ function createModuleRow(key, mod, meta) {
   // Sport, groupe de prêts ou direct LIVE FOOT! selon la clé)
   row.querySelector('.row-add-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (key === 'prets') addPretsInstance();
-    else if (key === 'live') addLiveInstance();
-    else addSportsInstance();
+    addPretsInstance(); // seul appelant possible désormais, voir showAddInstance ci-dessus
   });
 
   // Supprimer cette instance (instances ajoutées uniquement, jamais l'originale)
@@ -1237,6 +1298,7 @@ function createModuleRow(key, mod, meta) {
     e.stopPropagation();
     if (isPretsKey(key)) removePretsInstance(key);
     else if (isLiveKey(key)) removeLiveInstance(key);
+    else if (isMonEquipeKey(key)) removeMonEquipeInstance(key);
     else removeSportsInstance(key);
   });
 
@@ -1310,7 +1372,21 @@ function createModuleRow(key, mod, meta) {
       if (!modulesState[key].config) modulesState[key].config = {};
       const cfg = modulesState[key].config;
       const knownLeagues = window.MatinModules?.olKnownLeagues || [];
-      const initialLeague = knownLeagues.find(l => l.value === cfg.manualLeague) || null;
+      let initialLeague = knownLeagues.find(l => l.value === cfg.manualLeague) || null;
+      // Nouvelle instance vide — "+ Ajouter une équipe" (2026-09-11, sur
+      // demande explicite, bug signalé : le menu s'ouvrait sur "Autre
+      // équipe" au lieu de "Ligue 1") : ouvre sur Ligue 1 par défaut plutôt
+      // que sur le repli "Autre équipe" ci-dessous. Restreint à `!cfg.team`
+      // (en plus de `!cfg.manualLeague`) : une config enregistrée AVANT ce
+      // menu déroulant (texte libre déjà tapé, voir commentaire au-dessus)
+      // n'a PAS de `manualLeague` non plus, mais a bien un `cfg.team` — elle
+      // doit continuer à s'ouvrir en "Autre équipe" avec son texte déjà
+      // présent, comme documenté juste au-dessus ; seule une instance
+      // VRAIMENT neuve (ni équipe ni ligue, voir addSportsInstance) déclenche
+      // ce nouveau défaut.
+      if (!initialLeague && !cfg.manualLeague && !cfg.team) {
+        initialLeague = knownLeagues.find(l => l.value === 'fra.ligue1') || null;
+      }
       const initialCustom = !initialLeague;
 
       const fieldWrap = document.createElement('div');
@@ -1805,6 +1881,14 @@ function createModuleRow(key, mod, meta) {
     wrapper.appendChild(renderTradfriConfigSection(modulesState[key]));
   }
 
+  if (meta.somfyTahomaField) {
+    wrapper.appendChild(renderSomfyTahomaConfigSection(modulesState[key]));
+  }
+
+  if (meta.fglairField) {
+    wrapper.appendChild(renderFglairConfigSection(modulesState[key]));
+  }
+
   if (meta.remindersField) {
     wrapper.appendChild(renderRemindersConfigSection(modulesState[key]));
   }
@@ -1932,6 +2016,12 @@ function renderMonEquipeConfigSection(mod) {
   if (!mod.config) mod.config = {};
   if (typeof mod.config.teamName !== 'string') mod.config.teamName = '';
   if (typeof mod.config.sport !== 'string') mod.config.sport = 'football';
+  // `category` (2026-09-12, sur demande explicite — "catégorie en
+  // sous-titre" du redesign de l'en-tête). `logoUrl` (ajouté le même jour
+  // pour un badge/logo de club) RETIRÉ quelques échanges plus tard, 2e
+  // demande explicite ("supprimer tous les logos... aucun placeholder") —
+  // plus aucun champ ni rendu ne le lit.
+  if (typeof mod.config.category !== 'string') mod.config.category = '';
   if (!Array.isArray(mod.config.upcoming)) mod.config.upcoming = [];
   if (!Array.isArray(mod.config.results)) mod.config.results = [];
   const cfg = mod.config;
@@ -1948,6 +2038,10 @@ function renderMonEquipeConfigSection(mod) {
         <label>Sport</label>
         <select class="monequipe-sport-select">${monEquipeSportOptionsHtml(cfg.sport)}</select>
       </div>
+    </div>
+    <div class="monequipe-field-name">
+      <label>Catégorie (sous-titre, optionnel)</label>
+      <input type="text" class="monequipe-category-input" placeholder="Ex : Seniors, U18, Régionale 2..." value="${cfg.category}">
     </div>
 
     <label class="monequipe-list-label">Matchs à venir (max ${MON_EQUIPE_MAX_MATCHES})</label>
@@ -1967,6 +2061,7 @@ function renderMonEquipeConfigSection(mod) {
 
   wrap.querySelector('.monequipe-name-input').addEventListener('input', (e) => { cfg.teamName = e.target.value; });
   wrap.querySelector('.monequipe-sport-select').addEventListener('change', (e) => { cfg.sport = e.target.value; });
+  wrap.querySelector('.monequipe-category-input').addEventListener('input', (e) => { cfg.category = e.target.value; });
 
   const upcomingList = wrap.querySelector('.monequipe-upcoming-list');
   const addUpcomingBtn = wrap.querySelector('.monequipe-add-upcoming-btn');
@@ -2132,6 +2227,71 @@ function normalizeFdjGrid(game, grid) {
 // grilles/codes (réutilise directement renderFdjGameConfig, inchangée : son
 // paramètre `gameConfig` ({grids, codes}) est désormais le config du module
 // lui-même, plus imbriqué sous une clé de jeu comme avant la scission).
+// ─── Regroupement visuel Sports/LIVE FOOT!/Mon Équipe (2026-09-12, sur
+// demande explicite) — un seul encadré par famille (`.module-group`, voir
+// style.css), en-tête portant l'icône/le nom de la famille + le bouton "+"
+// (déplacé ICI depuis la ligne de la 1re instance — voir showAddInstance
+// dans createModuleRow, qui ne le montre plus que pour Prêts), chaque
+// instance séparée par une ligne fine (`.module-group-body >
+// .module-row-wrap:not(:last-child)`, CSS pur, voir style.css). Prêts N'EST
+// PAS dans ces "3 familles" (pas demandé, garde son "+" en ligne inchangé
+// dans createModuleRow) ; FDJ a déjà son propre regroupement dédié
+// (createFdjGroup juste en dessous, catalogue FIXE de 3 jeux — pas de "+"/
+// "×", non concerné par ce mécanisme générique).
+const MODULE_GROUP_DEFS = {
+  ol: {
+    isKey: (key) => isSportsKey(key), baseMeta: () => MODULE_META.ol,
+    addFn: addSportsInstance, maxCount: MAX_SPORTS_INSTANCES,
+    addTitle: 'Ajouter une équipe', maxTitle: 'Maximum de 5 équipes atteint',
+  },
+  live: {
+    isKey: (key) => isLiveKey(key), baseMeta: () => MODULE_META.live,
+    addFn: addLiveInstance, maxCount: MAX_LIVE_INSTANCES,
+    addTitle: 'Ajouter un direct', maxTitle: 'Maximum de 2 directs atteint',
+  },
+  monEquipe: {
+    isKey: (key) => isMonEquipeKey(key), baseMeta: () => MODULE_META.monEquipe,
+    addFn: addMonEquipeInstance, maxCount: MAX_MON_EQUIPE_INSTANCES,
+    addTitle: 'Ajouter une équipe', maxTitle: 'Maximum de 3 équipes atteint',
+  },
+};
+
+function createModuleGroup(familyKey) {
+  const def = MODULE_GROUP_DEFS[familyKey];
+  const baseMeta = def.baseMeta();
+  const keys = Object.keys(modulesState)
+    .filter(def.isKey)
+    .sort((a, b) => (modulesState[a].position ?? 0) - (modulesState[b].position ?? 0));
+  if (!keys.length) return null;
+
+  const maxed = keys.length >= def.maxCount;
+
+  const group = document.createElement('div');
+  group.className = 'module-group';
+  group.innerHTML = `
+    <div class="module-group-header">
+      <span class="module-group-title">${baseMeta.icon} ${baseMeta.label}</span>
+      <button type="button" class="module-group-add-btn row-add-btn" ${maxed ? 'disabled' : ''} title="${maxed ? def.maxTitle : def.addTitle}">+</button>
+    </div>
+    <div class="module-group-body"></div>
+  `;
+
+  const body = group.querySelector('.module-group-body');
+  keys.forEach((key) => {
+    const meta = MODULE_META[key] ?? baseMeta;
+    body.appendChild(createModuleRow(key, modulesState[key], meta));
+  });
+
+  // `def.addFn()` déclenche déjà son propre renderTabPanels() en interne
+  // (voir addSportsInstance/addLiveInstance/addMonEquipeInstance) — rien à
+  // refaire ici après l'appel.
+  group.querySelector('.module-group-add-btn').addEventListener('click', () => {
+    def.addFn();
+  });
+
+  return group;
+}
+
 function createFdjGroup(fdjKeys) {
   const group = document.createElement('div');
   group.className = 'fdj-group';
@@ -2990,6 +3150,143 @@ function renderTradfriConfigSection(mod) {
   return wrap;
 }
 
+// ─── Climatisation FGLair (Fujitsu, compte cloud Ayla Networks EU) ─────────
+// 2026-09-13, sur demande explicite. AUCUNE saisie d'appareil manuelle,
+// contrairement à Hue (bridge/cloud)/Trådfri (passerelle)/TaHoma (jeton) —
+// juste email + mot de passe, les climatiseurs sont détectés automatiquement
+// au premier chargement du module (voir fglair.js, window.matin.fglair.
+// getDevices). Réutilise les classes `.hue-config-*` telles quelles (même
+// besoin visuel que les autres intégrations maison). `.fglair-password-
+// toggle` (œil, demandé explicitement) est la SEULE classe nouvelle propre
+// à cette section — aucune autre section de ce fichier n'a de champ mot de
+// passe révélable, ce composant est donc construit ici pour la 1re fois.
+function renderFglairConfigSection(mod) {
+  if (!mod.config) mod.config = {};
+  if (typeof mod.config.email !== 'string') mod.config.email = '';
+  if (typeof mod.config.password !== 'string') mod.config.password = '';
+  const cfg = mod.config;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field hue-config-field';
+  wrap.innerHTML = `
+    <div class="hue-config-row">
+      <label>Email FGLair</label>
+      <input type="text" class="fglair-email-input" placeholder="email@exemple.com" value="${cfg.email}" autocomplete="off">
+    </div>
+    <div class="hue-config-row">
+      <label>Mot de passe</label>
+      <input type="password" class="fglair-password-input" placeholder="Mot de passe FGLair" value="${cfg.password}" autocomplete="off">
+      <button type="button" class="fglair-password-toggle" title="Afficher/masquer le mot de passe">👁</button>
+    </div>
+    <button type="button" class="fglair-test-btn etf-add-line-btn">Tester la connexion</button>
+    <p class="hue-config-status" data-status="fglair"></p>
+    <p class="hue-config-hint">Les climatiseurs de votre compte FGLair sont détectés automatiquement — aucune saisie manuelle nécessaire.</p>
+  `;
+
+  const emailInput = wrap.querySelector('.fglair-email-input');
+  const passwordInput = wrap.querySelector('.fglair-password-input');
+  const toggleBtn = wrap.querySelector('.fglair-password-toggle');
+  const testBtn = wrap.querySelector('.fglair-test-btn');
+  const statusEl = wrap.querySelector('[data-status="fglair"]');
+
+  emailInput.addEventListener('input', (e) => { cfg.email = e.target.value.trim(); });
+  passwordInput.addEventListener('input', (e) => { cfg.password = e.target.value; });
+
+  toggleBtn.addEventListener('click', () => {
+    const revealed = passwordInput.type === 'text';
+    passwordInput.type = revealed ? 'password' : 'text';
+    toggleBtn.classList.toggle('active', !revealed);
+  });
+
+  testBtn.addEventListener('click', async () => {
+    if (!cfg.email || !cfg.password) {
+      statusEl.textContent = 'Renseignez l\'email et le mot de passe avant de tester.';
+      return;
+    }
+    statusEl.textContent = 'Connexion en cours…';
+    try {
+      await window.matin.fglair.testConnection(cfg.email, cfg.password);
+      statusEl.textContent = '✓ Connexion réussie.';
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      console.warn('[Config] Test de connexion FGLair échoué', err);
+    }
+  });
+
+  return wrap;
+}
+
+// ─── Somfy TaHoma Switch — API LOCALE (2026-09-12) ─────────────────────────
+// Email/mot de passe REMPLACÉS par un jeton Bearer (2e révision, même jour) :
+// confirmé EN DIRECT contre la vraie box de l'utilisateur que le login
+// email/mot de passe est bloqué par la box elle-même au niveau TLS
+// (`TLSV1_ALERT_CERTIFICATE_REQUIRED`, avant même l'envoi des identifiants —
+// voir main.js pour l'historique complet). L'API locale actuelle de Somfy
+// authentifie par jeton, généré une fois pour toutes depuis l'appli Somfy
+// (Réglages → Aide et fonctionnalités avancées → Fonctionnalités avancées →
+// Mode développeur — activé en tapant 7 fois sur le PIN de la box affiché
+// dans l'appli — puis "Générer un jeton", visible/copiable UNE SEULE fois à
+// sa création). "Découvrir les équipements" relaie directement à
+// `window.matin.somfyTahoma.discover` (voir main.js ipcMain.handle
+// ('tahoma:discover')) — un seul appel `GET .../setup`, plus de login
+// séparé. Réutilise les classes .hue-config-* telles quelles (même besoin
+// visuel que Hue/Kasa/Trådfri).
+function renderSomfyTahomaConfigSection(mod) {
+  if (!mod.config) mod.config = {};
+  if (typeof mod.config.ip !== 'string') mod.config.ip = '';
+  if (typeof mod.config.token !== 'string') mod.config.token = '';
+  const cfg = mod.config;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field hue-config-field';
+  wrap.innerHTML = `
+    <div class="hue-config-row">
+      <label>Adresse IP locale</label>
+      <input type="text" class="tahoma-ip-input" placeholder="192.168.1.XX" value="${cfg.ip}">
+    </div>
+    <div class="hue-config-row">
+      <label>Jeton (Bearer)</label>
+      <input type="password" class="tahoma-token-input" placeholder="Généré depuis l'appli Somfy" value="${cfg.token}">
+    </div>
+    <button type="button" class="tahoma-discover-btn etf-add-line-btn">Découvrir les équipements</button>
+    <p class="hue-config-status"></p>
+    <p class="hue-config-hint">API locale de votre TaHoma Switch (port 443, réseau local uniquement, ne transite jamais par internet). Le jeton se génère UNE FOIS depuis l'appli Somfy : Réglages → Aide et fonctionnalités avancées → Mode développeur (activé en tapant 7 fois sur le PIN de la box affiché dans l'appli) → Générer un jeton — copiez-le immédiatement, il n'est affiché qu'à sa création.</p>
+  `;
+
+  const ipInput = wrap.querySelector('.tahoma-ip-input');
+  const tokenInput = wrap.querySelector('.tahoma-token-input');
+  const statusEl = wrap.querySelector('.hue-config-status');
+  const discoverBtn = wrap.querySelector('.tahoma-discover-btn');
+
+  ipInput.addEventListener('input', (e) => { cfg.ip = e.target.value.trim(); });
+  tokenInput.addEventListener('input', (e) => { cfg.token = e.target.value.trim(); });
+
+  discoverBtn.addEventListener('click', async () => {
+    if (!cfg.ip || !cfg.token) {
+      statusEl.textContent = 'Renseignez l\'IP et le jeton avant de découvrir.';
+      return;
+    }
+    discoverBtn.disabled = true;
+    const originalLabel = discoverBtn.textContent;
+    discoverBtn.textContent = 'Recherche en cours…';
+    statusEl.textContent = 'Connexion à la TaHoma Switch…';
+    try {
+      const devices = await window.matin.somfyTahoma.discover({ ip: cfg.ip, token: cfg.token });
+      statusEl.textContent = devices.length
+        ? `${devices.length} équipement(s) trouvé(s) : ${devices.map(d => d.label).join(', ')}`
+        : 'Connexion réussie, mais aucun équipement pilotable (volet/store) trouvé.';
+    } catch (err) {
+      statusEl.textContent = `Erreur : ${err.message}`;
+      console.warn('[Config] Découverte TaHoma échouée', err);
+    } finally {
+      discoverBtn.disabled = false;
+      discoverBtn.textContent = originalLabel;
+    }
+  });
+
+  return wrap;
+}
+
 // ─── Rappels (titre + date/heure + récurrence + catégorie) ─────────────────
 const MAX_REMINDERS = 15; // 30→15 (2026-09-01, sur demande explicite)
 const REMINDERS_RECUR_PREVIEW_LABEL = { daily: 'quotidien', weekly: 'hebdo', monthly: 'mensuel' };
@@ -3761,7 +4058,21 @@ async function initPersonnaliserSection() {
     await renderPersonnaliserOptions();
     await renderDisplayModeOptions();
   };
-  const closeModal = () => overlay.classList.remove('open');
+  // Sauvegarde automatique du fond dans le profil actif à la fermeture
+  // (2026-09-13, sur demande explicite — "sans bouton Enregistrer séparé") :
+  // le fond est déjà appliqué visuellement au clic sur une vignette (voir
+  // renderPersonnaliserOptions, window.matin.background.set) — cet appel
+  // persiste SEULEMENT ce choix dans `profiles[actif].background` (voir
+  // main.js profiles:saveActiveBackground), sans capturer modules/thème
+  // comme le ferait le bouton 💾 "Sauvegarder ce profil" des onglets Profil,
+  // et sans provoquer le moindre rechargement (déjà à l'écran, rien à
+  // rejouer). Fire-and-forget : la fermeture visuelle de la popup ne doit
+  // jamais attendre cet appel IPC.
+  const closeModal = () => {
+    overlay.classList.remove('open');
+    window.matin.profiles.saveActiveBackground()
+      .catch(err => console.error('[Config] Échec sauvegarde du fond dans le profil actif', err));
+  };
 
   btnOpen.addEventListener('click', openModal);
   btnClose.addEventListener('click', closeModal);

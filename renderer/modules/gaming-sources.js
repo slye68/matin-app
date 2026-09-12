@@ -7,18 +7,18 @@
  * mêmes sources, aucun choix utilisateur) à des sources cochables, comme les
  * 3 autres modules Actualités déjà convertis.
  *
- * URL JeuxOnline CORRIGÉE : l'URL demandée
- * ("jeuxonline.info/rss/actualites.xml") est un 404 RÉEL (page d'erreur
- * HTML). La vraie URL, trouvée via la balise d'autodiscovery RSS sur la page
- * d'accueil (jeuxonline.info propose plusieurs flux — actualités les plus
- * récentes, les plus lues, dossiers, vidéos — celui demandé correspond au
- * 1er, "Les dernières actualités de JeuxOnLine"), est /rss/actualites/
- * rss.xml — vérifiée en direct, 25 articles.
+ * JeuxOnline REMPLACÉE par Gamekult (2026-09-11, sur demande explicite) —
+ * https://www.gamekult.com/feed.xml vérifiée en direct (navigateur) : vrai
+ * flux RSS 2.0 bien formé, auto-référencé (<atom:link rel="self">), items
+ * complets (title/link/pubDate/description/guid/dc:creator) — aucune
+ * adaptation du parsing nécessaire (rssFetchItems, voir rss-feed.js, est
+ * générique : querySelectorAll('item') + .textContent, qui dépile déjà les
+ * CDATA utilisés ici pour title/description).
  */
 window.GAMING_NEWS_SOURCES = [
   { url: 'https://www.jeuxvideo.com/rss/rss.xml', label: 'Jeuxvideo.com' },
   { url: 'https://fr.ign.com/feed.xml', label: 'IGN France' },
-  { url: 'https://www.jeuxonline.info/rss/actualites/rss.xml', label: 'JeuxOnline (MMO)' },
+  { url: 'https://www.gamekult.com/feed.xml', label: 'Gamekult' },
 ];
 
 // Cochées par défaut tant que l'utilisateur n'a jamais touché à la config
@@ -26,7 +26,8 @@ window.GAMING_NEWS_SOURCES = [
 // étaient TOUTES LES DEUX déjà actives avant l'ajout de ces cases à cocher
 // (liste fixe, pas de choix), comportement conservé à l'identique pour une
 // installation existante ("keep existing sources unchanged", demandé
-// explicitement) ; seule JeuxOnline (nouvelle) démarre décochée.
+// explicitement) ; seule la 3e source (JeuxOnline à l'origine, désormais
+// Gamekult à sa place — même index [2]) démarre décochée.
 window.GAMING_DEFAULT_SOURCES = [
   window.GAMING_NEWS_SOURCES[0].url,
   window.GAMING_NEWS_SOURCES[1].url,

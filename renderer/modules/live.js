@@ -55,6 +55,24 @@ function liveCompetitionLabel(slug) {
 }
 
 // Normalise UN événement ESPN en objet "match" plat.
+// `homeLogo`/`awayLogo` (2026-09-12, sur demande explicite) — ÉCART signalé :
+// la demande visait `strTeamBadge` (champ TheSportsDB), mais ce module est
+// EXCLUSIVEMENT ESPN depuis sa réécriture du 2026-09-04 (voir l'en-tête de ce
+// fichier) — TheSportsDB n'est jamais interrogé ici. `team.logo` (chaîne
+// directe) est le champ documenté publiquement pour ce endpoint ESPN
+// "site API" ; `team.logos?.[0]?.href` gardé en repli si jamais ce endpoint
+// renvoyait la forme tableau utilisée ailleurs par certaines API ESPN — ni
+// l'un ni l'autre n'a pu être vérifié EN DIRECT dans cette session (accès
+// réseau à site.api.espn.com bloqué, 403, y compris depuis ce poste de dev :
+// voir CONTEXT.md 2026-09-01 "Sports" pour un blocage réseau identique déjà
+// rencontré). À vérifier dans les logs `[Live Foot]`/DevTools dès qu'une
+// instance réelle peut fetcher ce endpoint.
+// PRÉCÉDENT HISTORIQUE (voir CONTEXT.md, 2026-09-01, "LIVE FOOT! — mise en
+// page...", point C) : un logo + repli initiale existait déjà UNE FOIS dans
+// une version antérieure de ce fichier, RETIRÉ ensuite sur demande explicite
+// ("jugés redondants avec les noms d'équipe déjà affichés en toutes
+// lettres") — remis ici sur nouvelle demande explicite, sans présumer que
+// cette réserve ait changé d'avis entre-temps.
 function liveNormalizeEvent(event, slug) {
   const competition = event.competitions?.[0];
   if (!competition) return null;
@@ -72,8 +90,10 @@ function liveNormalizeEvent(event, slug) {
     detail: liveTranslateStatusDetail(statusType.detail || statusType.shortDetail || ''),
     homeName: home.team?.displayName || home.team?.shortDisplayName || home.team?.abbreviation || '?',
     homeScore: home.score != null && home.score !== '' ? Number(home.score) : null,
+    homeLogo: home.team?.logo || home.team?.logos?.[0]?.href || null,
     awayName: away.team?.displayName || away.team?.shortDisplayName || away.team?.abbreviation || '?',
     awayScore: away.score != null && away.score !== '' ? Number(away.score) : null,
+    awayLogo: away.team?.logo || away.team?.logos?.[0]?.href || null,
   };
 }
 
@@ -114,36 +134,82 @@ function liveGoogleSearchUrl(homeTeam, awayTeam) {
   return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
 }
 
-// ─── Rendu : une ligne de la journée ────────────────────────────────────
-// Pas de nom de compétition par ligne (déjà annoncé une fois dans l'en-tête,
-// voir liveCompetitionModeHtml) — seulement statut/heure à gauche + équipes/
-// score, comme demandé.
+// ─── Logo d'équipe + repli initiales (2026-09-12, sur demande explicite) ───
+// Jusqu'à 2 lettres (1er mot + 2e mot s'il y en a un — ex. "Paris
+// Saint-Germain" → "PS"), pas juste 1 (le précédent liveTeamLogoHtml
+// historique, voir CONTEXT.md, n'en gardait qu'1 seul) : plus lisible pour
+// distinguer 2 équipes au repli en même temps sur une même ligne.
+function liveTeamInitials(name) {
+  return (name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join('') || '?';
+}
+// `onerror` bascule sur le repli initiales si l'URL existe mais que l'image
+// elle-même échoue à charger (404, hors-ligne...) — pas seulement si l'URL
+// est absente dès le départ (voir commentaire de liveNormalizeEvent, champ
+// ESPN non vérifié en direct dans cette session).
+function liveTeamLogoHtml(name, logoUrl) {
+  const initials = liveTeamInitials(name);
+  if (!logoUrl) return `<span class="live-team-logo-fallback">${initials}</span>`;
+  return `
+    <span class="live-team-logo-wrap">
+      <img class="live-team-logo" src="${logoUrl}" alt="" loading="lazy"
+        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+      <span class="live-team-logo-fallback" style="display:none">${initials}</span>
+    </span>`;
+}
+
+// ─── Rendu : une carte de match (2026-09-12, sur demande explicite, redesign
+// complet des cartes) — REMPLACE l'ancien gabarit à 2 lignes empilées
+// (statut/heure au-dessus, [nom][score][nom] en dessous) par une carte à 1
+// ligne sur 5 colonnes : [badge heure/statut] [logo+nom domicile] [VS ou
+// score] [nom+logo extérieur] [statut à droite]. Réutilise TEL QUEL
+// `liveTeamLogoHtml` (logo + repli initiales, ajouté juste avant sur ce
+// même fichier) — seul le conteneur externe et l'agencement changent.
+// ÉCART assumé par rapport à la demande littérale : le schéma donné montre
+// "VS centré" pour TOUS les matchs sans distinction d'état — mais un match
+// EN COURS ou TERMINÉ a un score réel à afficher, pas juste "VS" (ce module
+// s'appelle "LIVE FOOT!", afficher uniquement "VS" pour un match déjà joué
+// viderait le module de son utilité). "VS" réservé aux matchs À VENIR
+// (`isPre`), le score réel (classe `.live-match-score`, inchangée) pour en
+// cours/terminé.
 function liveMatchCompetitionRowHtml(match) {
   const isLive = match.state === 'in';
   const isPre = match.state === 'pre';
   const isPost = match.state === 'post';
   const clickUrl = liveGoogleSearchUrl(match.homeName, match.awayName);
 
-  const leftHtml = isLive
-    ? `<span class="live-dot"></span><span class="live-match-status">${match.detail || 'En direct'}</span>`
+  // Badge heure/statut à gauche — fond rouge si en cours, gris si à venir,
+  // discret (repris de la variante `-post`, voir `.live-card-post`) si terminé.
+  const badgeHtml = isLive
+    ? `<span class="live-card-badge live-card-badge-live">${match.detail || 'EN DIRECT'}</span>`
+    : `<span class="live-card-badge live-card-badge-pre">${liveFmtTime(match.date)}</span>`;
+
+  const centerHtml = isPre
+    ? `<span class="live-card-vs">VS</span>`
+    : `<span class="live-match-score ${isLive ? 'live-match-score-live' : ''}">${match.homeScore ?? '—'} - ${match.awayScore ?? '—'}</span>`;
+
+  const statusHtml = isLive
+    ? `<span class="live-card-status live-card-status-live">● LIVE</span>`
     : isPre
-      ? `<span class="live-match-status">${liveFmtTime(match.date)}</span>`
-      : `<span class="live-match-status">✓ ${match.detail || 'Terminé'}</span>`;
+      ? `<span class="live-card-status live-card-status-pre">⏱ À VENIR</span>`
+      : `<span class="live-card-status live-card-status-post">✓ ${match.detail || 'Terminé'}</span>`;
 
-  const scoreHtml = isPre ? 'vs' : `${match.homeScore ?? '—'} - ${match.awayScore ?? '—'}`;
-
-  const rowClasses = ['live-match-row'];
-  if (isLive) rowClasses.push('live-match-row-live');
-  if (isPost) rowClasses.push('live-match-row-post');
+  const cardClasses = ['live-card'];
+  if (isLive) cardClasses.push('live-card-live');
+  else if (isPre) cardClasses.push('live-card-pre');
+  else cardClasses.push('live-card-post');
 
   return `
-    <div class="${rowClasses.join(' ')}" data-match-url="${clickUrl}">
-      <div class="live-match-header-row">${leftHtml}</div>
-      <div class="live-match-teams">
-        <span class="live-match-team" title="${match.homeName}">${match.homeName}</span>
-        <span class="live-match-score ${isLive ? 'live-match-score-live' : ''}">${scoreHtml}</span>
-        <span class="live-match-team live-match-team-away" title="${match.awayName}">${match.awayName}</span>
-      </div>
+    <div class="${cardClasses.join(' ')}" data-match-url="${clickUrl}">
+      ${badgeHtml}
+      <span class="live-match-team" title="${match.homeName}">${liveTeamLogoHtml(match.homeName, match.homeLogo)}<span class="live-match-team-name">${match.homeName}</span></span>
+      ${centerHtml}
+      <span class="live-match-team live-match-team-away" title="${match.awayName}"><span class="live-match-team-name">${match.awayName}</span>${liveTeamLogoHtml(match.awayName, match.awayLogo)}</span>
+      ${statusHtml}
     </div>`;
 }
 
@@ -174,11 +240,16 @@ function liveCompetitionModeHtml(matches) {
 
 // ─── Badge (module réduit, coin de carte) ──────────────────────────────
 // `setBadge()` (voir dashboard.js renderModuleOnce) n'écrit que le TEXTE du
-// badge, aucune classe/couleur CSS possible depuis un module — un préfixe
-// emoji fait donc office de couleur.
+// badge, aucune classe/couleur CSS possible AU CAS PAR CAS depuis un module —
+// le badge de CE module est donc stylé en rouge en PERMANENCE, ciblé par id
+// dans style.css (`#module-live .module-badge`), plutôt que seulement quand
+// un match est en direct : changer `setBadge` pour accepter une classe par
+// appel affecterait TOUS les modules de l'app, hors périmètre de cette
+// demande. "● LIVE" (2026-09-12, sur demande explicite) remplace l'ancien
+// préfixe 🔴 quand au moins un match suivi est en direct.
 function liveCompetitionBadge(matches) {
   const liveCount = matches.filter(m => m.state === 'in').length;
-  if (liveCount) return `🔴 ${liveCount}`;
+  if (liveCount) return `● LIVE (${liveCount})`;
   return matches.length ? String(matches.length) : '—';
 }
 
@@ -190,7 +261,7 @@ window.MatinModules.live = {
       // — ne dépend d'aucun identifiant de page de match deviné, donc
       // ouverture directe au clic, sans vérification préalable.
       container.addEventListener('click', (e) => {
-        const row = e.target.closest('.live-match-row');
+        const row = e.target.closest('.live-card');
         const url = row?.dataset.matchUrl;
         if (!url) return;
         console.log(`[Live Foot] Ouverture recherche Google : ${url}`);

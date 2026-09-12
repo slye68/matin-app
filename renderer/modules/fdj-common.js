@@ -236,7 +236,7 @@ window.FdjCommon = (function () {
             <div class="fdj-module ${privacy ? 'fdj-privacy-on' : ''}">
               <div class="fdj-header">
                 <span class="fdj-game-next">${next}</span>
-                <button class="etf-privacy-btn" title="${privacy ? 'Afficher les grilles' : 'Masquer les grilles'}">${privacy ? '🔒' : '🔓'}</button>
+                <button class="etf-privacy-btn" title="${privacy ? 'Afficher les grilles' : 'Masquer les grilles'}">${privacyIconHtml(privacy)}</button>
               </div>
               <div class="fdj-game-body">
                 ${drawBlockHtml(game, draw, stale)}

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
 const { TradfriClient: TradfriGwClient, AccessoryTypes: TradfriAccessoryTypes } = require('node-tradfri-client'); // IKEA Trådfri (CoAP/DTLS local, voir ipcMain.handle('tradfri:...'))
+const https = require('https'); // Somfy TaHoma Switch — API locale HTTPS/certificat auto-signé (voir ipcMain.handle('tahoma:...'))
 const Store = require('electron-store');
 const { runGoogleAuthFlow, refreshAccessToken } = require('./auth/google-oauth');
 const { runSpotifyAuthFlow, refreshAccessToken: refreshSpotifyAccessToken } = require('./auth/spotify-oauth');
@@ -39,7 +40,14 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 app.on('second-instance', () => {
-  if (!mainWindow) return;
+  // .isDestroyed() ajouté (2026-09-11, sur demande explicite — TypeError
+  // "Object has been destroyed" signalé) : `mainWindow` reste non-null
+  // jusqu'à l'évènement 'closed' (voir plus bas, mainWindow = null), mais
+  // devient DÉTRUITE un peu avant ce moment — une 2e tentative de lancement
+  // arrivant dans cette fenêtre (fermeture en cours) faisait planter tout
+  // accès (.isMinimized/.restore/.focus/.webContents) sur un objet déjà
+  // détruit, `if (!mainWindow)` seul ne suffisant pas à l'exclure.
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
   // (2026-08-11) Une tentative de relance (Matin.bat, raccourci...) pendant
@@ -176,6 +184,28 @@ const DEFAULT_MODULES = {
   // normal de Paramètres, PAS par le handler IPC lui-même), le code de
   // sécurité n'étant lui jamais stocké.
   tradfri:    { enabled: false, position: 8.68, config: { gatewayIp: '', identity: '', psk: '' } },
+  // Climatisation FGLair (Fujitsu, 2026-09-13, sur demande explicite) —
+  // compte cloud Ayla Networks EU (email/mot de passe), pas d'appairage
+  // matériel comme Trådfri : `enabled:false` par défaut le temps que
+  // l'utilisateur renseigne ses identifiants. Appareils détectés
+  // automatiquement (voir ipcMain.handle('fglair:getDevices')), jamais
+  // stockés ici — mêmes principe que kasa.devices ci-dessus.
+  fglair:     { enabled: false, position: 8.69, config: { email: '', password: '' } },
+  // Somfy TaHoma Switch — API LOCALE (2026-09-12, sur demande explicite,
+  // "Version 1"). Clé `somfyTahoma`, PAS `tahoma` : un module TaHoma existait
+  // déjà dans ce projet (compte cloud, voir commentaires Hue/Kasa au-dessus),
+  // retiré le 2026-08-10 sur demande explicite (voir removeStaleTahomaModule
+  // plus bas, qui purge INCONDITIONNELLEMENT toute clé `modules.tahoma` à
+  // chaque démarrage) — réutiliser ce même nom aurait fait disparaître ce
+  // nouveau module au lancement suivant. `email`/`password` REMPLACÉS par
+  // `token` le 2026-09-12 (voir ipcMain.handle('tahoma:...') plus bas) : la
+  // box de l'utilisateur exige un jeton Bearer (mode développeur de l'appli
+  // Somfy), le login email/mot de passe ayant été confirmé bloqué EN DIRECT
+  // par un test réel (`TLSV1_ALERT_CERTIFICATE_REQUIRED`). `ip`/`token`
+  // stockés tels quels dans `config` (même niveau de confiance que
+  // gatewayIp/identity/psk pour Trådfri ci-dessus) : voir
+  // renderSomfyTahomaConfigSection (config.js).
+  somfyTahoma: { enabled: false, position: 26, config: { ip: '', token: '' } },
   // YouTube Notifications (2026-08-15, sur demande explicite) — `channels`
   // saisis par l'utilisateur en Paramètres → Services (résolution d'ID via
   // l'API Search, voir config.js renderYoutubeConfigSection), `lastCheckSlot`
@@ -201,6 +231,12 @@ const DEFAULT_MODULES = {
   gaming:      { enabled: true,  position: 15, config: {} },
   // 3 modules ajoutés le 2026-08-07 (sur demande explicite) — voir CONTEXT.md.
   sante:     { enabled: true,  position: 16, config: {} },
+  // Actus sportives (2026-09-11, sur demande explicite) — flux L'Équipe fixe,
+  // même pattern que Sciences/Santé (voir rss-feed.js). Position 25 (pas de
+  // trou libre entre 12 et 24, voir le reste de cette table) — backfillMissingModules
+  // ci-dessous la fera apparaître automatiquement sur une installation déjà
+  // existante, pas seulement au premier lancement.
+  sportNews: { enabled: true,  position: 25, config: {} },
   // Nécessite le scope People API (contacts.readonly) ajouté ce même jour à
   // google-oauth.js — un compte DÉJÀ connecté avant cet ajout n'a PAS ce
   // scope sur son token existant (Google ne l'accorde qu'au moment du
@@ -480,7 +516,6 @@ function setMergedModules(modules) {
   safeStoreSet('modules', configPart);
   userdataStore.set('modules', userdataPart);
   scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
-  uploadToDriveAfterChange(); // voir Sync Google Drive plus bas — point 3 de la demande, upload silencieux différé
 }
 
 // ─── Profils (2026-08-31, sur demande explicite) ───────────────────────────
@@ -497,7 +532,16 @@ function setMergedModules(modules) {
 const PROFILE_KEYS = ['profile1', 'profile2'];
 
 function defaultProfile(name) {
-  return { name, theme: null, modules: {}, layouts: {}, autoSwitch: { enabled: false, days: [] } };
+  // `background: 'none'` explicite (2026-09-13, sur demande explicite,
+  // point 4 — "si aucun fond n'est sélectionné dans un profil, afficher le
+  // fond par défaut") — un profil VRAIMENT neuf (jamais eu de fond choisi)
+  // doit afficher le défaut, contrairement à un profil ANCIEN sauvegardé
+  // avant l'ajout de ce champ (2026-09-10), où `background` reste `undefined`
+  // et où `performProfileSwitch` laisse volontairement le fond actuel
+  // inchangé plutôt que de l'écraser (voir son commentaire) — cette
+  // distinction `undefined` vs `'none'` explicite reste donc nécessaire,
+  // seul le profil flambant neuf change de comportement ici.
+  return { name, theme: null, background: 'none', modules: {}, layouts: {}, autoSwitch: { enabled: false, days: [] } };
 }
 
 // Initialise `profiles` au 1er accès (installation neuve OU existante d'avant
@@ -619,7 +663,6 @@ function saveProfileSnapshot(key, name) {
   backupStoreBeforeWrite();
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup();
-  uploadToDriveAfterChange();
   return profiles[key];
 }
 
@@ -653,7 +696,6 @@ function performProfileSwitch(key) {
   profiles.active = key;
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup();
-  uploadToDriveAfterChange();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('modules:updated', getMergedModules());
@@ -870,14 +912,15 @@ let userdataBackupFirstPendingAt = null;
 // Débounce à plafond dur (coalesce une rafale de changements en 1 seul
 // instantané de sauvegarde locale, tout en garantissant un instantané au
 // plus tard 30s après le TOUT PREMIER changement en attente) — appelée à
-// CHAQUE écriture réelle de matin-userdata (mêmes points d'appel que
-// uploadToDriveAfterChange plus bas : setMergedModules, modules:updateLayout,
-// checkReminders, backups:restore, restauration/import Drive et import
-// manuel). Volontairement DIFFÉRENT de uploadToDriveAfterChange (2026-08-31,
-// sur demande explicite) : l'upload Drive part maintenant IMMÉDIATEMENT à
-// chaque changement, sans débounce — mais écrire un fichier de sauvegarde
-// local à CHAQUE frappe/glisser-déposer resterait excessif (30 sauvegardes
-// consommées en quelques secondes), ce débounce-ci reste donc justifié.
+// CHAQUE écriture réelle de matin-userdata (setMergedModules,
+// modules:updateLayout, checkReminders, backups:restore, restauration/import
+// Drive et import manuel). INCHANGÉE le 2026-09-11 (sur demande explicite,
+// "la sauvegarde locale reste inchangée") — seule la sauvegarde DRIVE a
+// changé de mécanisme ce jour-là (voir performDriveDailyBackup plus bas,
+// remplace l'ancien upload immédiat à chaque changement + sync bidirectionnelle
+// au lancement) : écrire un fichier de sauvegarde local à CHAQUE frappe/
+// glisser-déposer resterait excessif (30 sauvegardes consommées en quelques
+// secondes), ce débounce-ci reste donc justifié, indépendamment de Drive.
 function scheduleUserdataBackup() {
   const now = Date.now();
   if (!userdataBackupFirstPendingAt) userdataBackupFirstPendingAt = now;
@@ -1323,6 +1366,48 @@ function createMainWindow() {
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Menu contextuel natif (clic droit), 2026-09-11 sur demande explicite —
+  // révisé le même jour (2e demande : uniquement Couper/Copier/Coller/
+  // Sélectionner tout, "Inspecter l'élément" et tout mode dev RETIRÉS
+  // entièrement, plus de branche `--dev` du tout ici). Electron ne fournit
+  // AUCUN menu contextuel par défaut sur une BrowserWindow (contrairement à
+  // un navigateur classique) : construit à la main, même mécanisme que
+  // `showSunContextMenu` plus bas (`Menu.buildFromTemplate` + `.popup({
+  // window })`). Les 4 actions sont TOUJOURS présentes (pas de menu vide/
+  // conditionnel selon le contexte) — seul leur état activé/désactivé suit
+  // `params.editFlags` (fourni nativement par l'évènement `context-menu` :
+  // Couper/Coller n'ont de sens que sur un champ éditable, ex. la recherche
+  // titlebar ou les champs de Paramètres).
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    Menu.buildFromTemplate([
+      { label: 'Couper', role: 'cut', enabled: params.editFlags.canCut },
+      { label: 'Copier', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: 'Coller', role: 'paste', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { label: 'Sélectionner tout', role: 'selectAll', enabled: params.editFlags.canSelectAll },
+    ]).popup({ window: mainWindow });
+  });
+}
+
+// Hauteur cible du menu Paramètres pour un écran donné (2026-09-12, sur
+// demande explicite) : orientation déduite de `workAreaSize` de CET écran
+// (portrait si plus haut que large, paysage sinon) — s'adapte donc à
+// n'importe quelle résolution (laptop 14 pouces, écran 24 pouces...) sans
+// aucune configuration manuelle. Portrait → -30% (0.7) ; paysage → 85-90% de
+// la hauteur disponible (0.875, milieu de la fourchette demandée) — 2
+// formules indépendantes pour 2 cas mutuellement exclusifs, aucune ne dérive
+// de l'autre. ÉCART assumé par rapport à la demande littérale
+// ("window.screen.height"/"window.innerHeight") : le process main n'a pas
+// d'objet DOM `window` (webPreferences contextIsolation:true, aucun accès
+// direct depuis ici) — `display.workAreaSize` est l'équivalent Electron côté
+// main, mêmes valeurs réelles (hauteur d'écran disponible), juste une API
+// différente pour y accéder ; c'est aussi la seule API capable de redimensionner
+// une vraie BrowserWindow (le CSS/renderer ne le peut pas).
+function computeConfigWindowHeight(display) {
+  const { width, height } = display.workAreaSize;
+  const isPortrait = height > width;
+  return Math.round(height * (isPortrait ? 0.7 : 0.875));
 }
 
 function createConfigWindow(opts = {}) {
@@ -1346,18 +1431,25 @@ function createConfigWindow(opts = {}) {
   const symbolColor = '#ffffff';
 
   // Hauteur adaptative (2026-08-23, sur demande explicite ; revu le
-  // 2026-09-01, 2e demande explicite — "hauteur d'écran disponible MAXIMALE
-  // à l'ouverture", remplace le plafond fixe 800px par 95% de la zone de
-  // travail SANS plafond, pour utiliser tout l'écran disponible plutôt qu'un
-  // maximum arbitraire) — `workAreaSize` (PAS `size`, qui inclut la barre des
-  // tâches Windows) de l'écran où se trouve mainWindow, jamais l'écran
-  // principal si l'utilisateur a déplacé Matin sur un 2e écran.
-  // `resizable: true` (inchangé) laisse l'utilisateur redimensionner
-  // manuellement au-delà ou en-deçà si besoin.
-  const workArea = (mainWindow && !mainWindow.isDestroyed()
+  // 2026-09-01 puis REFONTE le 2026-09-12, sur demande explicite — "s'adapter
+  // dynamiquement à la taille de l'écran" plutôt qu'à un réglage manuel) :
+  // l'orientation vient désormais de l'écran RÉEL où se trouve la fenêtre
+  // (`workAreaSize`, PAS `size` qui inclut la barre des tâches Windows —
+  // écran de mainWindow, jamais l'écran principal si Matin a été déplacé sur
+  // un 2e écran), pas du réglage `ui.portraitMode` (qui ne décrit que la
+  // disposition CHOISIE pour le dashboard, pas la forme de l'écran physique
+  // — un écran 16:9 classique en mode "portrait dashboard" reste un écran
+  // PAYSAGE). Voir computeConfigWindowHeight ci-dessous pour le détail des 2
+  // formules (portrait/paysage) et l'écart assumé vis-à-vis de la demande
+  // littérale ("window.screen.height"/"window.innerHeight"). `resizable:
+  // true` (inchangé) laisse l'utilisateur redimensionner manuellement au-delà
+  // ou en-deçà si besoin — voir le suivi 'resize'/'moved' plus bas, qui ne
+  // réagit qu'à un changement d'ÉCRAN, jamais à un redimensionnement manuel
+  // sur le même écran.
+  const initialDisplay = mainWindow && !mainWindow.isDestroyed()
     ? screen.getDisplayMatching(mainWindow.getBounds())
-    : screen.getPrimaryDisplay()).workAreaSize;
-  const configHeight = Math.round(workArea.height * 0.95);
+    : screen.getPrimaryDisplay();
+  const configHeight = computeConfigWindowHeight(initialDisplay);
 
   configWindow = new BrowserWindow({
     width: 800,
@@ -1392,6 +1484,28 @@ function createConfigWindow(opts = {}) {
   configWindow.loadFile(path.join(__dirname, '../renderer/config.html'), opts.openBackups ? { search: 'openBackups=1' } : undefined);
   configWindow.once('ready-to-show', () => configWindow.show());
   configWindow.on('closed', () => { configWindow = null; });
+
+  // Recalcule la hauteur si la fenêtre change d'écran (moniteur différent,
+  // résolution/orientation différente — 2026-09-12, sur demande explicite,
+  // "recalculer si la fenêtre est redimensionnée") : compare l'id de l'écran
+  // RÉEL sous la fenêtre à celui utilisé pour le dernier calcul — ne
+  // réapplique une hauteur QUE si cet écran a effectivement changé, jamais
+  // sur un simple redimensionnement manuel de l'utilisateur sur le MÊME
+  // écran (qui ne doit pas être annulé, `resizable: true` reste un vrai
+  // contrôle utilisateur). `setSize` déclenche lui-même un 'resize' :
+  // `lastDisplayId` est mis à jour AVANT l'appel, donc ce second passage est
+  // un no-op (id déjà à jour), pas de boucle.
+  let lastDisplayId = initialDisplay.id;
+  const recalcConfigWindowHeight = () => {
+    if (!configWindow || configWindow.isDestroyed()) return;
+    const display = screen.getDisplayMatching(configWindow.getBounds());
+    if (display.id === lastDisplayId) return;
+    lastDisplayId = display.id;
+    const [currentWidth] = configWindow.getSize();
+    configWindow.setSize(currentWidth, computeConfigWindowHeight(display));
+  };
+  configWindow.on('resize', recalcConfigWindowHeight);
+  configWindow.on('moved', recalcConfigWindowHeight);
 }
 
 // ─── Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite)
@@ -1664,9 +1778,8 @@ ipcMain.handle('backups:restore', (_e, file) => {
   console.log('[Backups] Chemin réel du fichier matin-userdata sur disque :', userdataStore.path);
 
   scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
-  uploadToDriveAfterChange(); // restauration manuelle = changement de donnée local, voir Sync Google Drive plus bas
   console.log('[Backups] Rechargement de mainWindow —', mainWindow ? 'présent' : 'absent');
-  if (mainWindow) mainWindow.reload();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
   return true;
 });
 
@@ -1700,13 +1813,24 @@ ipcMain.handle('backups:exportManual', () => {
 // bien sélectionner un export manuel qu'une sauvegarde technique récupérée
 // depuis AppData/Documents, peu importe laquelle des variantes de forme.
 ipcMain.handle('backups:importManual', async () => {
-  const win = BrowserWindow.getFocusedWindow() || configWindow || mainWindow;
-  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+  // Filtre les fenêtres détruites (2026-09-11, sur demande explicite — même
+  // correctif que mainWindow ailleurs dans ce fichier) : `configWindow`/
+  // `mainWindow` restent non-null jusqu'à l'évènement 'closed', un fallback
+  // naïf sur l'un des deux pourrait donc passer une fenêtre déjà détruite à
+  // dialog.showOpenDialog.
+  const win = [BrowserWindow.getFocusedWindow(), configWindow, mainWindow]
+    .find((w) => w && !w.isDestroyed());
+  // `win` omis (pas passé en `null`) si aucune fenêtre valide trouvée —
+  // dialog.showOpenDialog résout sa signature par le NOMBRE d'arguments
+  // (browserWindow optionnel), un `null` explicite ne serait pas traité de
+  // la même façon qu'une omission.
+  const dialogOptions = {
     title: 'Importer une sauvegarde Matin',
     defaultPath: DOCUMENTS_MATIN_DIR,
     filters: [{ name: 'Sauvegarde Matin (JSON)', extensions: ['json'] }],
     properties: ['openFile'],
-  });
+  };
+  const { canceled, filePaths } = await (win ? dialog.showOpenDialog(win, dialogOptions) : dialog.showOpenDialog(dialogOptions));
   if (canceled || !filePaths.length) return { canceled: true };
 
   const filePath = filePaths[0];
@@ -1725,8 +1849,7 @@ ipcMain.handle('backups:importManual', async () => {
   applyLayoutSection(data.layout);
   console.log('[Backups] Import manuel appliqué —', JSON.stringify(summarizeUserdataModules(modules)), '— disposition incluse :', !!data.layout);
   scheduleUserdataBackup();
-  uploadToDriveAfterChange(); // import manuel = changement de donnée local légitime, voir Sync Google Drive plus bas
-  if (mainWindow) mainWindow.reload();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
   return { canceled: false, counts: summarizeUserdataModules(modules) };
 });
 
@@ -1944,7 +2067,7 @@ ipcMain.handle('modules:update', (_e, modules) => {
   }
   setMergedModules(modules);
   // Notifier la fenêtre principale
-  if (mainWindow) mainWindow.webContents.send('modules:updated', modules);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('modules:updated', modules);
   // Un changement de config Alertes (département, types activés/désactivés)
   // doit se refléter immédiatement dans le bandeau plutôt que d'attendre
   // jusqu'à 15 min (voir ALERTS_CHECK_MS) — recheck best-effort (déclaration
@@ -1984,7 +2107,6 @@ ipcMain.handle('modules:updateLayout', (_e, modules) => {
   if (userdataChanged) {
     userdataStore.set('modules', userdataCurrent);
     scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
-    uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   }
   return true;
 });
@@ -2059,7 +2181,6 @@ ipcMain.handle('layoutSlots:save', (_e, { slot, layout, name }) => {
   backupStoreBeforeWrite();
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
-  uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   return slots[slot];
 });
 
@@ -2078,7 +2199,6 @@ ipcMain.handle('profiles:rename', (_e, { key, name }) => {
   profiles[key].name = (name || '').trim() || profiles[key].name;
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup();
-  uploadToDriveAfterChange();
   return profiles[key];
 });
 ipcMain.handle('profiles:switch', (_e, key) => {
@@ -2094,8 +2214,27 @@ ipcMain.handle('profiles:setAutoSwitch', (_e, { key, enabled, days }) => {
   };
   userdataStore.set('profiles', profiles);
   scheduleUserdataBackup();
-  uploadToDriveAfterChange();
   return profiles[key];
+});
+// Sauvegarde automatique du fond dans le profil ACTIF (2026-09-13, sur
+// demande explicite) — appelée au clic sur "Fermer" de la popup Personnaliser
+// (config.js), SANS bouton "Enregistrer" séparé, et SANS passer par
+// `profiles:save` ci-dessus (qui capturerait AUSSI modules/thème — une
+// action bien plus large que "je viens de choisir un fond"). Champ UNIQUE
+// mis à jour, tout le reste du profil (layouts/autoSwitch/modules/thème/nom)
+// INTACT — même principe que `modules:updateCollapsed` plus bas (mise à jour
+// ciblée d'un seul champ, silencieuse, pas de broadcast puisque le fond est
+// déjà appliqué visuellement au clic sur une vignette, voir
+// app:setBackground — cette IPC ne fait QUE persister le choix dans le
+// profil, elle ne rejoue rien à l'écran).
+ipcMain.handle('profiles:saveActiveBackground', () => {
+  const profiles = getProfilesState();
+  const activeKey = profiles.active;
+  if (!profiles[activeKey]) return null;
+  profiles[activeKey].background = store.get('app.background') || 'none';
+  userdataStore.set('profiles', profiles);
+  scheduleUserdataBackup();
+  return profiles[activeKey];
 });
 
 // Repli/dépli d'un groupe Prêts (2026-08-10, sur demande explicite — le
@@ -2616,6 +2755,24 @@ function getKasaClient() {
   return kasaClient;
 }
 
+// Client de DÉCOUVERTE (kasa:discover uniquement) — VOLONTAIREMENT SÉPARÉ du
+// singleton getKasaClient() ci-dessus (kasa:getDevices/setPower/
+// setBulbState/turnAll, qui eux se reconnectent directement par host connu,
+// jamais par re-découverte). Une nouvelle instance à CHAQUE scan (2026-09-11,
+// sur demande explicite, bug réel signalé : "le 1er scan trouve les
+// appareils, les rescans ne trouvent plus rien").
+// CAUSE RÉELLE (lue directement dans node_modules/tplink-smarthome-api/lib/
+// client.js) : PAS le socket UDP — startDiscovery() en recrée un nouveau à
+// CHAQUE appel (`createSocket('udp4')`) et stopDiscovery() le ferme
+// correctement (`socket.close()`), déjà vérifié dans l'ancien code. Le vrai
+// coupable est le cache interne `Client#devices` (Map), jamais vidé par
+// stopDiscovery() : un appareil déjà vu lors d'un scan précédent SUR LE MÊME
+// CLIENT déclenche un évènement 'online' au 2e scan au lieu de 'new' (voir
+// createOrUpdateDeviceFromSysInfo dans la lib) — ce handler n'écoutant QUE
+// 'device-new', ces appareils "déjà connus" ne remontaient jamais. Une
+// instance fraîche repart avec un `devices` Map vide : tout redevient "new".
+let kasaDiscoveryClient = null;
+
 async function kasaDescribeDevice(device) {
   const base = {
     id: device.id,
@@ -2668,7 +2825,17 @@ async function kasaDescribeDevice(device) {
 }
 
 ipcMain.handle('kasa:discover', async (_e, { subnet } = {}) => {
-  const client = getKasaClient();
+  // Ferme/détruit proprement le client de découverte d'un scan précédent qui
+  // serait encore référencé (ex. un appel précédent interrompu avant son
+  // propre `finally` ci-dessous) — filet de sécurité en plus de la fermeture
+  // normale de chaque scan, jamais un état hérité entre 2 scans.
+  if (kasaDiscoveryClient) {
+    try { kasaDiscoveryClient.stopDiscovery(); } catch (err) { console.error('[Kasa] Échec fermeture du client de découverte précédent', err); }
+    kasaDiscoveryClient = null;
+  }
+
+  const client = new TplinkClient();
+  kasaDiscoveryClient = client;
   const found = [];
   const onNew = (device) => found.push(device);
   client.on('device-new', onNew);
@@ -2684,6 +2851,7 @@ ipcMain.handle('kasa:discover', async (_e, { subnet } = {}) => {
   } finally {
     client.removeListener('device-new', onNew);
     client.stopDiscovery();
+    if (kasaDiscoveryClient === client) kasaDiscoveryClient = null;
   }
 
   const described = (await Promise.all(found.map(d =>
@@ -2740,6 +2908,144 @@ ipcMain.handle('kasa:turnAll', async (_e, { on }) => {
     succeeded: results.filter(r => r.status === 'fulfilled').length,
     failed: results.filter(r => r.status === 'rejected').length,
   };
+});
+
+// ─── Climatisation FGLair (Fujitsu, via Ayla Networks EU) — 2026-09-13, sur
+// demande explicite ─────────────────────────────────────────────────────
+// VÉRIFIÉ contre l'implémentation de référence communautaire pyfujitsu
+// (github.com/Mmodarre/pyfujitsu, fichiers pyfujitseu/api.py et splitAC.py,
+// lus en direct pendant cette session) — PAS testé contre un vrai
+// climatiseur Fujitsu (aucun appareil disponible dans cet environnement de
+// développement). Cette vérification a révélé 5 écarts par rapport au
+// pseudocode fourni dans la demande, TOUS bloquants si laissés tels quels :
+//
+// (1) app_id/app_secret — la demande donnait des PLACEHOLDERS explicitement
+//     signalés comme tels ("vérifier valeur exacte") : app_id correct tel
+//     quel ("FGLair-eu-id"), app_secret RÉEL = "FGLair-eu-gpFbVBRoiJ8E3QWJ-
+//     QRULLL3j3U" (lu dans pyfujitseu/api.py).
+// (2) 2 HÔTES DIFFÉRENTS, pas 1 seul — la demande réutilise le même host
+//     pour login ET appareils/propriétés/commandes. pyfujitsu confirme que
+//     `user-field-eu.aylanetworks.com` sert UNIQUEMENT à `/users/
+//     sign_in.json` ; tout le reste (`devices.json`, `properties.json`,
+//     `datapoints.json`) passe par `ads-field-eu.aylanetworks.com`. Sans ce
+//     2e host, chaque appel post-login aurait échoué (mauvais serveur).
+// (3) ENDPOINT DE COMMANDE — la demande envoie sur `/dsns/{dsn}/properties/
+//     {propertyName}/datapoints.json` (nom générique de propriété).
+//     pyfujitsu (voir splitAC.py, ex. `operation_mode.setter`) envoie en
+//     réalité sur `/properties/{key}/datapoints.json`, où `{key}` est
+//     l'IDENTIFIANT NUMÉRIQUE UNIQUE de CETTE propriété sur CET appareil
+//     précis — renvoyé par le GET properties (`property.key`), jamais le nom
+//     générique. Sans ce détail, TOUTE commande (ON/OFF, température, mode,
+//     ventilateur) aurait échoué (mauvaise route).
+// (4) VALEURS NUMÉRIQUES DE operation_mode/fan_speed — ne correspondent PAS
+//     à pyfujitsu : operation_mode réel = 0:off, 2:auto, 3:cool, 4:dry,
+//     5:fan_only, 6:heat (1 inutilisé), PAS 0:auto/1:cool/2:dry/3:fan/
+//     4:heat comme donné. fan_speed réel = 0:Quiet, 1:Low, 2:Medium,
+//     3:High, 4:Auto, PAS 0:auto/1:quiet/2:low/3:med/4:high comme donné.
+//     Utiliser les valeurs données aurait envoyé la MAUVAISE commande au
+//     climatiseur (ex. "Froid" aurait réglé operation_mode=1, une valeur
+//     jamais définie par l'API). AUCUNE propriété séparée `operation_status`
+//     n'existe dans la liste complète gérée par pyfujitsu — ON/OFF piloté
+//     via `operation_mode` (0 = off, un mode concret = on), exactement
+//     comme le font `turnOn`/`turnOff` dans pyfujitsu.
+// (5) ÉCHELLE DE TEMPÉRATURE — `adjust_temperature` est en DIXIÈMES de degré
+//     (pyfujitsu : `adjust_temperature_degree = value / 10`) : 22°C se lit/
+//     s'envoie comme 220, pas 22.
+//
+// RÉSERVE NON VÉRIFIÉE : `display_temperature` (température ambiante)
+// n'apparaît NULLE PART dans pyfujitsu (qui ne l'expose pas) — gardée telle
+// que donnée dans la demande faute de source pour la confirmer OU
+// l'infirmer. Si la carte n'affiche jamais de température ambiante en
+// conditions réelles, vérifier le nom exact via les logs `[FGLair]
+// Propriétés brutes` ci-dessous et corriger `getProperties` en conséquence.
+const FGLAIR_APP_ID = 'FGLair-eu-id';
+const FGLAIR_APP_SECRET = 'FGLair-eu-gpFbVBRoiJ8E3QWJ-QRULLL3j3U';
+const FGLAIR_LOGIN_URL = 'https://user-field-eu.aylanetworks.com/users/sign_in.json';
+const FGLAIR_API_BASE = 'https://ads-field-eu.aylanetworks.com/apiv1';
+
+// Token en MÉMOIRE uniquement (demandé explicitement) — jamais persisté dans
+// electron-store, perdu à chaque redémarrage de l'app (re-login automatique
+// au besoin, voir fglairAuthedFetch). Le mot de passe, lui, vit dans
+// `modules.fglair.config` comme n'importe quel autre champ de config
+// (demandé explicitement, "déjà chiffré par electron-store" — en réalité
+// electron-store ne chiffre PAS par défaut sans option `encryptionKey`
+// dédiée, non configurée dans ce projet ; signalé tel quel, cohérent avec le
+// reste de l'app où AUCUN mot de passe/jeton n'est chiffré au repos, ex.
+// Google/Spotify tokens).
+let fglairToken = null;
+
+async function fglairLogin(email, password) {
+  const res = await fetch(FGLAIR_LOGIN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user: {
+        email,
+        password,
+        application: { app_id: FGLAIR_APP_ID, app_secret: FGLAIR_APP_SECRET },
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`Identifiants FGLair refusés (HTTP ${res.status})`);
+  const data = await res.json();
+  fglairToken = data.access_token;
+  return fglairToken;
+}
+
+// Appel authentifié générique — relogin automatique sur 401 PUIS un seul
+// retry (demandé explicitement), jamais une boucle infinie sur un compte
+// réellement invalide (2e échec propagé tel quel).
+async function fglairAuthedFetch(path, options = {}) {
+  const cfg = store.get('modules.fglair.config') || {};
+  if (!cfg.email || !cfg.password) throw new Error('Identifiants FGLair manquants — renseignez-les dans Paramètres.');
+  if (!fglairToken) await fglairLogin(cfg.email, cfg.password);
+
+  const doFetch = () => fetch(`${FGLAIR_API_BASE}${path}`, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `auth_token ${fglairToken}` },
+  });
+
+  let res = await doFetch();
+  if (res.status === 401) {
+    console.log('[FGLair] Token expiré (401) — nouvelle connexion puis nouvel essai');
+    await fglairLogin(cfg.email, cfg.password);
+    res = await doFetch();
+  }
+  return res;
+}
+
+// Teste des identifiants SAISIS dans Paramètres (pas forcément déjà
+// enregistrés) — login direct plutôt que via fglairAuthedFetch, qui lirait
+// les identifiants déjà sauvegardés sur disque plutôt que ceux tapés à
+// l'instant dans le champ.
+ipcMain.handle('fglair:testConnection', async (_e, { email, password }) => {
+  await fglairLogin(email, password); // lève une erreur explicite si refusé, voir fglairLogin
+  return true;
+});
+
+ipcMain.handle('fglair:getDevices', async () => {
+  const res = await fglairAuthedFetch('/devices.json');
+  if (!res.ok) throw new Error(`Échec récupération des appareils (HTTP ${res.status})`);
+  const data = await res.json();
+  return (data || []).map(d => ({ dsn: d.device?.dsn, name: d.device?.product_name || d.device?.dsn || '?' }));
+});
+
+ipcMain.handle('fglair:getProperties', async (_e, dsn) => {
+  const res = await fglairAuthedFetch(`/dsns/${dsn}/properties.json`);
+  if (!res.ok) throw new Error(`Échec lecture des propriétés (HTTP ${res.status})`);
+  const props = await res.json();
+  console.log(`[FGLair] Propriétés brutes pour ${dsn} :`, props);
+  return props;
+});
+
+ipcMain.handle('fglair:setProperty', async (_e, { propertyKey, value }) => {
+  const res = await fglairAuthedFetch(`/properties/${propertyKey}/datapoints.json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ datapoint: { value } }),
+  });
+  if (!res.ok) throw new Error(`Commande refusée (HTTP ${res.status})`);
+  return true;
 });
 
 // IKEA Trådfri — CoAP/DTLS local (2026-08-11, sur demande explicite), AUCUN
@@ -2920,6 +3226,180 @@ ipcMain.handle('tradfri:turnAll', async (_e, { gatewayIp, identity, psk, on }) =
     succeeded: results.filter(r => r.status === 'fulfilled').length,
     failed: results.filter(r => r.status === 'rejected').length,
   };
+});
+
+// ─── Somfy TaHoma Switch — API LOCALE (2026-09-12, "Version 1") ────────────
+// Historique complet, important pour comprendre pourquoi ce bloc a la forme
+// qu'il a : un 1er module TaHoma (compte cloud) existait déjà dans ce projet,
+// retiré le 2026-08-10 sur demande explicite (voir removeStaleTahomaModule
+// plus haut) après un diagnostic RÉEL contre la box de l'utilisateur — port
+// 8443 fermé (ECONNREFUSED), 443 ouvert, mais la box exigeait un certificat
+// CLIENT (TLS mutuel) pour un login email/mot de passe, bloquant la requête
+// AVANT même l'examen des identifiants (`TLSV1_ALERT_CERTIFICATE_REQUIRED`).
+// Un 2e module (`somfyTahoma`, ce bloc-ci) a été réécrit le même jour sans
+// connaître cet historique, avec le port 8443 ET un login email/mot de passe
+// — les 2 mêmes erreurs ont été reproduites puis reconfirmées EN DIRECT
+// contre la même box (2026-09-12) : ECONNREFUSED sur 8443, puis exactement
+// la même alerte TLS `TLSV1_ALERT_CERTIFICATE_REQUIRED` une fois le port
+// corrigé à 443 — confirmant sans ambiguïté que login email/mot de passe ne
+// fonctionnera JAMAIS sur cette box, quel que soit le code.
+//
+// Remplacé ici par le VRAI mécanisme actuel de l'API locale Somfy (recherche
+// externe 2026-09-12, dépôt officiel github.com/Somfy-Developer/Somfy-TaHoma-
+// Developer-Mode, spec OpenAPI) : mode développeur activé dans l'appli Somfy
+// (7 taps sur le PIN de la box), jeton généré depuis ce même menu, envoyé en
+// `Authorization: Bearer <jeton>` sur chaque requête — PLUS de login, PLUS de
+// cookie de session, PLUS de certificat client à gérer (le jeton remplace
+// entièrement l'ancien couple email/mot de passe). Chemins CONFIRMÉS par la
+// spec officielle (différents des anciens `/externalAPI/json/...`, qui
+// appartenaient à l'ancienne API cloud/développeur pré-jeton) :
+//   GET  /enduser-mobile-web/1/enduserAPI/setup   → { devices: [...] }
+//   POST /enduser-mobile-web/1/enduserAPI/exec/apply → exécute une commande
+// Format de device/commande INCHANGÉ (même modèle Overkiz que l'ancienne
+// API : deviceURL/label/states/definition.commands, commandes de volet
+// standard open/stop/close) — seuls les chemins et l'authentification ont
+// changé, pas la forme des données.
+//
+// Port RECORRIGÉ de 443 à 8443 (2026-09-12, 3e révision, même jour) — le
+// jeton Bearer a été testé EN DIRECT sur le port 443 (mode développeur
+// activé + jeton généré au préalable, confirmé par l'utilisateur) : MÊME
+// alerte TLS `TLSV1_ALERT_CERTIFICATE_REQUIRED` qu'avec l'ancien login,
+// avant même l'envoi de la moindre requête HTTP — donc avant que
+// `Authorization: Bearer` n'entre en jeu de quelque façon que ce soit. Le
+// port 443 est manifestement une surface HTTPS DIFFÉRENTE de l'API "Mode
+// développeur" (exigeant un certificat client quel que soit ce qu'on lui
+// envoie), pas la même que 8443. 8443 avait été trouvé FERMÉ lors du
+// diagnostic TCP d'août — mais TRÈS PROBABLEMENT parce que le Mode
+// développeur n'était pas encore activé sur la box à ce moment-là (ce
+// serveur HTTPS dédié au jeton ne démarre vraisemblablement qu'une fois ce
+// mode activé) : la spec officielle (github.com/Somfy-Developer/Somfy-
+// TaHoma-Developer-Mode) donne d'ailleurs 8443 comme port PAR DÉFAUT pour
+// cette API précise. À CONFIRMER dès le prochain test — voir les logs
+// `[TaHoma]` en cas de nouvel échec.
+// Repli automatique de port (2026-09-12, sur demande explicite — "ça marche
+// sur tous les modèles ?"). Les 2 mêmes ports se sont révélés servir des
+// surfaces HTTPS DIFFÉRENTES sur cette box précise (443 = certificat client
+// obligatoire quel que soit ce qu'on envoie ; 8443 = API "Mode développeur"
+// à jeton, confirmée fonctionnelle) — rien ne garantit que ce soit le même
+// port sur un autre modèle/firmware. `tahomaWorkingPort` mémorise, PAR IP,
+// le port qui a fonctionné la dernière fois (en mémoire seulement, jamais
+// persisté) pour ne tenter le repli qu'une fois par IP plutôt qu'à chaque
+// appel.
+const TAHOMA_PRIMARY_PORT = 8443;
+const TAHOMA_FALLBACK_PORT = 443;
+const tahomaWorkingPort = new Map(); // ip -> port
+
+function tahomaRequestOnPort(ip, port, path, { method = 'GET', body, token } = {}) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = body == null ? null : (typeof body === 'string' ? body : JSON.stringify(body));
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bodyStr != null) {
+      headers['Content-Type'] = typeof body === 'string' ? 'application/x-www-form-urlencoded' : 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(bodyStr);
+    }
+    const req = https.request({
+      hostname: ip,
+      port,
+      path,
+      method,
+      headers,
+      rejectUnauthorized: false, // certificat auto-signé de la TaHoma Switch (réseau local)
+      timeout: 10000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        let json = null;
+        try { json = data ? JSON.parse(data) : null; } catch { /* réponse non-JSON, laissée à null */ }
+        resolve({ status: res.statusCode, headers: res.headers, json, raw: data });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('TaHoma Switch injoignable (délai dépassé)')));
+    req.on('error', reject);
+    if (bodyStr != null) req.write(bodyStr);
+    req.end();
+  });
+}
+
+async function tahomaRequest(ip, path, opts = {}) {
+  const primary = tahomaWorkingPort.get(ip) || TAHOMA_PRIMARY_PORT;
+  try {
+    const res = await tahomaRequestOnPort(ip, primary, path, opts);
+    tahomaWorkingPort.set(ip, primary);
+    return res;
+  } catch (primaryErr) {
+    const fallback = primary === TAHOMA_PRIMARY_PORT ? TAHOMA_FALLBACK_PORT : TAHOMA_PRIMARY_PORT;
+    console.warn(`[TaHoma] Port ${primary} injoignable pour ${ip} (${primaryErr.message}) — repli sur ${fallback}`);
+    try {
+      const res = await tahomaRequestOnPort(ip, fallback, path, opts);
+      tahomaWorkingPort.set(ip, fallback);
+      return res;
+    } catch (fallbackErr) {
+      console.error(`[TaHoma] Échec sur les 2 ports pour ${ip} — ${primary}: ${primaryErr.message} / ${fallback}: ${fallbackErr.message}`);
+      throw new Error(`TaHoma Switch injoignable sur les ports ${TAHOMA_PRIMARY_PORT} et ${TAHOMA_FALLBACK_PORT} (${fallbackErr.message})`);
+    }
+  }
+}
+
+// Commandes standard des volets/stores Overkiz — `open`/`stop`/`close`
+// (point 4 de la demande d'origine, "Ouvrir, Stop, Fermer"), plus
+// `setClosure` (2026-09-12, sur demande explicite — contrôle par
+// pourcentage) : remplace `open`/`close` comme commandes envoyées par l'UI
+// (0 = ouvert, 100 = fermé, voir tahomaDescribeDevice/setup ci-dessous),
+// gardées dans cette liste de FILTRAGE pour ne pas exclure un équipement qui
+// ne supporterait QUE l'ancien couple open/close (pas de garantie que tous
+// les modèles supportent setClosure). Un équipement sans aucune de ces
+// commandes (capteur météo, alarme...) est filtré (hors scope explicite de
+// cette 1re version, "Version 1 : API locale TaHoma Switch").
+const TAHOMA_SHUTTER_COMMANDS = ['open', 'stop', 'close', 'setClosure'];
+
+function tahomaExtractState(states) {
+  const byName = new Map((states || []).map(s => [s.name, s.value]));
+  const openClosed = byName.get('core:OpenClosedState') || null; // 'open' | 'closed'
+  const position = byName.get('core:ClosureState') ?? byName.get('core:SliderPosition') ?? null;
+  return { openClosed, position: typeof position === 'number' ? position : null };
+}
+
+function tahomaDescribeDevice(device) {
+  const { openClosed, position } = tahomaExtractState(device.states);
+  return { deviceURL: device.deviceURL, label: device.label || device.deviceURL, openClosed, position };
+}
+
+ipcMain.handle('tahoma:discover', async (_e, { ip, token }) => {
+  console.log(`[TaHoma] GET .../enduserAPI/setup (${ip}, port ${tahomaWorkingPort.get(ip) || TAHOMA_PRIMARY_PORT})`);
+  const res = await tahomaRequest(ip, '/enduser-mobile-web/1/enduserAPI/setup', { token });
+  // Logging demandé explicitement (2026-09-12) — réponse EXACTE (statut,
+  // en-têtes, corps brut) pour diagnostiquer sans deviner en cas d'échec :
+  // un 401 ici signifie un jeton invalide/révoqué (à régénérer depuis
+  // l'appli Somfy), distinct d'un échec réseau (ECONNREFUSED, ne produit
+  // jamais de `res` — l'erreur remonte avant ce log) ou d'un blocage TLS
+  // (idem, jamais de réponse HTTP à logger).
+  console.log(`[TaHoma] Réponse setup — HTTP ${res.status}`, { headers: res.headers, body: res.raw });
+  if (res.status === 401 || res.status === 403) throw new Error('Jeton TaHoma invalide ou expiré — régénérez-en un depuis le mode développeur de l\'appli Somfy.');
+  if (res.status !== 200 || !res.json) throw new Error(`Récupération des équipements échouée (HTTP ${res.status})`);
+  const devices = (res.json.devices || [])
+    .filter(d => (d.definition?.commands || []).some(c => TAHOMA_SHUTTER_COMMANDS.includes(c.commandName)))
+    .map(tahomaDescribeDevice);
+  console.log(`[TaHoma] ${devices.length} équipement(s) pilotable(s) trouvé(s) sur ${ip}`);
+  return devices;
+});
+
+// `value` (2026-09-12, sur demande explicite) — position cible 0-100 pour
+// `setClosure` UNIQUEMENT (0 = ouvert, 100 = fermé) ; ignoré pour les autres
+// commandes (`stop`, gardée en backend même si l'UI actuelle n'affiche plus
+// de bouton dédié — voir renderer/modules/somfy-tahoma.js).
+ipcMain.handle('tahoma:sendCommand', async (_e, { ip, token, deviceURL, command, value }) => {
+  if (!TAHOMA_SHUTTER_COMMANDS.includes(command)) throw new Error(`Commande inconnue : ${command}`);
+  const parameters = command === 'setClosure' ? [Math.max(0, Math.min(100, Number(value) || 0))] : [];
+  const body = { label: `Matin - ${command}`, actions: [{ deviceURL, commands: [{ name: command, parameters }] }] };
+  console.log(`[TaHoma] POST .../enduserAPI/exec/apply (${ip}, port ${tahomaWorkingPort.get(ip) || TAHOMA_PRIMARY_PORT})`, body);
+  const res = await tahomaRequest(ip, '/enduser-mobile-web/1/enduserAPI/exec/apply', { method: 'POST', body, token });
+  console.log(`[TaHoma] Réponse exec/apply — HTTP ${res.status}`, { headers: res.headers, body: res.raw });
+  if (res.status === 401 || res.status === 403) throw new Error('Jeton TaHoma invalide ou expiré — régénérez-en un depuis le mode développeur de l\'appli Somfy.');
+  if (res.status !== 200) throw new Error(res.json?.error || `Commande refusée (HTTP ${res.status})`);
+  console.log(`[TaHoma] Commande "${command}" envoyée à ${deviceURL}`);
+  return true;
 });
 
 // Prix des carburants — API officielle data.economie.gouv.fr (OpenDataSoft
@@ -3837,7 +4317,6 @@ ipcMain.handle('priceTracking:reportPrices', (_e, fetched) => {
     backupStoreBeforeWrite();
     userdataStore.set('modules.priceTracking.config.items', updated);
     scheduleUserdataBackup();
-    uploadToDriveAfterChange();
   }
 
   // Notification native seulement au FRANCHISSEMENT du seuil (prix cible pas
@@ -3865,18 +4344,18 @@ ipcMain.handle('priceTracking:reportPrices', (_e, fetched) => {
 ipcMain.handle('google:getToken', () => store.get('google'));
 ipcMain.handle('google:setToken', (_e, tokenData) => {
   safeStoreSet('google', tokenData);
-  if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', tokenData);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', tokenData);
   return true;
 });
 ipcMain.handle('google:login', async () => {
   const tokenData = await runGoogleAuthFlow();
   safeStoreSet('google', tokenData);
-  if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', tokenData);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', tokenData);
   return tokenData;
 });
 ipcMain.handle('google:logout', () => {
   safeStoreSet('google', { accessToken: null, refreshToken: null, expiresAt: null, email: null });
-  if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', null);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', null);
   return true;
 });
 
@@ -3884,8 +4363,8 @@ ipcMain.handle('google:logout', () => {
 // token stocké a expiré (durée de vie standard Google : 1h). Sans ça, tout
 // appel aux API Calendar/Gmail échoue en 401 dès que la session dépasse 1h.
 // Extraite en fonction nommée (2026-08-21, pour le Sync Google Drive plus
-// bas) : `performDriveLaunchSync`/`uploadToDriveAfterChange` ont
-// besoin du MÊME token garanti valide, sans passer par un aller-retour IPC
+// bas) : `performDriveDailyBackup` a besoin du MÊME token garanti valide,
+// sans passer par un aller-retour IPC
 // vers son propre process (ipcMain.handle n'est appelable que depuis un
 // renderer) — `ipcMain.handle('google:getValidToken', ...)` délègue
 // maintenant à cette fonction plutôt que de dupliquer sa logique.
@@ -3900,7 +4379,7 @@ async function getValidGoogleToken() {
 
   if (!current.refreshToken) {
     safeStoreSet('google', { accessToken: null, refreshToken: null, expiresAt: null, email: null });
-    if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', null);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', null);
     return null;
   }
 
@@ -3908,12 +4387,12 @@ async function getValidGoogleToken() {
     const refreshed = await refreshAccessToken(current.refreshToken);
     const updated = { ...current, accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
     safeStoreSet('google', updated);
-    if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', updated);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', updated);
     return updated;
   } catch (err) {
     console.error('[Google OAuth] Échec du rafraîchissement du token', err);
     safeStoreSet('google', { accessToken: null, refreshToken: null, expiresAt: null, email: null });
-    if (mainWindow) mainWindow.webContents.send('google:tokenUpdated', null);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('google:tokenUpdated', null);
     return null;
   }
 }
@@ -3924,18 +4403,18 @@ ipcMain.handle('google:getValidToken', getValidGoogleToken);
 ipcMain.handle('spotify:getToken', () => store.get('spotify'));
 ipcMain.handle('spotify:setToken', (_e, tokenData) => {
   safeStoreSet('spotify', tokenData);
-  if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
   return true;
 });
 ipcMain.handle('spotify:login', async () => {
   const tokenData = await runSpotifyAuthFlow();
   safeStoreSet('spotify', tokenData);
-  if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
   return tokenData;
 });
 ipcMain.handle('spotify:logout', () => {
   safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-  if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', null);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
   return true;
 });
 ipcMain.handle('spotify:getValidToken', async () => {
@@ -3948,7 +4427,7 @@ ipcMain.handle('spotify:getValidToken', async () => {
 
   if (!current.refreshToken) {
     safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-    if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', null);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
     return null;
   }
 
@@ -3956,19 +4435,20 @@ ipcMain.handle('spotify:getValidToken', async () => {
     const refreshed = await refreshSpotifyAccessToken(current.refreshToken);
     const updated = { ...current, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken, expiresAt: refreshed.expiresAt };
     safeStoreSet('spotify', updated);
-    if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', updated);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', updated);
     return updated;
   } catch (err) {
     console.error('[Spotify OAuth] Échec du rafraîchissement du token', err);
     safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-    if (mainWindow) mainWindow.webContents.send('spotify:tokenUpdated', null);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
     return null;
   }
 });
 
-// ─── Sync Google Drive — sauvegarde/restauration automatique de matin-userdata
-// (2026-08-21, sur demande explicite) ───────────────────────────────────────
-// Synchronise UNIQUEMENT `userdataStore` (voir USERDATA_MODULE_KEYS/
+// ─── Sauvegarde Google Drive — instantanés QUOTIDIENS datés de matin-userdata
+// (2026-08-21, sur demande explicite ; REFONTE COMPLÈTE le 2026-09-11, sur
+// demande explicite — remplace l'ancienne sync bidirectionnelle continue) ──
+// Sauvegarde UNIQUEMENT `userdataStore` (voir USERDATA_MODULE_KEYS/
 // matin-userdata plus haut : ETF, Crypto, Prêts, les 3 modules FDJ, Podcasts,
 // Rappels) — jamais `store`/matin-config (tokens OAuth, position de fenêtre,
 // disposition des cartes, thème...), qui reste strictement local à CETTE
@@ -3977,14 +4457,42 @@ ipcMain.handle('spotify:getValidToken', async () => {
 // l'utilisateur, lisible/écrivable UNIQUEMENT par Matin, jamais par une autre
 // appli ni consultable manuellement sur drive.google.com.
 //
-// AUCUNE toggle Paramètres dédiée : la synchronisation suit simplement l'état
-// de connexion Google déjà existant (connecté = synchronise, déconnecté =
-// ignore silencieusement, point 6 de la demande) — cohérent avec le fait que
-// Calendar/Gmail/Tâches/Anniversaires/YouTube fonctionnent déjà de la même
-// façon, sans interrupteur séparé.
-const DRIVE_FILE_NAME = 'matin-userdata.json';
+// AUCUNE toggle Paramètres dédiée : la sauvegarde suit simplement l'état de
+// connexion Google déjà existant (connecté = sauvegarde, déconnecté = ignore
+// silencieusement) — cohérent avec le fait que Calendar/Gmail/Tâches/
+// Anniversaires/YouTube fonctionnent déjà de la même façon, sans interrupteur
+// séparé.
+//
+// ANCIEN COMPORTEMENT (jusqu'au 2026-09-11) — pour mémoire, entièrement
+// retiré : un SEUL fichier fixe (`matin-userdata.json`), mis à jour par un
+// upload IMMÉDIAT à CHAQUE changement de donnée (`uploadToDriveAfterChange`,
+// appelée à ~13 endroits du fichier) + une comparaison d'horodatages
+// bidirectionnelle au lancement (Drive gagne s'il est plus récent, sinon
+// upload local). Remplacé par un modèle d'INSTANTANÉS QUOTIDIENS, distincts
+// et datés (`matin-backup-YYYY-MM-DD.json`), créés UNE SEULE FOIS par jour
+// (premier lancement de la journée, jamais à chaque changement), jamais
+// modifiés une fois créés (chaque jour = son propre fichier, immuable), avec
+// une rétention de 3 jours (voir performDriveDailyBackup plus bas — seule
+// fonction appelée au lancement désormais, à la place de
+// performDriveLaunchSync). La sauvegarde LOCALE (scheduleUserdataBackup,
+// plus haut dans ce fichier) n'est PAS concernée par ce changement — elle
+// continue de tourner à chaque changement, exactement comme avant.
+const DRIVE_BACKUP_PREFIX = 'matin-backup-';
+const DRIVE_BACKUP_RETENTION_DAYS = 3;
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
+
+function driveBackupFileName(dateStr) {
+  return `${DRIVE_BACKUP_PREFIX}${dateStr}.json`;
+}
+
+// Extrait la date d'un nom de fichier `matin-backup-YYYY-MM-DD.json` — `null`
+// pour tout nom qui ne correspond pas exactement à ce format (défensif :
+// Drive ne garantit rien sur ce qui peut techniquement porter ce préfixe).
+function driveBackupDateFromFileName(name) {
+  const m = /^matin-backup-(\d{4}-\d{2}-\d{2})\.json$/.exec(name || '');
+  return m ? m[1] : null;
+}
 
 // Pousse un événement au dashboard pour l'indicateur "✓ Saved"
 // (voir index.html/dashboard.js, .drive-sync-indicator) — mémorisé aussi dans
@@ -4005,57 +4513,51 @@ function notifyDriveSync(status) {
 ipcMain.handle('driveSync:getLastStatus', () => lastDriveSyncStatus);
 
 // ─── Section "☁️ Google Drive" de la popup Paramètres → Sauvegardes
-// (2026-08-31, sur demande explicite) — au-delà du simple indicateur
-// transitoire ci-dessus, cette section affiche l'état RÉEL de Drive à la
-// DEMANDE (interrogé en direct à chaque ouverture de la popup, pas un flag
-// figé) : connecté ou non, et l'horodatage de dernière modification du
-// fichier distant LUI-MÊME (`modifiedTime`, répond à "Drive a-t-il des
-// données que je n'ai pas encore ?" — plus utile ici qu'un simple horodatage
-// de dernière synchro déjà tentée par CETTE installation).
+// (2026-08-31, sur demande explicite ; adaptée le 2026-09-11 aux instantanés
+// datés) — au-delà du simple indicateur transitoire ci-dessus, cette section
+// affiche l'état RÉEL de Drive à la DEMANDE (interrogé en direct à chaque
+// ouverture de la popup, pas un flag figé) : connecté ou non, et la date/
+// l'horodatage de la sauvegarde la PLUS RÉCENTE trouvée sur Drive (répond à
+// "Drive a-t-il une sauvegarde récente ?" — plus utile ici qu'un simple
+// horodatage de dernière tentative par CETTE installation).
 ipcMain.handle('driveSync:getInfo', async () => {
   const token = await getValidGoogleToken();
   if (!token?.accessToken) return { connected: false };
   try {
-    const remote = await driveFindUserdataFile(token.accessToken);
-    return { connected: true, modifiedTime: remote?.modifiedTime || null };
+    const latest = await driveFindLatestBackupFile(token.accessToken);
+    return { connected: true, modifiedTime: latest?.modifiedTime || null, backupDate: latest ? driveBackupDateFromFileName(latest.name) : null };
   } catch (err) {
     console.error('[Drive Sync] Échec driveSync:getInfo', err);
     return { connected: true, error: err.message };
   }
 });
 
-// Bouton "Restaurer depuis Drive" (même popup) — contrairement à
-// performDriveLaunchSync plus bas (qui ne restaure QUE si Drive est plus
-// récent que le local, comparaison d'horodatages), télécharge et applique le
-// contenu de Drive INCONDITIONNELLEMENT : couvre le scénario "je sais que
-// Drive a la bonne version, écrase le local" qu'aucune comparaison
-// automatique ne gère (ex. local corrompu mais horodaté plus récemment que
-// Drive). Même garde anti-perte que le reste de ce fichier (voir
-// isUserdataEmptyModules) : refuse si Drive lui-même n'a rien de réel, jamais
-// d'écrasement par du vide même sur une action explicite de l'utilisateur.
+// Bouton "Restaurer depuis Drive" (même popup) — télécharge et applique
+// INCONDITIONNELLEMENT le contenu de la sauvegarde la PLUS RÉCENTE trouvée
+// sur Drive (couvre le scénario "je sais que Drive a la bonne version,
+// écrase le local", ex. local corrompu) — adapté le 2026-09-11 aux
+// instantanés datés (`driveFindLatestBackupFile`, remplace l'ancien fichier
+// unique `driveFindUserdataFile`), même garde anti-perte que le reste de ce
+// fichier (voir isUserdataEmptyModules) : refuse si Drive lui-même n'a rien
+// de réel, jamais d'écrasement par du vide même sur une action explicite de
+// l'utilisateur.
 ipcMain.handle('driveSync:forceRestore', async () => {
   const token = await getValidGoogleToken();
   if (!token?.accessToken) throw new Error('Aucun compte Google connecté (Paramètres → Compte Google)');
 
-  const remote = await driveFindUserdataFile(token.accessToken);
-  if (!remote) throw new Error('Aucune sauvegarde trouvée sur Google Drive pour ce compte');
+  const latest = await driveFindLatestBackupFile(token.accessToken);
+  if (!latest) throw new Error('Aucune sauvegarde trouvée sur Google Drive pour ce compte');
 
-  const data = await driveDownloadUserdata(token.accessToken, remote.id);
+  const data = await driveDownloadUserdata(token.accessToken, latest.id);
   const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
   if (isUserdataEmptyModules(downloadedModules)) throw new Error('La sauvegarde sur Google Drive est vide — rien à restaurer');
 
-  store.set('driveSync.fileId', remote.id);
   driveApplyDownloadedUserdata(data);
   notifyDriveSync({ type: 'synced' });
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
-  return { modifiedTime: remote.modifiedTime };
+  return { modifiedTime: latest.modifiedTime };
 });
 
-// Recherche le fichier matin-userdata.json dans appDataFolder (il n'y a qu'un
-// seul fichier de ce nom possible côté Matin, mais Drive n'empêche pas
-// techniquement les doublons de nom — `files[0]` suffit ici, jamais créé
-// plus d'une fois par ce code). `null` si absent (1er lancement avec ce
-// compte, ou appData jamais initialisée).
 // Corps d'erreur Google systématiquement loggé (2026-08-30, sur demande
 // explicite "logger la réponse complète de l'API Drive") — un simple code
 // HTTP (403, 404...) ne dit pas POURQUOI (quota dépassé, scope insuffisant,
@@ -4070,16 +4572,27 @@ async function logDriveErrorBody(res, label) {
   }
 }
 
-async function driveFindUserdataFile(accessToken) {
-  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
-  const url = `${DRIVE_API_BASE}/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`;
+// Liste TOUS les fichiers `matin-backup-*.json` dans appDataFolder (2026-09-11
+// — remplace driveFindUserdataFile, qui ne cherchait qu'un seul fichier à nom
+// fixe). Triés par NOM décroissant côté API (`orderBy=name desc`) : le nom
+// encode la date en ISO 8601 (`YYYY-MM-DD`), donc l'ordre alphabétique est
+// AUSSI l'ordre chronologique — `files[0]` est directement la sauvegarde la
+// plus récente, sans avoir à re-trier côté client.
+async function driveListBackupFiles(accessToken) {
+  const q = encodeURIComponent(`name contains '${DRIVE_BACKUP_PREFIX}' and trashed=false`);
+  const url = `${DRIVE_API_BASE}/files?spaces=appDataFolder&q=${q}&fields=files(id,name,modifiedTime)&orderBy=name desc`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
-    await logDriveErrorBody(res, 'recherche');
-    throw new Error(`Drive (recherche) ${res.status}`);
+    await logDriveErrorBody(res, 'liste des sauvegardes');
+    throw new Error(`Drive (liste) ${res.status}`);
   }
   const data = await res.json();
-  return (data.files && data.files[0]) || null;
+  return data.files || [];
+}
+
+async function driveFindLatestBackupFile(accessToken) {
+  const files = await driveListBackupFiles(accessToken);
+  return files[0] || null;
 }
 
 async function driveDownloadUserdata(accessToken, fileId) {
@@ -4093,45 +4606,50 @@ async function driveDownloadUserdata(accessToken, fileId) {
   return res.json();
 }
 
-// Crée le fichier (multipart, seul moyen de poser `parents`/`name` en même
-// temps que le contenu) s'il n'existe pas encore (`fileId` absent), sinon
-// remplace juste son contenu (media seul, `name`/`parents` ne changent
-// jamais après création). Pas de dépendance `form-data` : le corps multipart
-// est construit à la main, format simple et stable (2 parties, JSON pur des
-// deux côtés).
-async function driveUploadUserdata(accessToken, fileId) {
+// Crée un NOUVEAU fichier de sauvegarde daté (multipart, seul moyen de poser
+// `parents`/`name` en même temps que le contenu) — 2026-09-11, remplace
+// driveUploadUserdata : chaque jour a désormais son propre fichier IMMUABLE,
+// jamais mis à jour après coup (contrairement à l'ancien fichier unique,
+// PATCHé à chaque changement) — toujours une CRÉATION (POST), jamais de
+// branche PATCH. Pas de dépendance `form-data` : le corps multipart est
+// construit à la main, format simple et stable (2 parties, JSON pur des deux
+// côtés).
+async function driveCreateBackupFile(accessToken, fileName) {
   const content = JSON.stringify(userdataStore.store);
-
-  if (fileId) {
-    const res = await fetch(`${DRIVE_UPLOAD_BASE}/files/${fileId}?uploadType=media&fields=id,modifiedTime`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: content,
-    });
-    if (res.status === 404) return driveUploadUserdata(accessToken, null); // fileId caché périmé (supprimé côté Drive) — recrée
-    if (!res.ok) {
-      await logDriveErrorBody(res, 'envoi (mise à jour)');
-      throw new Error(`Drive (envoi) ${res.status}`);
-    }
-    return res.json();
-  }
-
-  const boundary = 'matin-drive-sync-boundary';
-  const metadata = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+  const boundary = 'matin-drive-backup-boundary';
+  const metadata = JSON.stringify({ name: fileName, parents: ['appDataFolder'] });
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
     `--${boundary}--`;
-  const res = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,modifiedTime`, {
+  const res = await fetch(`${DRIVE_UPLOAD_BASE}/files?uploadType=multipart&fields=id,name,modifiedTime`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   });
   if (!res.ok) {
-    await logDriveErrorBody(res, 'création');
+    await logDriveErrorBody(res, 'création sauvegarde datée');
     throw new Error(`Drive (création) ${res.status}`);
   }
   return res.json();
+}
+
+// Suppression définitive (2026-09-11, pour la rétention 3 jours plus bas) —
+// PAS une corbeille (`trashed: true`) : une sauvegarde de plus de 3 jours
+// doit vraiment libérer sa place, pas juste disparaître de la recherche
+// `trashed=false` tout en continuant à compter dans le quota appData de
+// l'utilisateur. 404 toléré silencieusement (fichier déjà supprimé par un
+// appel précédent/une autre installation du même compte) — pas une vraie
+// erreur dans ce cas précis.
+async function driveDeleteFile(accessToken, fileId) {
+  const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    await logDriveErrorBody(res, 'suppression');
+    throw new Error(`Drive (suppression) ${res.status}`);
+  }
 }
 
 // Remplace `userdataStore` par le contenu téléchargé — tolère un fichier
@@ -4166,167 +4684,124 @@ function driveApplyDownloadedUserdata(data) {
   }
 }
 
-// Upload silencieux de l'état ACTUEL de matin-userdata — utilisé à la fois
-// par la sync de lancement (aucune version distante, ou version locale plus
-// récente) et par l'upload IMMÉDIAT déclenché après chaque changement de
-// donnée (voir uploadToDriveAfterChange plus bas, plus de débounce depuis le
-// 2026-08-31). Jamais de notifyDriveSync ici : silencieux par design, seule
-// la sync de LANCEMENT affiche l'indicateur.
-//
-// PROTECTION ANTI-PERTE (2026-08-30, sur demande explicite, suite à
-// l'incident de perte de données ETF/Crypto/Prêts) : vérifie le contenu
-// RÉEL de matin-userdata AVANT tout appel réseau — si local est vide, aucun
-// upload n'est tenté, quelle que soit la raison de l'appel (1re synchro,
-// "local plus récent", debounce après changement). Sans ce garde-fou, un
-// vide LOCAL accidentel (bug, store corrompu, course entre process...)
-// finit par écraser la seule copie potentiellement bonne restante — celle
-// sur Drive — exactement le scénario qui a causé l'incident du 2026-08-30
-// (voir CONTEXT.md). Retourne `null` (jamais une exception) : chaque
-// appelant doit gérer ce cas comme "rien à faire", pas comme une erreur.
-async function driveUploadCurrent(accessToken) {
-  const modules = userdataStore.get('modules');
-  if (isUserdataEmptyModules(modules)) {
-    console.warn('[Drive Sync] Upload IGNORÉ — matin-userdata est vide localement (protection anti-perte). Drive conservé tel quel, rien envoyé.');
-    return null;
-  }
-  let fileId = store.get('driveSync.fileId') || null;
-  const result = await driveUploadUserdata(accessToken, fileId);
-  store.set('driveSync.fileId', result.id);
-  return result;
-}
+// Supprime les sauvegardes datées de plus de DRIVE_BACKUP_RETENTION_DAYS
+// jours (2026-09-11, point 4 de la demande — "à chaque backup, supprimer
+// automatiquement les fichiers Drive de plus de 3 jours") : `files` déjà
+// listés une fois par l'appelant (performDriveDailyBackup), pas re-fetchés
+// ici. "3 derniers jours" compris comme 3 DATES conservées (aujourd'hui,
+// hier, avant-hier) — la borne de coupure est donc aujourd'hui - 2 jours ;
+// tout fichier daté STRICTEMENT avant cette borne est supprimé. Comparaison
+// de chaînes `YYYY-MM-DD` (pas de Date à convertir) : ce format est déjà
+// comparable lexicographiquement dans le bon ordre chronologique.
+async function drivePruneOldBackups(accessToken, files) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (DRIVE_BACKUP_RETENTION_DAYS - 1));
+  const cutoffStr = remindersDateStr(cutoff);
 
-// ─── Upload IMMÉDIAT après changement de donnée (2026-08-31, sur demande
-// explicite, point 1 — remplace le débounce 5s/plafond 30s introduit le
-// 2026-08-21) : plus aucun délai artificiel, l'upload part dès l'appel,
-// simplement pas attendu par l'appelant (fire-and-forget — un
-// `Enregistrer`/glisser-déposer ne doit pas se bloquer sur un aller-retour
-// réseau Drive). Pas de file d'attente/verrou entre appels concurrents : les
-// PATCH Drive sont idempotents sur le MÊME fileId (dernier écrit gagne), et
-// des changements assez rapprochés pour se chevaucher réellement en pratique
-// portent de toute façon un contenu quasi identique.
-function uploadToDriveAfterChange() {
-  (async () => {
-    const token = await getValidGoogleToken();
-    if (!token?.accessToken) return; // pas connecté — ignoré silencieusement
+  const toDelete = files.filter((f) => {
+    const d = driveBackupDateFromFileName(f.name);
+    return d && d < cutoffStr;
+  });
+  if (!toDelete.length) return;
+
+  console.log(`[Drive Backup] ${toDelete.length} sauvegarde(s) de plus de ${DRIVE_BACKUP_RETENTION_DAYS} jours à supprimer :`, toDelete.map(f => f.name));
+  for (const f of toDelete) {
     try {
-      const result = await driveUploadCurrent(token.accessToken);
-      if (result) console.log('[Drive] Local plus récent → upload vers Drive', result.id, result.modifiedTime);
-      // sinon déjà loggé (avertissement, protection anti-perte) par driveUploadCurrent
+      await driveDeleteFile(accessToken, f.id);
+      console.log(`[Drive Backup] Sauvegarde supprimée (rétention ${DRIVE_BACKUP_RETENTION_DAYS}j) : ${f.name}`);
     } catch (err) {
-      console.error('[Drive] Échec de l’upload immédiat après changement', err);
+      console.error(`[Drive Backup] Échec suppression de ${f.name}`, err);
     }
-  })();
+  }
 }
 
-// ─── Sync au lancement (points 2, 4 et 5 de la demande) ────────────────────
-// Appelée une seule fois par lancement, APRÈS autoRestoreUserdataIfEmpty
-// (déjà exécutée de façon synchrone plus haut dans ce fichier au chargement
-// du module) : évalue donc l'état local FINAL de la session, restauration
-// locale automatique déjà prise en compte le cas échéant.
-async function performDriveLaunchSync() {
-  console.log('[Drive Sync] Démarrage de la synchronisation au lancement');
+// ─── Sauvegarde QUOTIDIENNE Drive (2026-09-11, sur demande explicite,
+// REMPLACE performDriveLaunchSync/uploadToDriveAfterChange/driveUploadCurrent
+// — voir le commentaire d'en-tête de section plus haut pour le détail de
+// l'ancien comportement retiré) ────────────────────────────────────────────
+// Appelée une seule fois par lancement (voir app.whenReady() plus bas),
+// APRÈS autoRestoreUserdataIfEmpty (déjà exécutée de façon synchrone plus
+// haut dans ce fichier au chargement du module) : évalue donc l'état local
+// FINAL de la session, restauration locale automatique déjà prise en compte
+// le cas échéant.
+//
+// Point 5 (idempotence) : si `matin-backup-<aujourd'hui>.json` existe déjà
+// sur Drive, RIEN n'est envoyé ni comparé — un lancement de plus le même
+// jour (ou un simple clic sur "Actualiser") ne doit jamais recréer/écraser
+// la sauvegarde du jour. Point 2 (une fois par jour) découle directement de
+// cette même vérification : rien d'autre ne limite la fréquence d'appel de
+// cette fonction, la liste Drive fait foi à chaque fois.
+async function performDriveDailyBackup() {
+  console.log('[Drive Backup] Démarrage de la vérification de sauvegarde quotidienne');
   const token = await getValidGoogleToken();
   if (!token?.accessToken) {
-    // point 6 : pas de compte Google connecté, ignoré silencieusement CÔTÉ
-    // UTILISATEUR (aucune UI, aucun blocage) — ce log reste réservé à la
-    // console développeur, dans le même esprit que les logs d'état déjà en
-    // place pour chaque module (FDJ, RSS, Promos...).
-    console.log('[Drive Sync] Google non connecté — synchronisation ignorée');
+    // Pas de compte Google connecté, ignoré silencieusement CÔTÉ UTILISATEUR
+    // (aucune UI, aucun blocage) — ce log reste réservé à la console
+    // développeur, dans le même esprit que les logs d'état déjà en place
+    // pour chaque module (FDJ, RSS, Promos...).
+    console.log('[Drive Backup] Google non connecté — sauvegarde ignorée');
     return;
   }
-  console.log('[Drive Sync] Token Google valide, email =', token.email);
+  console.log('[Drive Backup] Token Google valide, email =', token.email);
 
   try {
-    const remote = await driveFindUserdataFile(token.accessToken);
-    console.log('[Drive Sync] Recherche du fichier distant —', remote ? `trouvé (id=${remote.id}, modifiedTime=${remote.modifiedTime})` : 'aucun fichier distant');
+    const files = await driveListBackupFiles(token.accessToken);
+    console.log(`[Drive Backup] ${files.length} sauvegarde(s) existante(s) sur Drive :`, files.map(f => f.name));
 
-    if (!remote) {
-      // Rien sur Drive pour ce compte — 1re synchronisation, envoie l'état
-      // local actuel. `driveUploadCurrent` refuse tout seul si local est
-      // vide (protection anti-perte, voir sa définition plus haut) : dans ce
-      // cas on ne crée PAS de fichier Drive vide, on attend d'avoir de
-      // vraies données à envoyer.
-      const result = await driveUploadCurrent(token.accessToken);
-      if (result) {
-        console.log('[Drive Sync] 1re synchronisation — envoi local effectué, id =', result.id);
-        notifyDriveSync({ type: 'synced' });
-      } else {
-        console.warn('[Drive Sync] 1re synchronisation IGNORÉE — local vide, aucun fichier Drive créé (protection anti-perte)');
-        notifyDriveSync({ type: 'emptyLocal' });
-      }
-      console.log('[Drive Sync] notifyDriveSync envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
-      return;
-    }
-    store.set('driveSync.fileId', remote.id);
+    const todayStr = remindersDateStr(new Date());
+    const todayFileName = driveBackupFileName(todayStr);
+    const existingToday = files.find(f => f.name === todayFileName);
 
-    const localEmpty = isUserdataEmpty();
-    if (localEmpty) {
-      // Drive a un fichier, le local n'en a pas — tente une restauration
-      // automatique, mais vérifie le contenu RÉEL du téléchargement avant de
-      // prétendre avoir "synchronisé" : si Drive lui-même est vide (voir
-      // l'incident du 2026-08-30, où c'était exactement le cas), il n'y a
-      // rien à appliquer — la restauration locale par sauvegarde
-      // (autoRestoreUserdataIfEmpty, déjà tentée avant cette fonction) reste
-      // la seule chance, et si elle a échoué aussi, il faut le signaler
-      // plutôt que d'afficher un "✓ synchronisé" trompeur.
-      const data = await driveDownloadUserdata(token.accessToken, remote.id);
-      const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
-      if (isUserdataEmptyModules(downloadedModules)) {
-        console.warn('[Drive Sync] Local vide ET Drive vide — rien à restaurer depuis Drive');
-        notifyDriveSync({ type: 'emptyLocal' });
-      } else {
-        driveApplyDownloadedUserdata(data);
-        console.log('[Drive Sync] Local vide — restauration depuis Drive effectuée');
-        notifyDriveSync({ type: 'synced' });
-      }
-      console.log('[Drive Sync] notifyDriveSync envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
+    if (existingToday) {
+      // Point 5 — idempotent : la sauvegarde du jour existe déjà, rien à
+      // faire. Pas de purge ici non plus (voir le commentaire de
+      // drivePruneOldBackups, "à CHAQUE backup" — aucune sauvegarde n'est
+      // créée dans cette branche).
+      console.log(`[Drive Backup] Sauvegarde du jour déjà présente (${todayFileName}) — idempotent, rien à faire`);
+      notifyDriveSync({ type: 'synced' });
       return;
     }
 
-    // Local ET Drive ont tous deux des données — comparaison des horodatages
-    // réels (mtime du fichier matin-userdata.json sur disque, modifiedTime
-    // renvoyé par Drive) plutôt qu'un horodatage maison à maintenir en
-    // parallèle : toujours exact, mis à jour par electron-store/Drive
-    // eux-mêmes à chaque écriture, aucun risque de désynchronisation.
-    const localMtimeMs = fs.existsSync(userdataStore.path) ? fs.statSync(userdataStore.path).mtimeMs : 0;
-    const remoteMtimeMs = new Date(remote.modifiedTime).getTime();
-
-    // Comparaison STRICTE (2026-08-31, sur demande explicite, points 2/3/4 —
-    // remplace la fenêtre de conflit d'1h du 2026-08-21, qui faisait gagner
-    // Drive même quand le local était RÉELLEMENT plus récent de quelques
-    // minutes) : Drive ne l'emporte QUE s'il est STRICTEMENT plus récent que
-    // le local. Une égalité exacte (cas limite improbable) reste local par
-    // défaut — jamais Drive n'écrase une donnée locale plus récente ou de
-    // même âge, conformément au point 4 ("Never overwrite local data that is
-    // newer than Drive data").
-    const driveWins = remoteMtimeMs > localMtimeMs;
-    console.log('[Drive Sync] Comparaison horodatages — local =', new Date(localMtimeMs).toISOString(), ', distant =', new Date(remoteMtimeMs).toISOString(), ', driveWins =', driveWins);
-
-    if (driveWins) {
-      const data = await driveDownloadUserdata(token.accessToken, remote.id);
+    // PROTECTION ANTI-PERTE (2026-08-30, sur demande explicite, suite à
+    // l'incident de perte de données ETF/Crypto/Prêts — toujours valable
+    // avec ce nouveau mécanisme) : si le local est vide, on ne crée PAS une
+    // sauvegarde datée vide qui écraserait la valeur des jours précédents
+    // dans la rotation de rétention. À la place, si Drive a déjà au moins
+    // une sauvegarde antérieure, on restaure depuis la plus récente
+    // (meilleur effort — ne recrée PAS pour autant la sauvegarde du jour :
+    // la prochaine vraie sauvegarde datée se fera au lancement suivant, une
+    // fois le local repeuplé par cette restauration).
+    const modules = userdataStore.get('modules');
+    if (isUserdataEmptyModules(modules)) {
+      const latest = files[0] || null;
+      if (!latest) {
+        console.warn('[Drive Backup] Sauvegarde IGNORÉE — local vide ET aucune sauvegarde Drive existante (protection anti-perte)');
+        notifyDriveSync({ type: 'emptyLocal' });
+        return;
+      }
+      console.log(`[Drive Backup] Local vide — tentative de restauration depuis la sauvegarde la plus récente : ${latest.name}`);
+      const data = await driveDownloadUserdata(token.accessToken, latest.id);
       const downloadedModules = data?.modules && typeof data.modules === 'object' ? data.modules : data;
-      // Garde-fou symétrique (défense en profondeur, 2026-08-30) : Drive
-      // "gagne" sur l'horodatage mais son contenu est VIDE alors que le
-      // local, lui, a du contenu réel — appliquer quand même écraserait de
-      // bonnes données locales avec du vide. On refuse le téléchargement et
-      // on renvoie le local vers Drive à la place (auto-réparation).
       if (isUserdataEmptyModules(downloadedModules)) {
-        console.warn('[Drive Sync] Drive plus récent mais VIDE, et le local a du contenu — téléchargement refusé (protection anti-perte), le local est renvoyé vers Drive à la place');
-        await driveUploadCurrent(token.accessToken);
+        console.warn('[Drive Backup] Local vide ET la sauvegarde la plus récente sur Drive est également vide — rien à restaurer');
+        notifyDriveSync({ type: 'emptyLocal' });
       } else {
         driveApplyDownloadedUserdata(data);
-        console.log('[Drive] Drive plus récent → téléchargement'); // format exact demandé (point 5)
-        console.log('[Drive Sync] Drive plus récent — téléchargement + application effectués');
+        console.log('[Drive Backup] Local vide — restauration depuis Drive effectuée');
+        notifyDriveSync({ type: 'synced' });
       }
-    } else {
-      await driveUploadCurrent(token.accessToken); // ne peut pas être vide ici (localEmpty déjà écarté plus haut), gardé par cohérence/défense en profondeur
-      console.log('[Drive] Local plus récent → upload vers Drive'); // format exact demandé (point 5)
-      console.log('[Drive Sync] Local plus récent — envoi effectué');
+      return;
     }
+
+    // Local a du contenu réel ET aucune sauvegarde n'existe encore pour
+    // aujourd'hui — création (point 2), puis rétention 3 jours (point 4).
+    const created = await driveCreateBackupFile(token.accessToken, todayFileName);
+    console.log(`[Drive Backup] Nouvelle sauvegarde créée : ${created.name} (id=${created.id})`);
     notifyDriveSync({ type: 'synced' });
-    console.log('[Drive Sync] notifyDriveSync({type:"synced"}) envoyé, mainWindow présent =', !!(mainWindow && !mainWindow.isDestroyed()));
+
+    await drivePruneOldBackups(token.accessToken, [...files, created]);
   } catch (err) {
-    console.error('[Drive Sync] Échec de la synchronisation au lancement', err);
+    console.error('[Drive Backup] Échec de la sauvegarde quotidienne', err);
   }
 }
 
@@ -4410,7 +4885,6 @@ function checkReminders() {
     backupStoreBeforeWrite();
     userdataStore.set('modules.reminders.config.items', items);
     scheduleUserdataBackup(); // voir "Sauvegardes automatiques déclenchées par changement" plus bas
-    uploadToDriveAfterChange(); // voir Sync Google Drive plus bas
   }
 }
 
@@ -4581,7 +5055,7 @@ function alertsNotify(alerts) {
   safeStoreSet('alertsCache.knownIds', Array.from(currentIds));
 
   alertsCurrent = alerts;
-  if (mainWindow) mainWindow.webContents.send('alerts:updated', alerts);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('alerts:updated', alerts);
   return alertsCurrent;
 }
 
@@ -4589,7 +5063,7 @@ async function checkAlerts() {
   const mod = store.get('modules.alerts');
   if (!mod || !mod.enabled) {
     alertsCurrent = [];
-    if (mainWindow) mainWindow.webContents.send('alerts:updated', []);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('alerts:updated', []);
     return alertsCurrent;
   }
 
@@ -4627,7 +5101,7 @@ app.whenReady().then(() => {
   // binaire/raccourci lancé a changé entre-temps (ex. déplacement du
   // dossier projet, voir CONTEXT.md).
   app.setLoginItemSettings(computeLoginItemSettings(store.get('app.startOnBoot') === true));
-  performDriveLaunchSync().catch(err => console.error('[Drive Sync] Échec inattendu de la synchronisation au lancement', err));
+  performDriveDailyBackup().catch(err => console.error('[Drive Backup] Échec inattendu de la sauvegarde quotidienne au lancement', err));
   checkReminders();
   setInterval(checkReminders, REMINDERS_CHECK_MS);
   checkAlerts();

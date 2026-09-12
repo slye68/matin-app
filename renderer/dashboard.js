@@ -71,6 +71,15 @@ const MODULE_REGISTRY = {
   hue:        { label: 'Philips Hue',   icon: '💡', requiresGoogle: false, defaultSize: { w: 320, h: 260 }, refreshMs: 30 * 1000, theme: 'maison' },
   kasa:       { label: 'TP-Link Kasa',  icon: '🔌', requiresGoogle: false, defaultSize: { w: 360, h: 400 }, refreshMs: 30 * 1000, theme: 'maison' },
   tradfri:    { label: 'IKEA Trådfri',  icon: '💡', requiresGoogle: false, defaultSize: { w: 380, h: 440 }, refreshMs: 30 * 1000, theme: 'maison' },
+  // Climatisation FGLair (2026-09-13, sur demande explicite) — refreshMs
+  // 10 min, demandé explicitement ("lecture de l'état de tous les appareils
+  // toutes les 10 minutes").
+  fglair:     { label: 'Climatisation', icon: '🌡️', requiresGoogle: false, defaultSize: { w: 340, h: 420 }, refreshMs: 10 * 60 * 1000, theme: 'maison' },
+  // Somfy TaHoma Switch (2026-09-12, sur demande explicite, point 6 : "toutes
+  // les 30 secondes") — refreshMs générique de scheduleModuleRefresh suffit,
+  // pas besoin d'un minuteur dédié comme live.js (pas de cadence variable
+  // ici).
+  somfyTahoma: { label: 'Somfy TaHoma', icon: '🪟', requiresGoogle: false, defaultSize: { w: 320, h: 380 }, refreshMs: 30 * 1000, theme: 'maison' },
   // Rappels : la planification/notification tourne côté process main (voir
   // main.js, checkReminders) — ce refreshMs ne sert qu'à réaffichage local
   // (aucun réseau), pour garder à jour le classement aujourd'hui/à venir/en
@@ -81,6 +90,10 @@ const MODULE_REGISTRY = {
   googleTasks: { label: 'Tâches Google', icon: '✅', requiresGoogle: true,  defaultSize: { w: 300, h: 320 }, refreshMs: 5 * 60 * 1000, theme: 'perso' },
   science:     { label: 'Sciences',      icon: '🔬', requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
   gaming:      { label: 'Gaming',        icon: '🎮', requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
+  // Actus sportives (2026-09-11, sur demande explicite) — flux L'Équipe fixe,
+  // même pattern que Sciences/Santé (pas de sources cochables, voir
+  // RSS_FEED_DEFS/makeRssModule dans rss-feed.js).
+  sportNews:   { label: 'Actus sportives', icon: '📰', requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
   // 3 modules ajoutés le 2026-08-07 (sur demande explicite)
   sante:     { label: 'Santé',         icon: '⚕️', requiresGoogle: false, defaultSize: { w: 340, h: 460 }, refreshMs: 15 * 60 * 1000, theme: 'actualites' },
   birthdays: { label: 'Anniversaires', icon: '🎂', requiresGoogle: true,  defaultSize: { w: 300, h: 280 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'perso' },
@@ -129,7 +142,7 @@ const MODULE_REGISTRY = {
   // Réorganiser automatique (même bordure de catégorie que Sports/ol) —
   // l'accent rouge "en direct" demandé est posé séparément (voir
   // #module-live dans style.css, qui l'emporte sur la couleur de thème).
-  live: { label: 'LIVE FOOT!', icon: '🔴', requiresGoogle: false, defaultSize: { w: 340, h: 360 }, theme: 'other-sports' },
+  live: { label: 'LIVE FOOT!', icon: '⚽', requiresGoogle: false, defaultSize: { w: 340, h: 360 }, theme: 'other-sports' },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi manuel (calendrier
   // + résultats saisis à la main, voir main.js/config.js), pas de fetch
   // réseau du tout. refreshMs 24h quand même posé, même raison que Prêts
@@ -203,17 +216,27 @@ function isPretsKey(key) {
 function isLiveKey(key) {
   return key === 'live' || key === 'live_2';
 }
+// Mon Équipe (2026-09-12, sur demande explicite) — même principe, plafonné à
+// 3 instances (monEquipe/monEquipe_2/monEquipe_3, voir MAX_MON_EQUIPE_INSTANCES
+// dans config.js) : CHAQUE équipe reste sa PROPRE carte dashboard,
+// indépendamment déplaçable/redimensionnable (choix confirmé explicitement,
+// PAS un empilement de sections dans une seule carte).
+function isMonEquipeKey(key) {
+  return key === 'monEquipe' || key === 'monEquipe_2' || key === 'monEquipe_3';
+}
 function resolveModuleMeta(key) {
   if (MODULE_REGISTRY[key]) return MODULE_REGISTRY[key];
   if (isSportsKey(key)) return MODULE_REGISTRY.ol;
   if (isLiveKey(key)) return MODULE_REGISTRY.live;
   if (isPretsKey(key)) return MODULE_REGISTRY.prets;
+  if (isMonEquipeKey(key)) return MODULE_REGISTRY.monEquipe;
   return undefined;
 }
 function resolveRendererKey(key) {
   if (isSportsKey(key)) return 'ol';
   if (isPretsKey(key)) return 'prets';
   if (isLiveKey(key)) return 'live';
+  if (isMonEquipeKey(key)) return 'monEquipe';
   return key;
 }
 // Cartes à hauteur AUTOMATIQUE (2026-08-09, étendu le 2026-08-10 sur demande
@@ -238,7 +261,7 @@ function isAutoHeightKey(key) {
   // repliables (voir mon-equipe.js) doivent pouvoir faire grandir la carte
   // une fois dépliées, au lieu de rester à taille fixe avec un défilement
   // interne.
-  if (key === 'monEquipe') return true;
+  if (isMonEquipeKey(key)) return true;
   // YouTube RETIRÉ de l'auto-height le 2026-09-08 (sur demande explicite) —
   // l'ajout du 2026-09-01 ci-dessous avait un effet de bord réel non prévu :
   // une disposition SAUVEGARDÉE (taille choisie à la main par l'utilisateur
@@ -270,6 +293,13 @@ function isAutoHeightKey(key) {
 }
 function resolveModuleTitle(key, meta, config) {
   if (isSportsKey(key)) return config?.team?.trim() || meta.label;
+  // LIVE FOOT! — titre de carte "FOOTBALL" (2026-09-12, sur demande
+  // explicite, redesign du header) : même mécanisme que Prêts/Mon Équipe
+  // ci-dessous — SEUL le titre affiché sur la carte change, `meta.label`
+  // ("LIVE FOOT!") reste inchangé pour Paramètres et tout autre contexte qui
+  // le lit encore. Le nom de la compétition reste en sous-titre, inchangé
+  // (voir resolveModuleSubtitle).
+  if (isLiveKey(key)) return 'FOOTBALL';
   // Prêts (2026-09-01, sur demande explicite — remplace l'ancien comportement
   // où le nom du groupe (ex. "Maison Francheleins") remplaçait ENTIÈREMENT le
   // titre de carte) : le titre est désormais TOUJOURS "Mon prêt" (renommé
@@ -280,11 +310,12 @@ function resolveModuleTitle(key, meta, config) {
   // (text-transform:uppercase), d'où "Mon prêt" ici plutôt que déjà en
   // capitales.
   if (isPretsKey(key)) return 'Mon prêt';
-  // Mon Équipe (2026-08-15, sur demande explicite) — "le nom de l'équipe en
+  // Mon Équipe (2026-08-15, sur demande explicite ; étendu aux instances
+  // multiples le 2026-09-12, isMonEquipeKey) — "le nom de l'équipe en
   // en-tête" : même mécanisme que Sports ci-dessus, le titre de CARTE
   // affiche le nom réellement saisi plutôt que le libellé générique "Mon
   // Équipe" dès qu'il est configuré.
-  if (key === 'monEquipe') return config?.teamName?.trim() || meta.label;
+  if (isMonEquipeKey(key)) return config?.teamName?.trim() || meta.label;
   return meta.label;
 }
 
@@ -304,6 +335,12 @@ function resolveModuleTitle(key, meta, config) {
 function resolveModuleSubtitle(key, config) {
   if (isPretsKey(key)) return config?.name?.trim() || null;
   if (isLiveKey(key)) return config?.competitionLabel?.trim() || null;
+  // Mon Équipe (2026-09-12, sur demande explicite — redesign de l'en-tête,
+  // "catégorie en sous-titre") — voir renderMonEquipeConfigSection
+  // (config.js) pour le champ de saisie, optionnel (pas de sous-titre si
+  // vide, même comportement que Prêts ci-dessus tant que le champ n'est pas
+  // renseigné).
+  if (isMonEquipeKey(key)) return config?.category?.trim() || null;
   return null;
 }
 
@@ -318,7 +355,16 @@ const MODULE_CLICK_URLS = {
   calendar: 'https://calendar.google.com',
   gmail: 'https://mail.google.com',
   googleTasks: 'https://tasks.google.com',
-  spotify: 'https://open.spotify.com',
+  // URI protocole `spotify:` (2026-09-12, sur demande explicite) — remplace
+  // le lien web `https://open.spotify.com` : ouvre directement l'app Windows
+  // Spotify (si installée) plutôt que le lecteur web dans le navigateur.
+  // Géré comme une simple URL de plus par shell.openExternal (Windows sait
+  // résoudre un protocole personnalisé enregistré) — voir le `.catch` sur
+  // l'appel ci-dessous (resolveModuleClickUrl) qui avale silencieusement
+  // l'échec si Spotify n'est pas installé (aucun handler enregistré pour ce
+  // protocole), conformément à la demande ("ne rien faire, pas d'erreur
+  // visible").
+  spotify: 'spotify:',
   cinema: 'https://www.allocine.fr',
   fdjLoto: 'https://www.fdj.fr/jeux-de-tirage/loto',
   fdjEuromillions: 'https://www.fdj.fr/jeux-de-tirage/euromillions-my-million',
@@ -1456,6 +1502,19 @@ function initDisplayMode() {
   window.matin.store.get('app.displayMode').then((mode) => applyModeUI(mode || 'fullscreen'));
   window.matin.displayMode.onUpdated((mode) => applyModeUI(mode));
 
+  // Clic sur #btnCollapseToSun (2026-09-11, sur demande explicite — bug réel
+  // signalé : "le bouton existe visuellement mais son clic ne déclenche
+  // rien"). Confirmé en lisant l'historique : retiré du refactor du
+  // 2026-09-01 (voir commentaire d'en-tête ci-dessus, "l'ancien toggle
+  // display... retiré avec le reste des références à ce bouton"), jamais
+  // rajouté lors de la reconstruction du 2026-09-09, qui n'a reconstruit que
+  // la VISIBILITÉ (updateCollapseBtnVisibility) — seule la touche Échap
+  // ci-dessous appelait encore collapseToSun(), le bouton lui-même n'avait
+  // plus aucun écouteur de clic.
+  document.getElementById('btnCollapseToSun')?.addEventListener('click', () => {
+    window.matin.displayMode.collapseToSun().catch(() => {});
+  });
+
   // Échap réduit en icône flottante (mode "floating") — no-op côté main.js
   // hors de ce mode (voir main.js collapseToSun), donc pas besoin de
   // vérifier le mode courant ici.
@@ -1641,7 +1700,13 @@ function createModuleCard(key, meta, title, subtitle) {
   if (clickable) {
     card.querySelector('.module-title').addEventListener('click', () => {
       const url = resolveModuleClickUrl(key, card);
-      if (url) window.matin.shell.openExternal(url);
+      // `.catch` silencieux (2026-09-12, sur demande explicite pour le cas
+      // Spotify — voir MODULE_CLICK_URLS) : `spotify:` rejette la promesse
+      // si aucune app n'est enregistrée pour ce protocole (Spotify non
+      // installé) — pas de dialogue/erreur visible pour l'utilisateur.
+      // Inoffensif pour les autres modules (URLs http(s) classiques,
+      // n'échouent normalement jamais de cette façon).
+      if (url) window.matin.shell.openExternal(url).catch(() => {});
     });
   }
   return card;

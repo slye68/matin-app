@@ -717,10 +717,22 @@ body.ultrawide .module-card { max-width: 500px; }
    (`.live-goal-*`/`.live-goal-shake`/keyframes associés, mécanisme entier
    retiré avec le reste de l'ancienne implémentation, plus aucun appelant). */
 .live-match-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-.live-match-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* `.live-card` (2026-09-12, redesign complet des cartes par match, voir
+   live.js liveMatchCompetitionRowHtml) — REMPLACE `.live-match-row`/
+   `.live-match-header-row`/`.live-match-teams` (grille 3 colonnes) :
+   live.js ne les pose plus du tout, elles n'avaient plus aucun effet
+   (constaté : carte totalement non stylée, éléments empilés en flux normal
+   au lieu d'une ligne — bug signalé, "tout est décalé"). Grille à 5
+   colonnes correspondant aux 5 enfants directs de `.live-card` : [badge
+   heure/statut][équipe domicile][VS ou score][équipe extérieure][statut] —
+   `1fr` sur les 2 colonnes équipe (comme l'ancienne `.live-match-teams`)
+   pour qu'elles absorbent l'espace restant et gardent noms/logos alignés
+   vers le centre (voir `.live-match-team`/`-away` ci-dessous, inchangées). */
+.live-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
@@ -728,39 +740,97 @@ body.ultrawide .module-card { max-width: 500px; }
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.live-match-row:hover { border-color: #ef4444; background: var(--bg-hover); }
-.live-match-row-live { border-color: rgba(239, 68, 68, 0.4); }
-/* Terminé — style discret (mode Compétition, liste de journée) : contraste
-   avec les lignes en direct/à venir sans disparaître complètement. */
-.live-match-row-post { opacity: 0.7; }
-/* Ligne d'en-tête d'une ligne de match — juste le statut/heure à gauche (une
-   ligne par match, voir liveMatchCompetitionRowHtml — pas de nom de
-   compétition répété par ligne, déjà annoncé une fois dans
-   `.live-comp-header`). `.live-match-header-row-split`/`.live-match-league`/
-   `.live-match-subtime` (mode Équipe) SUPPRIMÉES le 2026-09-05, sur demande
-   explicite — mode retiré entièrement, plus aucun appelant. */
-.live-match-header-row { display: flex; align-items: center; gap: 6px; }
-.live-match-status { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-/* [Nom][Score][Nom] — 3 colonnes (logos/initiales d'équipe volontairement
-   absents, redondants avec les noms complets déjà affichés ici) — les 2 noms
-   convergent toujours vers le score au centre (texte aligné vers l'intérieur
-   de chaque côté) pour une lecture symétrique façon tableau de scores. */
-.live-match-teams {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 6px;
+.live-card:hover { border-color: #ef4444; background: var(--bg-hover); }
+.live-card-live { border-color: rgba(239, 68, 68, 0.4); }
+/* Terminé — style discret : contraste avec les cartes en direct/à venir sans
+   disparaître complètement. */
+.live-card-post { opacity: 0.7; }
+
+/* Badge heure/statut (1re colonne) — pilule rouge si en cours, neutre sinon. */
+.live-card-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+  text-align: center;
 }
+.live-card-badge-live { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.live-card-badge-pre {
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+/* "VS" (matchs à venir, 3e colonne) — même colonne que `.live-match-score`
+   (matchs en cours/terminés, classe inchangée, voir plus bas), jamais les
+   deux en même temps sur une même carte (voir liveMatchCompetitionRowHtml,
+   centerHtml). */
+.live-card-vs {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Statut à droite (5e colonne) — redondant avec le badge à gauche par
+   conception (voir le commentaire de liveMatchCompetitionRowHtml, live.js). */
+.live-card-status { font-size: 10px; font-weight: 600; white-space: nowrap; text-align: right; }
+.live-card-status-live { color: #ef4444; }
+.live-card-status-pre  { color: var(--text-muted); }
+.live-card-status-post { color: var(--accent-green); }
+
+/* Logo d'équipe (2026-09-12, sur demande explicite) — `.live-match-team`
+   passe de span-texte-simple à conteneur flex (logo + nom) : le nom
+   truncatable vit désormais dans `.live-match-team-name` (seul élément
+   auquel `overflow`/`text-overflow`/`white-space` s'appliquent), le logo
+   n'étant pas concerné par cette troncature. `justify-content: flex-end`
+   (domicile) / `flex-start` (extérieur) reproduisent l'alignement
+   droite/gauche d'origine (`text-align`) tout en gardant logo+nom groupés et
+   collés au centre de la ligne (contre le score), quelle que soit la
+   longueur du nom. */
 .live-match-team {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0; /* nécessaire pour que text-overflow s'applique dans un enfant flex */
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+  justify-content: flex-end;
+}
+.live-match-team-away { justify-content: flex-start; }
+.live-match-team-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: right;
 }
-.live-match-team-away { text-align: left; }
+.live-team-logo-wrap { flex-shrink: 0; display: block; }
+.live-team-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+}
+/* Repli initiales — logo absent, ou présent mais l'image échoue à charger
+   (voir onerror dans liveTeamLogoHtml, live.js). `display:none` par défaut
+   quand le repli suit un `<img>` (permutés par onerror, voir live.js) — posé
+   en inline dans le HTML lui-même, pas ici, donc pas redéclaré. */
+.live-team-logo-fallback {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
 .live-match-score {
   font-family: var(--font-mono);
   font-size: 16px;
@@ -1689,6 +1759,120 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .monequipe-section-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
+/* ─── Mon Équipe — redesign MODE CLAIR UNIQUEMENT (2026-09-12, sur demande
+   explicite, point 5 : "le mode sombre reste inchangé") ────────────────────
+   Tout ce bloc est scopé `:root[data-color-scheme="light"] [id^="module-
+   monEquipe"]` — `[id^="module-monEquipe"]` (plutôt qu'un `#module-monEquipe`
+   figé) couvre AUSSI les instances multiples ajoutées depuis (module-
+   monEquipe_2/_3, voir dashboard.js isMonEquipeKey) : chaque équipe reste sa
+   propre carte, toutes doivent recevoir le même habillage. Le mode clair
+   scopé garantit qu'AUCUNE de ces règles ne s'applique en mode sombre, qui
+   garde son apparence actuelle telle quelle. */
+
+/* 1. En-tête — bandeau orange clair, icône sport (posée dynamiquement par
+   mon-equipe.js monEquipeUpdateHeader) + nom d'équipe à gauche. `margin`
+   négatif = padding de `.module-card` (14px 16px, voir sa règle plus haut
+   dans ce fichier) : étire le bandeau jusqu'aux bords de la carte,
+   `border-radius` ne visant que les 2 coins du haut pour rester raccord avec
+   les coins arrondis de la carte elle-même (var(--radius-lg), même valeur).
+   Badge/logo du club à droite (`.module-badge`) RETIRÉ le 2026-09-12 (2e
+   demande explicite, "supprimer tous les logos... aucun placeholder") — ce
+   bloc ne touche plus `.module-badge`, qui reprend son apparence par défaut
+   (voir sa règle générique plus haut dans ce fichier). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-header {
+  background: #FFE0C0;
+  margin: -14px -16px 0;
+  padding: 10px 16px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-icon { font-size: 16px; }
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-title { font-weight: 700; }
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-subtitle { color: #92400e; }
+
+/* 2. Sections en cartes blanches arrondies + ombre légère — "Prochain
+   match"/"Dernier résultat" (.sports-next, fond plein par défaut) ET
+   "Prochains matchs"/"Matchs passés" (.monequipe-section, le conteneur
+   ENTIER — pas juste sa barre de titre — pour un vrai effet de carte,
+   .monequipe-section-toggle repasse donc en fond transparent ici pour ne pas
+   dessiner une 2e boîte imbriquée dans la 1re). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .sports-next,
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section {
+  background: #ffffff;
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section {
+  padding: 6px;
+}
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section-toggle {
+  background: none;
+}
+/* "Prochain match" gardait un dégradé bleu/vert (voir .monequipe-next-card
+   plus haut, mode sombre inchangé) — remplacé par le même blanc uni que les
+   3 autres sections en mode clair. */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-card {
+  background: #ffffff;
+  border: none;
+}
+
+/* 3. "Prochain match" — badge CHAMPIONNAT en pilule orange, date/heure en
+   orange gras (remplace le bleu/jaune de la version mode sombre). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-badge {
+  background: #f97316;
+  color: #ffffff;
+}
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-datetime {
+  color: #f97316;
+  font-weight: 700;
+}
+
+/* 4. Équipe suivie TOUJOURS en orange (remplace le vert foncé mode sombre),
+   adversaire déjà en rouge (#ef4444, règle de base non scopée plus haut —
+   inchangée, donc pas redéclarée ici) — partagé par "Prochain match" ET
+   "Prochains matchs" (mêmes classes .monequipe-team-us/-opponent). Gras en
+   plus de la couleur (le mode sombre reste à son poids hérité, 600 ou normal
+   selon le contexte). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-team-us { color: #f97316; font-weight: 700; }
+
+/* Adversaire du bloc "PROCHAIN MATCH" — noir gras en MODE CLAIR UNIQUEMENT
+   (2026-09-12, 2e demande explicite) : `.monequipe-next-teams` n'entoure QUE
+   le bloc "Prochain match" (voir monEquipeNextMatchHtml, mon-equipe.js),
+   contrairement à `.monequipe-team-opponent` seule qui est PARTAGÉE avec la
+   liste "Prochains matchs" juste en dessous (voir monEquipeMatchLineHtml) —
+   ce scope évite de aussi noircir l'adversaire de cette liste, qui doit
+   rester rouge (voir la règle non scopée .monequipe-team-opponent plus haut,
+   #ef4444, INCHANGÉE). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-teams .monequipe-team-opponent {
+  color: #111827;
+  font-weight: 700;
+}
+
+/* Adversaire de la liste "Prochains matchs" — gras SEULEMENT, couleur rouge
+   INCHANGÉE, dans LES 2 THÈMES (2026-09-12, 2e demande explicite — pas de
+   scope `:root[data-color-scheme]` ici, contrairement à toutes les autres
+   règles de ce bloc). `.monequipe-list-row-line` isole la liste (voir
+   monEquipeUpcomingRowHtml) du bloc "Prochain match" ci-dessus, qui n'a pas
+   cette classe. */
+[id^="module-monEquipe"] .monequipe-list-row-line .monequipe-team-opponent {
+  font-weight: 700;
+}
+
+/* "Dernier résultat"/"Matchs passés" — classes DÉDIÉES, PAS .monequipe-team-
+   us/-opponent (voir mon-equipe.js monEquipeLastResultHtml/
+   monEquipeResultRowHtml pour l'explication : ces 2 classes ont une couleur
+   non scopée pour le mode sombre, les réutiliser ici l'aurait aussi coloré). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-result-team-us { color: #f97316; }
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-result-team-opponent { color: #ef4444; }
+
+/* 5. Listes ("Prochains matchs") — date + type de compétition en gris petit
+   (remplace le blanc/jaune de la version mode sombre, illisibles sur fond
+   blanc). */
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-type,
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-datetime,
+:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-date {
+  color: var(--text-muted);
+}
+
 /* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
    Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
    malgré le nom historique "sports-" : Sports (ol.js) réutilise ces mêmes
@@ -1759,6 +1943,7 @@ body.ultrawide .module-card { max-width: 500px; }
 #module-gaming .sports-ticker-source { color: #ec4899; }
 #module-science .sports-ticker-source { color: #22c55e; }
 #module-sante .sports-ticker-source   { color: #67e8f9; }
+#module-sportNews .sports-ticker-source { color: #f43f5e; }
 /* Modules Actualités (France/Tech/Bourse/Gaming/Sciences/Santé) —
    1 ligne de plus entre chaque titre (2026-09-09, sur demande explicite) */
 .module-card[data-theme="actualites"] .sports-ticker-vitem { padding-bottom: 26px; }
@@ -3207,6 +3392,34 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .tradfri-scene-btn:hover { border-color: var(--accent); color: var(--accent); }
 .tradfri-scene-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Module : Somfy TaHoma Switch (2026-09-12, sur demande explicite) ────
+   Réutilise .kasa-device/.kasa-device-name/.kasa-devices/.kasa-module tels
+   quels (même besoin visuel que Kasa/Trådfri) — seuls l'état (ouvert/fermé/
+   position %) et les 3 boutons Ouvrir/Stop/Fermer sont propres à ce module. */
+.tahoma-device-state {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.tahoma-device-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.tahoma-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tahoma-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tahoma-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Config ETF/Crypto — lignes du portefeuille (page Paramètres, config.js,
    meta.linesField, réutilisé tel quel par les deux modules). N'avait jusqu'ici

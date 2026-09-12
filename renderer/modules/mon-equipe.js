@@ -17,6 +17,37 @@ window.MatinModules = window.MatinModules || {};
 // jusqu'à 20 matchs/résultats affichés une fois la section dépliée.
 const MON_EQUIPE_SECTION_LIMIT = 20;
 
+// ─── En-tête de carte (2026-09-12, sur demande explicite, redesign mode
+// clair) — icône sport détectée depuis `config.sport` (voir config.js
+// MON_EQUIPE_SPORTS/renderMonEquipeConfigSection, mêmes valeurs exactes),
+// injectée DIRECTEMENT dans `.module-header` du card générique (voir
+// dashboard.js createModuleCard) — même technique que ol.js, qui manipule
+// déjà `container.closest('.module-card')` pour son propre thème de carte
+// dynamique (`card?.setAttribute('data-theme', ...)`).
+// Logo/badge du club (2026-09-12, ajouté puis RETIRÉ le même jour, 2e
+// demande explicite, "supprimer tous les <img> de logos... aucun
+// placeholder") — `monEquipeBadgeLogoHtml`/`monEquipeInitials` et
+// l'injection dans `.module-badge` ont existé un temps, entièrement
+// supprimés ici, pas seulement masqués en CSS.
+const MON_EQUIPE_SPORT_ICONS = {
+  football: '⚽',
+  basketball: '🏀',
+  rugby: '🏉',
+  tennis: '🎾',
+  autre: '🎽',
+};
+
+// Icône posée sur le card générique (PAS sur `container`, qui n'est que
+// `.module-content` — l'en-tête vit au niveau du card, un cran au-dessus).
+// No-op silencieux si introuvable (carte pas encore montée, structure DOM
+// changée...) plutôt que de planter le rendu.
+function monEquipeUpdateHeader(container, config) {
+  const card = container.closest('.module-card');
+  if (!card) return;
+  const iconEl = card.querySelector('.module-icon');
+  if (iconEl) iconEl.textContent = MON_EQUIPE_SPORT_ICONS[config?.sport] || MON_EQUIPE_SPORT_ICONS.autre;
+}
+
 function monEquipeFormatDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(`${dateStr}T00:00:00`);
@@ -130,15 +161,26 @@ function monEquipeScoreClass(parsed) {
 // <adversaire> · <date>", plus aucune mention Domicile/Extérieur ; score
 // coloré selon victoire/défaite, voir monEquipeScoreClass ci-dessus).
 // `teamName` déjà garanti non vide par render().
+// `monequipe-result-team-us`/`-opponent` AJOUTÉES en plus de
+// `monequipe-result-team` (2026-09-12, sur demande explicite, "équipe suivie
+// toujours en orange") — 2 classes NOUVELLES et DÉDIÉES, pas les classes
+// `.monequipe-team-us`/`-opponent` déjà utilisées par "Prochain match"/
+// "Prochains matchs" : celles-ci portent une règle de couleur (verte/rouge)
+// NON scopée au thème, posée pour le mode sombre (2026-09-10) — les
+// réutiliser ici aurait donc coloré "Dernier résultat"/"Matchs passés" en
+// MODE SOMBRE aussi, qui doit pourtant rester inchangé (point 5 de la
+// demande). `.monequipe-result-team` garde son style (poids de police)
+// inchangé dans les 2 modes ; seules `-us`/`-opponent` reçoivent une couleur,
+// et UNIQUEMENT en mode clair (voir style.css).
 function monEquipeLastResultHtml(item, teamName) {
   if (!item) return '<span class="sports-no-data">Aucun résultat</span>';
   const parsed = monEquipeParseScore(item.score);
   const scoreText = parsed ? `${parsed.us} - ${parsed.opponent}` : (item.score || '—');
   return `
     <div class="sports-next-detail monequipe-result-line">
-      <span class="monequipe-result-team">${teamName}</span>
+      <span class="monequipe-result-team monequipe-result-team-us">${teamName}</span>
       <span class="monequipe-result-score ${monEquipeScoreClass(parsed)}">${scoreText}</span>
-      <span class="monequipe-result-team">${item.opponent || ''}</span>
+      <span class="monequipe-result-team monequipe-result-team-opponent">${item.opponent || ''}</span>
     </div>
     ${item.date ? `<div class="sports-next-opp"><span class="monequipe-info-date">${monEquipeFormatDate(item.date)}</span></div>` : ''}
   `;
@@ -166,8 +208,8 @@ function monEquipeResultRowHtml(item, teamName) {
   const scoreText = parsed
     ? (isHome ? `${parsed.us} - ${parsed.opponent}` : `${parsed.opponent} - ${parsed.us}`)
     : (item.score || '—');
-  const usSpan = `<span class="monequipe-result-team">${teamName}</span>`;
-  const opponentSpan = `<span class="monequipe-result-team">${item.opponent || ''}</span>`;
+  const usSpan = `<span class="monequipe-result-team monequipe-result-team-us">${teamName}</span>`;
+  const opponentSpan = `<span class="monequipe-result-team monequipe-result-team-opponent">${item.opponent || ''}</span>`;
   const scoreSpan = `<span class="monequipe-result-score ${monEquipeScoreClass(parsed)}">${scoreText}</span>`;
   const line = [
     `${isHome ? usSpan : opponentSpan} ${scoreSpan} ${isHome ? opponentSpan : usSpan}`,
@@ -208,6 +250,7 @@ window.MatinModules.monEquipe = {
       return;
     }
     setBadge('');
+    monEquipeUpdateHeader(container, config);
 
     const now = Date.now();
     // Marge de 3h (pas 0) : un match qui vient de commencer ne doit pas
