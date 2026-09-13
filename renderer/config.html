@@ -301,6 +301,20 @@
        section de config est TOUJOURS un enfant direct de `.module-row-wrap`
        après `.module-row`, quel que soit le module. */
     .module-row-wrap.module-disabled > *:not(.module-row) { display: none; }
+    /* Exception (2026-09-13, sur demande explicite) — le statut d'appairage
+       Hue/Kasa/TaHoma/FGLair (`.module-pairing-status`, voir config.js
+       createPersistentPairingStatus) reste visible même module désactivé :
+       même spécificité que la règle générique ci-dessus (3 classes de
+       chaque côté), déclarée APRÈS donc prioritaire à égalité — sans elle,
+       ce statut disparaîtrait comme n'importe quel autre enfant de
+       `.module-row-wrap` au toggle OFF, exactement le bug signalé. Coins bas
+       arrondis dans CE cas précis uniquement : `.module-config-field` qui le
+       suit d'ordinaire est masquée (module désactivé), ce statut devient
+       donc le DERNIER élément visible du bloc. */
+    .module-row-wrap.module-disabled > .module-pairing-status {
+      display: block;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+    }
 
     .module-row-wrap { margin-bottom: 6px; }
     .module-row {
@@ -381,6 +395,26 @@
       border-radius: 0 0 var(--radius-md) var(--radius-md);
       margin-top: -1px;
     }
+
+    /* Statut d'appairage persistant Hue/Kasa/TaHoma/FGLair (2026-09-13, voir
+       config.js createPersistentPairingStatus) — mêmes bordure/fond/soudure
+       que `.module-config-field` ci-dessus pour rester visuellement attaché
+       à `.module-row`, mais SANS coins arrondis en bas par défaut : quand le
+       module est activé, `.module-config-field` suit juste en dessous (voir
+       son propre `margin-top:-1px`) et doit rester carrée à cette jonction —
+       les coins arrondis "dernier élément visible" ne s'appliquent que
+       module désactivé (voir la règle `.module-row-wrap.module-disabled >
+       .module-pairing-status` plus haut). */
+    .module-pairing-status {
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding: 6px 12px 6px 38px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border);
+      border-top: none;
+      margin-top: -1px;
+    }
+    .module-pairing-status-ok { color: var(--accent-green); }
     /* Rappel texte sans champ interactif (2026-09-01, sur demande explicite,
        introduit pour Anniversaires) — .module-config-hint-field réutilise
        .module-config-field pour le fond/bordure du bloc, seul le texte a
@@ -526,6 +560,11 @@
       transform: translateX(16px);
       background: white;
     }
+    /* Toggle vert (2026-09-13, sur demande explicite) — même composant que
+       .toggle ci-dessus, seule la couleur "activé" change, pour différencier
+       visuellement le toggle d'orientation Raccourcis (voir
+       .shortcuts-orientation-row) des toggles bleus standards. */
+    .toggle.toggle-green input:checked + .toggle-slider { background: #2ecc71; }
     /* Mode auto (gating Sombre/Clair pendant qu'il pilotait le thème)
        SUPPRIMÉ ENTIÈREMENT le 2026-08-31, sur demande explicite — voir
        CONTEXT.md. `.theme-toggle-group.disabled` n'a plus d'usage
@@ -557,6 +596,22 @@
       padding: 4px 2px;
     }
     .indices-toggle-label { font-size: 12px; color: var(--text-secondary); }
+
+    /* Raccourcis Google (2026-09-13, sur demande explicite) — empilé
+       (orientation puis liste des services) plutôt que la ligne unique de
+       .module-config-field de base ; liste des services EN LIGNE (pas une
+       par ligne) pour économiser la place, scopé à .shortcuts-config-field
+       pour ne pas affecter Indices/Alertes qui réutilisent aussi
+       .indices-toggle-list/-row telles quelles. */
+    .module-config-field.shortcuts-config-field { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px 12px 38px; }
+    .shortcuts-orientation-row { display: flex; align-items: center; gap: 8px; }
+    .shortcuts-config-field .indices-toggle-list.shortcuts-toggle-list {
+      flex-direction: row;
+      flex-wrap: wrap;
+      max-height: none;
+      gap: 4px 14px;
+    }
+    .shortcuts-config-field .shortcuts-toggle-list .indices-toggle-row { justify-content: flex-start; gap: 6px; padding: 2px 0; }
 
     /* Alertes — champ département + réutilise .indices-toggle-list/-row pour
        les 4 types (voir juste au-dessus ; "Rappels produits" retiré et
@@ -2021,6 +2076,7 @@
   <script src="modules/fdj-games.js"></script>
   <script src="modules/reminders-categories.js"></script>
   <script src="modules/indices-defs.js"></script>
+  <script src="modules/shortcuts-defs.js"></script>
   <script src="modules/france-sources.js"></script>
   <script src="modules/tech-sources.js"></script>
   <script src="modules/bourse-sources.js"></script>

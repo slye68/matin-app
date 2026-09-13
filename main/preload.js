@@ -162,6 +162,10 @@ contextBridge.exposeInMainWorld('matin', {
   fdj: {
     fetchLatestDraw: (game) => ipcRenderer.invoke('fdj:fetchLatestDraw', game),
     fetchWinningCodes: () => ipcRenderer.invoke('fdj:fetchWinningCodes'),
+    // Sélecteur de jour(s) de tirage joués (2026-09-13, sur demande
+    // explicite) — voir main.js fdj:fetchRecentDraws, TOUJOURS le CSV
+    // (historique), jamais la page d'accueil utilisée par fetchLatestDraw.
+    fetchRecentDraws: (game, count) => ipcRenderer.invoke('fdj:fetchRecentDraws', { game, count }),
   },
 
   // ── Philips Hue (pont local, exécuté dans le process main — pas de CORS côté pont) ──
@@ -216,6 +220,20 @@ contextBridge.exposeInMainWorld('matin', {
     getDevices:     ()                   => ipcRenderer.invoke('fglair:getDevices'),
     getProperties:  (dsn)                => ipcRenderer.invoke('fglair:getProperties', dsn),
     setProperty:    (propertyKey, value) => ipcRenderer.invoke('fglair:setProperty', { propertyKey, value }),
+    // Nom personnalisé (2026-09-13, sur demande explicite) — voir main.js
+    // fglair:setDeviceName, ne touche jamais à l'authentification/aux appels
+    // API FGLair.
+    setDeviceName:  (dsn, customName)    => ipcRenderer.invoke('fglair:setDeviceName', { dsn, customName }),
+    // Diffusion du renommage vers le dashboard (2026-09-13, sur demande
+    // explicite — mise à jour immédiate de la carte, sans "Enregistrer" ni
+    // rechargement) — `removeAllListeners` avant `on` : `fglair.js` peut
+    // être ré-exécuté plusieurs fois dans la vie de la fenêtre (bouton
+    // "Actualiser", voir dashboard.js), ce canal serait sinon écouté en
+    // double à chaque fois (même souci que 2 setInterval empilés).
+    onDeviceRenamed: (cb) => {
+      ipcRenderer.removeAllListeners('fglair:deviceRenamed');
+      ipcRenderer.on('fglair:deviceRenamed', (_e, payload) => cb(payload));
+    },
   },
 
   // ── Somfy TaHoma Switch (API locale, exécuté dans le process main — HTTPS

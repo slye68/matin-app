@@ -2000,6 +2000,19 @@ body.ultrawide .module-card { max-width: 500px; }
   border-radius: var(--radius-sm);
   width: fit-content;
 }
+/* "Ne pas simuler les gains sur un tirage non joué" (2026-09-13, sur demande
+   explicite) — message ROUGE demandé explicitement, même gabarit que
+   `.fdj-stale-notice` juste au-dessus (jaune) pour un jeu de couleurs
+   cohérent entre les 2 avertissements de ce module. */
+.fdj-unplayed-warning {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
 
 .fdj-ball {
   display: inline-flex;
@@ -2032,6 +2045,12 @@ body.ultrawide .module-card { max-width: 500px; }
    à min-height:0 en cascade sur toute la chaîne flex/grid ci-dessous. */
 .fdj-grids-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .fdj-grids-section.expanded { flex: 1 1 auto; min-height: 0; }
+/* Grilles grisées sur un tirage non joué (2026-09-13, sur demande explicite)
+   — opacité ~0.35 demandée explicitement ; aucune règle de surbrillance à
+   annuler ici, le `draw` passé à ce bloc est déjà `null` dans ce cas (voir
+   fdj-common.js gridsBlockHtml) donc `.fdj-ball.matched` n'est de toute façon
+   jamais posée — cette classe ne fait QUE l'aspect visuel "grisé". */
+.fdj-grids-unplayed { opacity: 0.35; }
 
 .fdj-grids-toggle {
   display: flex;
@@ -2093,6 +2112,13 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .fdj-grid-rank.hit  { color: var(--accent-green); background: rgba(52, 211, 153, 0.12); }
 .fdj-grid-rank.miss { color: var(--text-muted); background: var(--bg-panel); }
+/* Montant "cagnotte partagée"/vide/nul (2026-09-13, sur demande explicite,
+   Loto/EuroMillions/EuroDreams) — remplacé par "Variable" en italique gris
+   plutôt que le libellé brut, voir fdj-common.js formatPrizeAmount. Couleur
+   posée en inline dans la demande d'origine (#9ca3af) reprise ici en classe
+   pour rester cohérent avec le reste de ce fichier (aucun style inline
+   ailleurs dans FDJ). */
+.fdj-prize-variable { color: #9ca3af; font-style: italic; }
 
 .fdj-codes-block { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 
@@ -2366,6 +2392,26 @@ body.ultrawide .module-card { max-width: 500px; }
   background: #0f1117;
   transition: opacity 1s ease-in;
 }
+/* Mode clair — fond BLANC au lieu du sombre fixe ci-dessus (2026-09-13, sur
+   demande explicite — régression signalée : cet overlay restait sombre même
+   en thème clair). Le fond sombre ci-dessus reste délibérément fixe/non
+   animé (voir le commentaire au-dessus de `.splash-overlay` — évite un
+   "seam" avec `titleBarOverlay`, qui lui aussi suit le thème via main.js,
+   voir titleBarColorsForTheme) : cette règle ne fait QUE choisir laquelle
+   des 2 couleurs FIXES s'applique selon `data-color-scheme`, posé de façon
+   synchrone dans <head> AVANT le premier rendu (voir le <script> en tête
+   d'index.html) — aucun changement de couleur PENDANT l'animation elle-même,
+   donc aucun risque de réintroduire ce bug de "seam". Soleil/rayons
+   (`.splash-sun`/`.splash-rays polygon`, index.html/plus bas dans ce
+   fichier) restent en `#fbbf24` fixe dans les 2 thèmes — pas de dégradé de
+   ciel séparé à adapter ici, la seule couleur de fond est celle de
+   `.splash-overlay` elle-même. */
+/* #f5f5f0 (pas #ffffff pur) — même valeur EXACTE que titleBarColorsForTheme
+   ('light').color dans main.js, pour la même raison que le #0f1117 sombre
+   ci-dessus : la bande de contrôles natifs Windows (titleBarOverlay) est
+   fixée à cette couleur précise en mode clair, un blanc pur créerait le même
+   "seam" visible que celui déjà corrigé une fois pour le mode sombre. */
+:root[data-color-scheme="light"] .splash-overlay { background: #f5f5f0; }
 .splash-overlay.splash-fade-out { opacity: 0; pointer-events: none; }
 .splash-overlay.splash-done { display: none; }
 
@@ -3488,6 +3534,188 @@ body.ultrawide .module-card { max-width: 500px; }
   flex-shrink: 0;
 }
 
+/* ─── Module : Climatisation FGLair (2026-09-13, sur demande explicite) ─────
+   RESTAURÉ le 2026-09-13 (2e demande) — ce bloc entier avait disparu de ce
+   fichier, perdu dans une sauvegarde concurrente (même incident que celui
+   déjà corrigé pour Somfy TaHoma, voir commit "fix: restaure le style Somfy
+   TaHoma... écrasé par une sauvegarde concurrente") — grep confirmé : AUCUNE
+   règle `.fglair-*` ne restait alors que le module lui-même (fglair.js) et
+   son intégration (main.js/config.js/dashboard.js) étaient tous intacts.
+   Restauré ICI avec le redesign demandé par la même occasion (boutons de
+   mode/ON-OFF en dégradé + relief 3D), plutôt qu'ajouté sur une base qui
+   n'existait plus.
+   Une carte par climatiseur détecté (voir fglair.js) — mode actif en
+   surbrillance, +/− température par palier de 1°C, sélecteur ventilateur,
+   ON (vert) / OFF (rouge) ; carte légèrement grisée quand l'appareil est
+   éteint (`.fglair-card-off`). */
+.fglair-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.fglair-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: opacity 0.2s;
+}
+.fglair-card-off { opacity: 0.6; }
+.fglair-card-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fglair-card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.fglair-card-ambient { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.fglair-mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* Boutons de mode — couleurs distinctes + relief 3D (2026-09-13, sur demande
+   explicite, REMPLACE le style plat d'origine) — `box-shadow` vertical
+   simule un bouton physique, aplati au clic (`:active`, translateY + ombre
+   réduite). Couleurs FIXES dans les 2 thèmes (comme `.fglair-mode-btn.active`
+   déjà orange fixe avant ce redesign) : ce sont des accents de marque
+   (Froid=bleu/Chaud=orange/Vent.=gris/Auto=vert), pas des couleurs pilotées
+   par variable de thème. */
+.fglair-mode-btn {
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  color: #ffffff;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.1s, transform 0.1s;
+}
+.fglair-mode-btn:active {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  transform: translateY(2px);
+}
+.fglair-mode-btn.froid { background: linear-gradient(180deg, #60a5fa, #3b82f6); }
+.fglair-mode-btn.froid.active { background: linear-gradient(180deg, #93c5fd, #60a5fa); box-shadow: 0 0 8px rgba(59, 130, 246, 0.6), 0 3px 0 #1d4ed8; }
+.fglair-mode-btn.chaud { background: linear-gradient(180deg, #f97316, #ea580c); }
+.fglair-mode-btn.chaud.active { box-shadow: 0 0 8px rgba(249, 115, 22, 0.6), 0 3px 0 #9a3412; }
+.fglair-mode-btn.vent { background: linear-gradient(180deg, #94a3b8, #64748b); }
+.fglair-mode-btn.vent.active { box-shadow: 0 0 8px rgba(100, 116, 139, 0.6), 0 3px 0 #334155; }
+.fglair-mode-btn.auto { background: linear-gradient(180deg, #4ade80, #22c55e); }
+.fglair-mode-btn.auto.active { box-shadow: 0 0 8px rgba(34, 197, 94, 0.6), 0 3px 0 #15803d; }
+.fglair-temp-row { display: flex; align-items: center; justify-content: center; gap: 18px; }
+.fglair-temp-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.fglair-temp-btn:hover { background: var(--bg-hover); }
+.fglair-temp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.fglair-temp-value { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--text-primary); min-width: 64px; text-align: center; }
+.fglair-fan-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.fglair-fan-select {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.fglair-power-row { display: flex; gap: 8px; }
+/* ON/OFF — dégradé + relief 3D (2026-09-13, sur demande explicite, REMPLACE
+   le fond plat #ef4444/#22c55e d'origine) — ÉCART assumé : la demande donnait
+   les classes `.fglair-btn-off`/`.fglair-btn-on`, qui n'existent pas dans le
+   gabarit RÉEL (fglair.js pose `.fglair-power-off`/`.fglair-power-on` sur ces
+   2 boutons, déjà câblés aux handlers ON/OFF) — style appliqué aux VRAIES
+   classes plutôt que d'en introduire 2 nouvelles inutilisées. */
+.fglair-power-btn {
+  flex: 1;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: box-shadow 0.1s, transform 0.1s;
+}
+.fglair-power-off { background: linear-gradient(180deg, #f87171, #dc2626); box-shadow: 0 3px 0 #991b1b, 0 1px 3px rgba(0, 0, 0, 0.3); }
+.fglair-power-on { background: linear-gradient(180deg, #4ade80, #16a34a); box-shadow: 0 3px 0 #14532d, 0 1px 3px rgba(0, 0, 0, 0.3); }
+.fglair-power-btn:active { box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); transform: translateY(2px); }
+/* Feedback d'échec de commande (2026-09-13, demandé explicitement) — pulse
+   rouge discret 1s sur le bouton cliqué, posée/retirée par fglair.js. */
+.fglair-error-pulse { animation: fglair-pulse-red 1s ease; }
+@keyframes fglair-pulse-red {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.6); }
+}
+/* Œil de révélation du mot de passe (Paramètres, config.js
+   renderFglairConfigSection) — bouton nu, même ligne que le champ mot de
+   passe grâce à .hue-config-row (flex, réutilisée telle quelle). */
+.fglair-password-toggle {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.fglair-password-toggle:hover { background: var(--bg-hover); }
+.fglair-password-toggle.active { color: var(--accent); border-color: var(--accent); }
+/* Liste de renommage des appareils (2026-09-13, sur demande explicite,
+   "AC000W011647439 → [ Salon ] ✏️") — réutilise `.hue-config-row` (flex,
+   label + input) ; `label` affiche le DSN technique tel quel (pas de largeur
+   fixe 130px comme les autres usages de `.hue-config-row label`, un DSN est
+   plus long qu'un libellé de champ habituel). */
+.fglair-device-name-row label { width: auto; font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+/* Champ réduit de 50% (2026-09-13, sur demande explicite) — `flex:0 1 50%`
+   AJOUTÉ en plus de `width:50%` (littéralement demandé) : `.hue-config-row
+   input` (règle de base, réutilisée ici) pose `flex:1` avec flex-basis 0%
+   implicite, qui ferait ignorer purement et simplement un `width` seul dans
+   ce contexte flex — sans ce `flex-basis` explicite à 50%, le champ serait
+   resté à sa largeur d'origine malgré la règle. */
+.fglair-device-name-input { flex: 0 1 50%; width: 50%; }
+.fglair-device-name-save {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.fglair-device-name-save:hover { background: var(--bg-hover); }
+/* Coche verte temporaire après sauvegarde (2026-09-13, sur demande
+   explicite) — classe posée/retirée par config.js (`.saved`, 2s), plutôt que
+   du style inline comme dans le pseudocode fourni : seule adaptation, aucun
+   autre retour visuel temporaire de ce fichier n'utilise de style inline. */
+.fglair-device-name-save.saved { color: #16a34a; font-weight: 700; }
+
+/* Sélecteur de jour(s) de tirage joués — Paramètres FDJ (2026-09-13, sur
+   demande explicite) — pills sélectionnables, fond orange quand actives
+   (demandé explicitement). Section `.fdj-config-*` par ailleurs SANS AUCUNE
+   règle CSS dédiée dans ce fichier (confirmé en grep, avant cet ajout) — pas
+   une régression, cette partie de Paramètres n'a jamais eu de style dédié,
+   scope volontairement limité aux pills demandées ici, pas une remise en
+   forme de toute la section grilles/codes FDJ. */
+.fdj-day-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.fdj-day-pill {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.fdj-day-pill:hover { background: var(--bg-hover); }
+.fdj-day-pill.active { background: #f97316; border-color: #f97316; color: #ffffff; font-weight: 600; }
+
 /* Config ETF/Crypto — lignes du portefeuille (page Paramètres, config.js,
    meta.linesField, réutilisé tel quel par les deux modules). N'avait jusqu'ici
    AUCUNE règle CSS (confirmé en grep) : la ligne s'affichait au fil de l'eau
@@ -4562,6 +4790,224 @@ body.ultrawide .module-card { max-width: 500px; }
 .indices-tile-pct { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 .indices-tile-pct.up   { color: var(--accent-green); }
 .indices-tile-pct.down { color: var(--accent-red); }
+
+/* Sous-section Crypto (2026-09-13, sur demande explicite) — SÉPARÉE de la
+   grille boursière ci-dessus (voir indices.js render()), `flex-shrink: 0`
+   pour ne jamais se faire écraser par `.indices-grid` (flex:1) si le contenu
+   dépasse la hauteur de la carte : `.module-content` (règle générique,
+   ailleurs dans ce fichier) prend le relais avec son propre défilement
+   externe dans ce cas, comme pour tout autre module. Couleurs (#22c55e/
+   #ef4444) et seuil neutre DEMANDÉS explicitement, DÉLIBÉRÉMENT distincts de
+   --accent-green/--accent-red (indices boursiers ci-dessus, teintes
+   différentes) — classes dédiées `.indices-crypto-pct.*` pour ne rien
+   changer à l'affichage boursier existant. */
+.indices-crypto-section { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.indices-crypto-title {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.indices-crypto-grid { flex: none; overflow: visible; }
+.indices-crypto-pct { font-size: 12px; font-weight: 500; }
+.indices-crypto-pct.up      { color: #22c55e; }
+.indices-crypto-pct.down    { color: #ef4444; }
+.indices-crypto-pct.neutral { color: var(--text-muted); }
+
+/* ─── Module : Raccourcis Google (2026-09-13, sur demande explicite) ───────
+   Colonne étroite fixe (56px) d'icônes cliquables, SANS en-tête visible.
+   Style `.shortcuts-module`/`.shortcut-btn` repris tel que fourni dans la
+   demande, `position: relative` AJOUTÉ sur `.shortcut-btn` (absent de la
+   demande mais nécessaire : le tooltip `::after` ci-dessous est
+   `position: absolute`, sans ancre positionnée sur le bouton lui-même il se
+   positionnerait relativement à un ancêtre plus lointain — `.module-card`,
+   déjà `position:absolute` — au lieu de coller à CE bouton précis). */
+.shortcuts-module {
+  /* 100% (pas 56px fixe) — 2026-09-13, redimensionnement à la souris
+     redemandé le même jour : la carte peut désormais être élargie via le
+     bord droit (voir dashboard.js makeInteractive edges.right), la colonne
+     doit suivre au lieu de rester bloquée à 56px avec du vide à droite.
+     `align-items: center` garde les icônes centrées dans la largeur
+     disponible plutôt que collées à gauche. `--icon-gap`/`--icon-size`/
+     `--icon-radius` posées par shortcuts.js (ResizeObserver, orientation
+     verticale seulement) — icônes proportionnelles à la largeur de la
+     colonne plutôt que figées à 48px quel que soit l'espace disponible ;
+     valeurs de repli (48px/10px/3px) inchangées pour l'état AVANT le 1er
+     callback de l'observateur et pour l'orientation horizontale (où
+     l'observateur n'est volontairement pas posé, voir shortcuts.js) — repli
+     gap 4px→3px (2026-09-13, sur demande explicite, "trop imposant en
+     hauteur à cause des gaps"), aligné sur la valeur désormais fixe (pas
+     proportionnelle) posée par shortcuts.js pour l'orientation verticale. */
+  width: 100%;
+  align-items: center;
+  padding: var(--icon-gap, 3px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--icon-gap, 3px);
+  border-radius: 10px;
+}
+
+/* Orientation horizontale (2026-09-13, sur demande explicite, toggle
+   Paramètres — voir config.js renderShortcutsConfigSection) — ligne au lieu
+   de colonne, largeur AUTO (voir dashboard.js isAutoWidthKey : la carte
+   s'élargit avec le nombre d'icônes actives, symétrique à la hauteur auto de
+   la colonne verticale par défaut).
+   Espace optimisé (2026-09-13, même jour, 2e demande — capture à l'appui,
+   "trop d'espace vide autour et entre les icônes, même à la taille
+   minimale") — padding/gap PROPRES à ce mode plutôt que d'hériter des
+   valeurs verticales (--icon-gap, pilotées par le ResizeObserver de
+   shortcuts.js, qui ne tourne QUE côté vertical, voir plus haut) : padding
+   asymétrique (4px haut/bas, 6px gauche/droite, demandé tel quel) et gap
+   2px (plus serré que le 3px vertical, icônes quasi jointives demandé
+   explicitement). `justify-content: center` en plus de l'`align-items:
+   center` déjà hérité de la règle de base ci-dessus (qui ne centre que
+   l'axe transversal, vertical ici) — centre aussi l'axe principal
+   (horizontal) pour qu'aucun espace résiduel asymétrique ne subsiste si la
+   carte est un jour plus large que son contenu. */
+.shortcuts-module.horizontal {
+  width: auto;
+  flex-direction: row;
+  padding: 4px 6px;
+  gap: 2px;
+  justify-content: center;
+}
+/* Tooltip repositionné sous le bouton (pas à droite, qui déborderait vite
+   hors de la carte élargie en ligne) — même mécanisme que le tooltip
+   vertical ci-dessous, juste l'axe qui change. */
+.shortcuts-module.horizontal .shortcut-btn::after {
+  left: 50%;
+  top: 60px;
+  transform: translateX(-50%);
+}
+
+.shortcut-btn {
+  position: relative;
+  width: var(--icon-size, 48px);
+  height: var(--icon-size, 48px);
+  border-radius: var(--icon-radius, 10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  border: none;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.shortcut-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.08);
+}
+
+.shortcut-btn:active {
+  transform: scale(0.95);
+}
+
+.shortcut-btn img {
+  width: calc(var(--icon-size, 48px) * 0.62);
+  height: calc(var(--icon-size, 48px) * 0.62);
+  border-radius: calc(var(--icon-radius, 10px) * 0.5);
+}
+
+/* Tooltip au survol — z-index élevé (AJOUTÉ, absent de la demande) : sans
+   lui, le tooltip d'une icône proche du bord de la carte peut passer SOUS
+   une carte voisine positionnée par-dessus (empilement `topZ`/`bringToFront`,
+   voir dashboard.js), le rendant illisible. */
+.shortcut-btn::after {
+  content: attr(data-label);
+  position: absolute;
+  /* left: icône + 12px d'espace (48px+12=60px, valeur d'origine) — recalculé
+     depuis --icon-size (2026-09-13) pour rester collé à l'icône une fois sa
+     taille rendue proportionnelle à la largeur de la colonne. */
+  left: calc(var(--icon-size, 48px) + 12px);
+  z-index: 10;
+  background: #1f2937;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.shortcut-btn:hover::after {
+  opacity: 1;
+}
+
+/* Repli "tout désactivé" (2026-09-13, sur demande explicite) — icône ⚙️ +
+   message en `title` (tooltip natif) plutôt qu'en texte visible : la carte
+   fait 56px de large, une phrase complète ("Activez des raccourcis dans les
+   Paramètres") n'y tiendrait jamais lisiblement. */
+.shortcuts-empty { align-items: center; justify-content: center; }
+.shortcuts-empty-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: help;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* En-tête réduit à un fin bandeau de préhension (2026-09-13, sur demande
+   explicite, "pas de header/titre visible") — `.module-header` reste dans
+   le DOM (icône/titre/badge masqués ci-dessous) plutôt que `display:none` :
+   c'est la zone de glisser-déposer par défaut de TOUS les modules
+   (`allowFrom: '.module-header'`, voir dashboard.js makeInteractive) — la
+   supprimer entièrement aurait rendu la carte impossible à déplacer par ce
+   biais (élargi en plus à `.shortcuts-module` côté JS, mais garder ce
+   bandeau, même minuscule, évite de compter EXCLUSIVEMENT sur cet
+   élargissement). `min-width` sur l'id de carte (spécificité supérieure à
+   `.module-card` générique, 220px) : sans lui la carte ne pourrait jamais
+   descendre sous ce plancher, quelle que soit `defaultSize.w`. */
+#module-shortcuts {
+  min-width: 56px;
+  padding: 0;
+}
+/* Plancher générique `.module-card { min-height: 100px }` bien trop haut
+   pour une simple ligne d'icônes (2026-09-13, sur demande explicite, capture
+   à l'appui — "espace vide résiduel en dessous/au-dessus des icônes à la
+   taille minimale") : 48px d'icône + 2×4px de padding vertical (voir
+   .shortcuts-module.horizontal ci-dessus) ≈ 56px de contenu réel, plancher
+   abaissé en conséquence, scopé au mode horizontal (`:has()`, même
+   convention que la poignée de redimensionnement plus bas) — le vertical
+   n'a pas ce problème, sa hauteur suit déjà son contenu sans jamais
+   descendre sous quelques icônes empilées. */
+#module-shortcuts:has(.shortcuts-module.horizontal) {
+  min-height: 40px;
+}
+#module-shortcuts .module-header {
+  min-height: 6px;
+  padding: 0;
+  margin: 0;
+}
+#module-shortcuts .module-title,
+#module-shortcuts .module-badge {
+  display: none;
+}
+/* Poignée masquée SEULEMENT en orientation horizontale (largeur auto, pilotée
+   par le nombre d'icônes actives — voir dashboard.js isAutoWidthKey, aucun
+   bord ne reste à redimensionner dans ce mode) — en vertical (défaut) la
+   poignée redevient visible, le redimensionnement à la souris ayant été
+   redemandé le 2026-09-13 (même jour que le verrouillage initial 56px).
+   `:has()` supporté par le Chromium embarqué (Electron récent). */
+#module-shortcuts:has(.shortcuts-module.horizontal) .resize-handle {
+  display: none;
+}
+#module-shortcuts .module-content {
+  /* Laisse le tooltip `.shortcut-btn::after` s'échapper hors des 56px de la
+     carte (le générique `.module-content { overflow-x: hidden }` le
+     couperait sinon net à la largeur de la carte). */
+  overflow: visible;
+  padding: 0;
+}
 
 /* Liste à cocher générique "sources" (page Paramètres) — utilisée par les
    sources Sport ET Indices (voir renderer/config.js). N'avait jusqu'ici

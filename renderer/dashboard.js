@@ -80,6 +80,13 @@ const MODULE_REGISTRY = {
   // pas besoin d'un minuteur dédié comme live.js (pas de cadence variable
   // ici).
   somfyTahoma: { label: 'Somfy TaHoma', icon: '🪟', requiresGoogle: false, defaultSize: { w: 320, h: 380 }, refreshMs: 30 * 1000, theme: 'maison' },
+  // Raccourcis Google (2026-09-13, sur demande explicite) — colonne étroite
+  // FIXE (56px, voir isFixedWidthKey/style.css #module-shortcuts) en
+  // orientation verticale (défaut), ligne à largeur AUTO (voir isAutoWidthKey)
+  // en orientation horizontale — bascule ajoutée le même jour, sur demande
+  // explicite. Sans en-tête visible ni rafraîchissement (liens statiques,
+  // rien à recharger).
+  shortcuts: { label: 'Raccourcis', icon: '🔗', requiresGoogle: false, defaultSize: { w: 56, h: 320 }, theme: 'services' },
   // Rappels : la planification/notification tourne côté process main (voir
   // main.js, checkReminders) — ce refreshMs ne sert qu'à réaffichage local
   // (aucun réseau), pour garder à jour le classement aujourd'hui/à venir/en
@@ -190,7 +197,15 @@ const SIZE_ICON_ONLY_MAX_H = 60;
 // les 2 classes sont donc pratiquement toujours posées ensemble à ce stade,
 // gardées séparées simplement pour que .size-icon-only puisse un jour
 // évoluer indépendamment sans dépendre de l'autre seuil.
-function updateSizeTier(card, width, height) {
+// `key` (2026-09-13, sur demande explicite) — Raccourcis (56px de large,
+// largeur FIXE, voir isFixedWidthKey plus bas) tombe TOUJOURS sous
+// SIZE_ICON_ONLY_MAX_W (120px) : sans cette exception, `.size-icon-only`
+// masquerait `.module-content` en ENTIER (voir style.css), donc la totalité
+// des icônes de ce module précis — un module bien plus étroit que le seuil
+// "petite carte générique" par CONCEPTION, pas un cas de rétrécissement
+// accidentel que ces 2 classes sont censées corriger.
+function updateSizeTier(card, width, height, key) {
+  if (isFixedWidthKey(key)) return;
   const compact = width <= SIZE_COMPACT_CONTENT_MAX_W || height <= SIZE_COMPACT_CONTENT_MAX_H;
   const iconOnly = width <= SIZE_ICON_ONLY_MAX_W || height <= SIZE_ICON_ONLY_MAX_H;
   card.classList.toggle('size-compact-content', compact);
@@ -289,7 +304,34 @@ function isAutoHeightKey(key) {
   // plus rien à faire défiler, la carte grandit/rétrécit avec le nombre
   // d'anniversaires à afficher.
   if (key === 'birthdays') return true;
+  // Raccourcis (2026-09-13, sur demande explicite, "hauteur automatique
+  // selon le nombre d'icônes actives") — même mécanisme, hauteur pilotée par
+  // le nombre de boutons réellement affichés (voir shortcuts.js).
+  if (key === 'shortcuts') return true;
   return isPretsKey(key);
+}
+
+// Utilisé pour l'en-tête réduit à un bandeau (allowFrom élargi à
+// .shortcuts-module, voir makeInteractive) et pour exempter ce module du
+// système générique d'auto-rétrécissement (voir updateSizeTier ci-dessus) —
+// PLUS pour verrouiller la largeur en dur : la largeur 56px n'était qu'une
+// taille par défaut, le redimensionnement à la souris a été redemandé le
+// 2026-09-13 (même jour) et réactivé côté bord droit (voir makeInteractive,
+// edges.right, désormais conditionné à isAutoWidthKey, pas à celle-ci).
+function isFixedWidthKey(key) {
+  return key === 'shortcuts';
+}
+
+// Largeur AUTO (2026-09-13, sur demande explicite, bascule d'orientation) —
+// miroir de isAutoHeightKey mais pour l'axe largeur : SEUL Raccourcis en
+// orientation HORIZONTALE (voir config.js renderShortcutsConfigSection,
+// modulesConf ci-dessous pour la config live du module) — la carte s'élargit
+// avec le nombre d'icônes actives au lieu d'une largeur figée. En
+// orientation verticale (défaut), Raccourcis reste à largeur fixe
+// (isFixedWidthKey ci-dessus, inchangé) : les deux fonctions ne sont donc
+// jamais vraies en même temps pour ce module.
+function isAutoWidthKey(key) {
+  return key === 'shortcuts' && modulesConf?.[key]?.config?.orientation === 'horizontal';
 }
 function resolveModuleTitle(key, meta, config) {
   if (isSportsKey(key)) return config?.team?.trim() || meta.label;
@@ -1943,11 +1985,15 @@ function bringToFront(card) {
 function placeCard(card, layout, key) {
   card.style.left = `${layout.x}px`;
   card.style.top = `${layout.y}px`;
-  card.style.width = `${layout.width}px`;
+  // Largeur auto (voir isAutoWidthKey, Raccourcis en horizontal) : vidée
+  // explicitement plutôt que simplement non modifiée, au cas où une bascule
+  // d'orientation en cours de session aurait laissé une largeur figée d'un
+  // rendu précédent (vertical) sur cette même carte.
+  if (isAutoWidthKey(key)) card.style.width = ''; else card.style.width = `${layout.width}px`;
   // Hauteur auto (voir isAutoHeightKey) : ne JAMAIS imposer de hauteur figée
   // en px, sinon la carte resterait bloquée à la dernière valeur enregistrée
   // (ou à defaultSize.h) au lieu de suivre son contenu dès le premier rendu.
-  if (!isAutoHeightKey(key)) card.style.height = `${layout.height}px`;
+  if (!isAutoHeightKey(key)) card.style.height = `${layout.height}px`; else card.style.height = '';
   card.style.zIndex = layout.z || 10;
   card.dataset.x = layout.x;
   card.dataset.y = layout.y;
@@ -1961,7 +2007,7 @@ function placeCard(card, layout, key) {
   // a atteint cette largeur.
   const meta = resolveModuleMeta(key);
   if (meta) card.classList.toggle('module-compact', layout.width < meta.defaultSize.w * 0.85);
-  updateSizeTier(card, layout.width, layout.height);
+  updateSizeTier(card, layout.width, layout.height, key);
 }
 
 function persistLayout(key, card) {
@@ -2087,7 +2133,16 @@ function makeInteractive(card, key, dashboard, canvas) {
 
   interact(card)
     .draggable({
-      allowFrom: '.module-header',
+      // Raccourcis (2026-09-13, sur demande explicite) — pas d'en-tête
+      // visible (réduit à un fin bandeau de préhension, voir style.css
+      // #module-shortcuts .module-header) : `allowFrom` élargi à
+      // `.shortcuts-module` (la colonne d'icônes elle-même) pour que la
+      // carte reste déplaçable malgré tout. Ne casse pas le clic sur une
+      // icône (ouverture du lien) : interact.js ne consomme le clic natif
+      // QUE si le pointeur a dépassé son seuil de déclenchement de glisser
+      // (même principe déjà en place pour les titres de carte cliquables,
+      // voir plus haut `clickable`/`module-title-clickable`).
+      allowFrom: isFixedWidthKey(key) ? '.module-header, .shortcuts-module' : '.module-header',
       // Accrochage à la grille retiré (2026-08-11, sur demande explicite) —
       // placement libre au pixel près, seule la restriction aux bords du
       // dashboard reste active.
@@ -2118,7 +2173,15 @@ function makeInteractive(card, key, dashboard, canvas) {
       // Hauteur auto (voir isAutoHeightKey) : bord bas désactivé, seule la
       // largeur reste redimensionnable à la souris — la hauteur n'a plus de
       // sens à imposer manuellement puisqu'elle suit le contenu.
-      edges: { left: false, top: false, right: '.resize-handle', bottom: isAutoHeightKey(key) ? false : '.resize-handle' },
+      // Raccourcis (2026-09-13, largeur fixe 56px à l'origine, puis
+      // redimensionnement à la souris redemandé le même jour) — bord droit
+      // désormais désactivé UNIQUEMENT en orientation horizontale
+      // (isAutoWidthKey, la largeur y suit le nombre d'icônes actives) ; en
+      // vertical (défaut) le bord droit reste actif comme pour tout autre
+      // module auto-height (ETF/Crypto...), voir style.css .shortcuts-module
+      // width:100% + #module-shortcuts:has(.horizontal) pour le masquage du
+      // bord en horizontal.
+      edges: { left: false, top: false, right: isAutoWidthKey(key) ? false : '.resize-handle', bottom: isAutoHeightKey(key) ? false : '.resize-handle' },
       modifiers: [
         interact.modifiers.restrictSize({
           min: { width: MIN_WIDTH, height: MIN_HEIGHT },
@@ -2144,7 +2207,7 @@ function makeInteractive(card, key, dashboard, canvas) {
           if (!isAutoHeightKey(key)) card.style.height = `${event.rect.height}px`;
           const meta = resolveModuleMeta(key);
           if (meta) card.classList.toggle('module-compact', event.rect.width < meta.defaultSize.w * 0.85);
-          updateSizeTier(card, event.rect.width, event.rect.height);
+          updateSizeTier(card, event.rect.width, event.rect.height, key);
 
           x += event.deltaRect.left;
           y += event.deltaRect.top;

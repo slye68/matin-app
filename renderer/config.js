@@ -66,6 +66,7 @@ const MODULE_META = {
   kasa:       { label: 'TP-Link Kasa', icon: '🔌', requiresGoogle: false, kasaField: true },
   tradfri:    { label: 'IKEA Trådfri', icon: '💡', requiresGoogle: false, tradfriField: true },
   somfyTahoma: { label: 'Somfy TaHoma', icon: '🪟', requiresGoogle: false, somfyTahomaField: true },
+  shortcuts:  { label: 'Raccourcis', icon: '🔗', requiresGoogle: false, shortcutsField: true },
   fglair:     { label: 'Climatisation', icon: '🌡️', requiresGoogle: false, fglairField: true },
   reminders:  { label: 'Rappels',     icon: '⏰', requiresGoogle: false, remindersField: true },
   // 4 modules ajoutés le 2026-08-06 (sur demande explicite)
@@ -193,7 +194,7 @@ const TAB_MODULE_ORDER = {
   // Gmail/Agenda → Services (2026-09-01, 2e demande explicite le même jour)
   // — retirés d'Utile, qui garde Rappels/Météo/Qualité de l'air/Tâches
   // Google/Anniversaires/Alertes/Maps.
-  services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'gmail'],
+  services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'gmail', 'shortcuts'],
   utile:      ['reminders', 'weather', 'airQuality', 'googleTasks', 'birthdays', 'alerts', 'maps'],
 };
 
@@ -1870,10 +1871,14 @@ function createModuleRow(key, mod, meta) {
   }
 
   if (meta.hueField) {
+    wrapper.appendChild(createPersistentPairingStatus('hue.pairedDevices',
+      (d) => `${d.length} lumière(s)/pièce(s) détectée(s) : ${d.map(x => x.name).join(', ')}`));
     wrapper.appendChild(renderHueConfigSection(modulesState[key]));
   }
 
   if (meta.kasaField) {
+    wrapper.appendChild(createPersistentPairingStatus('kasa.devices',
+      (d) => `${d.length} appareil(s) détecté(s) : ${d.map(x => x.alias).join(', ')}`));
     wrapper.appendChild(renderKasaConfigSection(modulesState[key]));
   }
 
@@ -1882,10 +1887,18 @@ function createModuleRow(key, mod, meta) {
   }
 
   if (meta.somfyTahomaField) {
+    wrapper.appendChild(createPersistentPairingStatus('somfy.devices',
+      (d) => `${d.length} volet(s)/store(s) détecté(s) : ${d.map(x => x.label).join(', ')}`));
     wrapper.appendChild(renderSomfyTahomaConfigSection(modulesState[key]));
   }
 
+  if (meta.shortcutsField) {
+    wrapper.appendChild(renderShortcutsConfigSection(modulesState[key]));
+  }
+
   if (meta.fglairField) {
+    wrapper.appendChild(createPersistentPairingStatus('fglair.devices',
+      (d) => `${d.length} climatiseur(s) détecté(s) : ${d.map(x => x.name).join(', ')}`));
     wrapper.appendChild(renderFglairConfigSection(modulesState[key]));
   }
 
@@ -2337,11 +2350,30 @@ function createFdjSubRow(key, mod, meta) {
   return wrapper;
 }
 
+// Sélecteur de jour(s) de tirage joués (2026-09-13, sur demande explicite) —
+// "par défaut, tous les jours cochés, comportement actuel conservé" :
+// initialise `gameConfig.playDays` à TOUS les jours de tirage du jeu
+// (`game.drawDays`) si absent/vide, jamais à un sous-ensemble arbitraire.
+function ensureFdjPlayDays(game, gameConfig) {
+  if (!Array.isArray(gameConfig.playDays) || !gameConfig.playDays.length) {
+    gameConfig.playDays = [...game.drawDays];
+  }
+}
+
 function renderFdjGameConfig(game, gameConfig) {
+  ensureFdjPlayDays(game, gameConfig);
+
   const section = document.createElement('div');
   section.className = 'fdj-config-game';
+  const dayPillsHtml = game.drawDays.map((d) => `
+    <button type="button" class="fdj-day-pill ${gameConfig.playDays.includes(d) ? 'active' : ''}" data-day="${d}">${window.FdjGames.DAY_LABELS[d]}</button>
+  `).join('');
   section.innerHTML = `
     <div class="fdj-config-game-title">${game.icon} ${game.label.toUpperCase()}</div>
+    <div class="fdj-config-subsection">
+      <div class="fdj-config-subtitle">Jours joués</div>
+      <div class="fdj-day-pills">${dayPillsHtml}</div>
+    </div>
     <div class="fdj-config-subsection">
       <div class="fdj-config-subtitle">Mes grilles (max ${window.FdjGames.MAX_GRIDS})</div>
       <div class="fdj-config-grids-list"></div>
@@ -2354,6 +2386,26 @@ function renderFdjGameConfig(game, gameConfig) {
       <button type="button" class="etf-add-line-btn fdj-add-code-btn">+ Ajouter un code</button>
     </div>` : ''}
   `;
+
+  // Au moins 1 jour doit rester coché (ajout au-delà de la demande littérale)
+  // — un sous-ensemble VIDE bloquerait `getLastPlayedDraw` (fdj-common.js)
+  // dans une impasse permanente ("Aucun tirage disponible"), jamais demandé
+  // explicitement mais un état sans issue qu'aucune pill ne pourrait
+  // corriger seule (tout décocher laisserait 0 jour, jamais 0 rendu possible
+  // à re-cocher depuis un état qui n'affiche déjà plus rien d'utile).
+  section.querySelectorAll('.fdj-day-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const day = Number(pill.dataset.day);
+      const isSelected = gameConfig.playDays.includes(day);
+      if (isSelected) {
+        if (gameConfig.playDays.length <= 1) return;
+        gameConfig.playDays = gameConfig.playDays.filter((d) => d !== day);
+      } else {
+        gameConfig.playDays = [...gameConfig.playDays, day];
+      }
+      pill.classList.toggle('active', !isSelected);
+    });
+  });
 
   const gridsListEl = section.querySelector('.fdj-config-grids-list');
   const addGridBtn = section.querySelector('.fdj-add-grid-btn');
@@ -2893,6 +2945,53 @@ function renderYoutubeConfigSection(mod) {
   return collapsible.wrap;
 }
 
+// ─── Statut d'appairage TOUJOURS visible (2026-09-13, sur demande explicite)
+// ─────────────────────────────────────────────────────────────────────────
+// Bug signalé : le statut d'appairage Hue/Kasa/TaHoma/FGLair disparaît des
+// Paramètres quand le module est désactivé (ou, croit l'utilisateur, au
+// changement de profil — en réalité les profils ne touchent jamais `config`
+// ni les clés electron-store globales ci-dessous, voir main.js
+// snapshotModuleStates/applyModuleStatesSection : seuls `enabled`/`layout`
+// sont capturés par profil). La VRAIE cause est CSS : `.module-config-field`
+// (où vivait jusqu'ici tout statut, y compris de simples messages "X trouvés")
+// est un enfant DIRECT de `.module-row-wrap`, entièrement masqué par
+// `.module-row-wrap.module-disabled > *:not(.module-row) { display: none }`
+// (voir config.html) dès que le module est désactivé — aucun style posé sur
+// un enfant ne peut annuler un `display:none` hérité d'un ANCÊTRE masqué.
+// Cet élément-ci est donc un enfant direct de `.module-row-wrap` LUI AUSSI
+// (ajouté par le même appelant, createModuleRow, JUSTE AVANT le
+// `.module-config-field` correspondant — jamais nichée dedans), avec sa
+// propre classe `.module-pairing-status` explicitement EXEMPTÉE de ce
+// masquage (voir la règle dédiée dans config.html, plus spécifique et
+// déclarée après la règle générique). Lecture PASSIVE de la clé
+// electron-store GLOBALE fournie (`storeKey`) — jamais un nouvel appel
+// réseau depuis Paramètres (demandé explicitement, "ne pas relancer la
+// détection automatiquement") : affiche ce qui a déjà été détecté lors du
+// dernier appairage réussi (dashboard ou bouton "Découvrir"/"Rechercher" de
+// Paramètres, voir main.js hueCacheDevices/kasa:discover/tahoma:discover/
+// fglair:getDevices, qui écrivent tous cette même clé après chaque succès).
+function createPersistentPairingStatus(storeKey, formatFn) {
+  const el = document.createElement('p');
+  el.className = 'module-pairing-status';
+  el.textContent = 'Chargement du statut…';
+
+  window.matin.store.get(storeKey).then((list) => {
+    const devices = Array.isArray(list) ? list : [];
+    if (devices.length) {
+      el.textContent = `✅ ${formatFn(devices)}`;
+      el.classList.add('module-pairing-status-ok');
+    } else {
+      el.textContent = 'Aucun appareil détecté — lancez une recherche ci-dessous.';
+      el.classList.remove('module-pairing-status-ok');
+    }
+  }).catch((err) => {
+    console.error(`[Config] Lecture du statut d'appairage (${storeKey}) échouée`, err);
+    el.textContent = 'Statut indisponible.';
+  });
+
+  return el;
+}
+
 // ─── Philips Hue — pont local OU compte cloud (2026-08-31, sur demande
 // explicite, support des ampoules Hue de nouvelle génération SANS pont) ────
 // `cfg.mode` ("bridge"/"cloud") détermine QUELLE section est visible/utilisée
@@ -3181,6 +3280,7 @@ function renderFglairConfigSection(mod) {
     <button type="button" class="fglair-test-btn etf-add-line-btn">Tester la connexion</button>
     <p class="hue-config-status" data-status="fglair"></p>
     <p class="hue-config-hint">Les climatiseurs de votre compte FGLair sont détectés automatiquement — aucune saisie manuelle nécessaire.</p>
+    <div class="fglair-devices-list"></div>
   `;
 
   const emailInput = wrap.querySelector('.fglair-email-input');
@@ -3188,6 +3288,7 @@ function renderFglairConfigSection(mod) {
   const toggleBtn = wrap.querySelector('.fglair-password-toggle');
   const testBtn = wrap.querySelector('.fglair-test-btn');
   const statusEl = wrap.querySelector('[data-status="fglair"]');
+  const devicesListEl = wrap.querySelector('.fglair-devices-list');
 
   emailInput.addEventListener('input', (e) => { cfg.email = e.target.value.trim(); });
   passwordInput.addEventListener('input', (e) => { cfg.password = e.target.value; });
@@ -3198,6 +3299,65 @@ function renderFglairConfigSection(mod) {
     toggleBtn.classList.toggle('active', !revealed);
   });
 
+  // Nom personnalisé par appareil (2026-09-13, sur demande explicite) —
+  // "AC000W011647439 → [ Salon ] ✏️". Réutilise window.matin.fglair.
+  // getDevices() (déjà utilisée par le module lui-même) plutôt qu'un canal
+  // dédié : ne touche ni à l'authentification ni aux appels API, comme
+  // demandé — cette fonction ne fait QU'afficher/renommer le résultat déjà
+  // renvoyé par cet appel existant.
+  async function loadDeviceNames() {
+    if (!cfg.email || !cfg.password) { devicesListEl.innerHTML = ''; return; }
+    devicesListEl.innerHTML = '<p class="hue-config-hint">Récupération des appareils…</p>';
+    try {
+      const devices = await window.matin.fglair.getDevices();
+      if (!devices.length) {
+        devicesListEl.innerHTML = '<p class="hue-config-hint">Aucun appareil détecté pour l\'instant.</p>';
+        return;
+      }
+      devicesListEl.innerHTML = devices.map((d) => `
+        <div class="hue-config-row fglair-device-name-row" data-dsn="${d.dsn}">
+          <label title="${d.dsn}">${d.dsn}</label>
+          <input type="text" class="fglair-device-name-input" placeholder="Nom affiché (ex. Salon)" value="${d.customName || ''}">
+          <button type="button" class="fglair-device-name-save">OK</button>
+        </div>`).join('');
+      // Bouton "OK" → coche verte 2s (2026-09-13, sur demande explicite) —
+      // ÉCART assumé : les classes/sélecteurs `.fglair-name-input`/
+      // `.fglair-name-ok`/`.edit-icon` de la demande n'existent pas dans le
+      // gabarit RÉEL (ci-dessus, déjà câblé sous `.fglair-device-name-input`/
+      // `.fglair-device-name-save`, ajoutés à la demande précédente) —
+      // réutilisés tels quels plutôt que d'introduire des classes en double.
+      // Couleur/graisse de la coche pilotées par une classe CSS
+      // (`.fglair-device-name-save.saved`, voir style.css) plutôt que du
+      // `style.color`/`style.fontWeight` inline, seule adaptation au
+      // pseudocode donné — cohérent avec le reste de ce fichier, qui ne pose
+      // jamais de style inline pour un simple retour visuel temporaire.
+      devicesListEl.querySelectorAll('.fglair-device-name-row').forEach((row) => {
+        const dsn = row.dataset.dsn;
+        const nameInput = row.querySelector('.fglair-device-name-input');
+        const okBtn = row.querySelector('.fglair-device-name-save');
+        okBtn.addEventListener('click', async () => {
+          const name = nameInput.value.trim();
+          if (!name) return; // demandé explicitement : rien ne se passe sur un champ vide
+          try {
+            await window.matin.fglair.setDeviceName(dsn, name);
+            okBtn.textContent = '✓';
+            okBtn.classList.add('saved');
+            setTimeout(() => {
+              okBtn.textContent = 'OK';
+              okBtn.classList.remove('saved');
+            }, 2000);
+          } catch (err) {
+            console.warn('[Config] Échec renommage appareil FGLair', err);
+          }
+        });
+      });
+    } catch (err) {
+      devicesListEl.innerHTML = `<p class="hue-config-hint">Impossible de récupérer les appareils : ${err.message}</p>`;
+      console.warn('[Config] Échec récupération des appareils FGLair pour renommage', err);
+    }
+  }
+  loadDeviceNames();
+
   testBtn.addEventListener('click', async () => {
     if (!cfg.email || !cfg.password) {
       statusEl.textContent = 'Renseignez l\'email et le mot de passe avant de tester.';
@@ -3207,6 +3367,7 @@ function renderFglairConfigSection(mod) {
     try {
       await window.matin.fglair.testConnection(cfg.email, cfg.password);
       statusEl.textContent = '✓ Connexion réussie.';
+      loadDeviceNames(); // identifiants tout juste validés : autant lister les appareils tout de suite
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
       console.warn('[Config] Test de connexion FGLair échoué', err);
@@ -3282,6 +3443,61 @@ function renderSomfyTahomaConfigSection(mod) {
       discoverBtn.disabled = false;
       discoverBtn.textContent = originalLabel;
     }
+  });
+
+  return wrap;
+}
+
+// ─── Raccourcis Google (2026-09-13, sur demande explicite) ─────────────────
+// Un toggle PAR SERVICE (voir shortcuts-defs.js ShortcutsDefs, partagé avec
+// le rendu dashboard) — `config.visible` est un OBJET `{id: bool}` (demandé
+// explicitement tel quel, PAS un tableau d'ids comme `config.selected` pour
+// Indices) : chaque toggle écrit directement sa propre clé plutôt que de
+// reconstruire tout l'objet à chaque changement.
+function renderShortcutsConfigSection(mod) {
+  if (!mod.config) mod.config = {};
+  if (!mod.config.visible || typeof mod.config.visible !== 'object') {
+    mod.config.visible = Object.fromEntries(window.ShortcutsDefs.map(s => [s.id, true]));
+  }
+  // 'vertical' (défaut) | 'horizontal' — voir shortcuts.js render() et
+  // style.css .shortcuts-module.horizontal.
+  if (mod.config.orientation !== 'horizontal' && mod.config.orientation !== 'vertical') {
+    mod.config.orientation = 'vertical';
+  }
+  const visible = mod.config.visible;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field shortcuts-config-field';
+  wrap.innerHTML = `
+    <div class="shortcuts-orientation-row">
+      <span class="indices-toggle-label">Position verticale</span>
+      <label class="toggle toggle-green">
+        <input type="checkbox" class="shortcuts-orientation-checkbox" ${mod.config.orientation === 'horizontal' ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="indices-toggle-label">Position horizontale</span>
+    </div>
+    <div class="indices-toggle-list shortcuts-toggle-list"></div>
+  `;
+
+  const orientationCb = wrap.querySelector('.shortcuts-orientation-checkbox');
+  orientationCb.addEventListener('change', (e) => {
+    mod.config.orientation = e.target.checked ? 'horizontal' : 'vertical';
+  });
+
+  const listEl = wrap.querySelector('.indices-toggle-list');
+  listEl.innerHTML = window.ShortcutsDefs.map(s => `
+    <div class="indices-toggle-row">
+      <span class="indices-toggle-label">${s.label}</span>
+      <label class="toggle">
+        <input type="checkbox" class="shortcuts-visible-checkbox" value="${s.id}" ${visible[s.id] !== false ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.shortcuts-visible-checkbox').forEach((cb) => {
+    cb.addEventListener('change', (e) => { visible[e.target.value] = e.target.checked; });
   });
 
   return wrap;
@@ -3414,6 +3630,8 @@ function renderIndicesConfigSection(mod) {
   wrap.innerHTML = `
     <label>Indices à afficher</label>
     <div class="indices-toggle-list"></div>
+    <label>Crypto à afficher</label>
+    <div class="indices-toggle-list indices-crypto-toggle-list"></div>
   `;
 
   const listEl = wrap.querySelector('.indices-toggle-list');
@@ -3437,6 +3655,29 @@ function renderIndicesConfigSection(mod) {
     mod.config.selected = Array.from(listEl.querySelectorAll('.indices-source-checkbox:checked')).map(el => el.value);
   };
   listEl.querySelectorAll('.indices-source-checkbox').forEach(cb => cb.addEventListener('change', syncSelected));
+
+  // Crypto (2026-09-13, sur demande explicite) — toggle PAR ACTIF, même
+  // mécanisme que les indices boursiers ci-dessus mais sur sa PROPRE clé
+  // `config.selectedCrypto` (voir indices-defs.js IndicesCryptoDefs/
+  // indices.js) : une sélection distincte, comme la sous-section d'affichage
+  // elle-même est distincte des indices boursiers.
+  const cryptoListEl = wrap.querySelector('.indices-crypto-toggle-list');
+  const selectedCrypto = new Set(Array.isArray(mod.config.selectedCrypto) ? mod.config.selectedCrypto : window.IndicesCryptoDefs.map(d => d.id));
+
+  cryptoListEl.innerHTML = window.IndicesCryptoDefs.map(d => `
+    <div class="indices-toggle-row">
+      <span class="indices-toggle-label">${d.icon} ${d.name}${d.name !== d.ticker ? ` (${d.ticker})` : ''}</span>
+      <label class="toggle">
+        <input type="checkbox" class="indices-crypto-checkbox" value="${d.id}" ${selectedCrypto.has(d.id) ? 'checked' : ''}>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  `).join('');
+
+  const syncSelectedCrypto = () => {
+    mod.config.selectedCrypto = Array.from(cryptoListEl.querySelectorAll('.indices-crypto-checkbox:checked')).map(el => el.value);
+  };
+  cryptoListEl.querySelectorAll('.indices-crypto-checkbox').forEach(cb => cb.addEventListener('change', syncSelectedCrypto));
 
   return wrap;
 }

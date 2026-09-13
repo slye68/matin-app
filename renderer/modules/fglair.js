@@ -38,12 +38,15 @@ const FGLAIR_MAX_TEMP = 30;
 const FGLAIR_DEFAULT_ON_MODE = 3;
 
 // Valeurs vérifiées contre pyfujitsu (voir en-tête de fichier) — PAS celles
-// données dans la demande d'origine.
+// données dans la demande d'origine. `className` (2026-09-13, sur demande
+// explicite, redesign des boutons) — un nom par mode pour cibler chacun
+// individuellement en CSS (couleur dégradé + relief distincts), voir
+// style.css `.fglair-mode-btn.froid/.chaud/.vent/.auto`.
 const FGLAIR_MODES = [
-  { value: 3, label: 'Froid', icon: '❄️' },
-  { value: 6, label: 'Chaud', icon: '🔥' },
-  { value: 5, label: 'Vent.', icon: '💨' },
-  { value: 2, label: 'Auto', icon: '♻️' },
+  { value: 3, label: 'Froid', icon: '❄️', className: 'froid' },
+  { value: 6, label: 'Chaud', icon: '🔥', className: 'chaud' },
+  { value: 5, label: 'Vent.', icon: '💨', className: 'vent' },
+  { value: 2, label: 'Auto', icon: '♻️', className: 'auto' },
 ];
 const FGLAIR_FAN_SPEEDS = [
   { value: 4, label: 'Auto' },
@@ -65,20 +68,38 @@ function fglairPropMap(props) {
   return map;
 }
 
+// Température ambiante affichée SEULEMENT si valide et l'appareil allumé
+// (2026-09-13, sur demande explicite, "ne pas afficher Ambiant : 715°C") —
+// ÉCART assumé : la demande teste `operation_status === 0` pour "éteint",
+// mais cette propriété N'EXISTE PAS (voir en-tête de fichier/main.js, écart
+// déjà signalé au moment de l'implémentation initiale) — remplacé par `isOn`
+// (dérivé de `operation_mode`, déjà calculé partout ailleurs dans ce
+// fichier), même logique métier ("rien si éteint").
+function fglairDisplayTemp(value, isOn) {
+  if (!isOn) return '';
+  if (value == null) return '';
+  if (value > 60 || value < -10) return '';
+  return `Ambiant : ${value}°C`;
+}
+
 function fglairDeviceCardHtml(device, propMap) {
   const modeValue = propMap.operation_mode?.value ?? 0;
   const isOn = modeValue !== 0;
+  // Nom personnalisé (2026-09-13, sur demande explicite) — repli sur le DSN
+  // technique (PAS `product_name`, voir main.js fglair:getDevices) tant
+  // qu'aucun nom n'a été enregistré dans Paramètres.
+  const displayName = device.customName || device.dsn;
 
   const targetRaw = propMap.adjust_temperature?.value;
   const targetTemp = targetRaw != null ? Math.round(targetRaw / 10) : null;
-  // display_temperature — NON VÉRIFIÉE, voir en-tête de fichier. Repli "—"
-  // silencieux si absente plutôt que casser l'affichage de la carte.
+  // display_temperature — NON VÉRIFIÉE, voir en-tête de fichier.
   const ambientRaw = propMap.display_temperature?.value;
   const ambientTemp = ambientRaw != null ? Math.round(ambientRaw / 10) : null;
+  const ambientLabel = fglairDisplayTemp(ambientTemp, isOn);
   const fanValue = propMap.fan_speed?.value;
 
   const modesHtml = FGLAIR_MODES.map(m => `
-    <button type="button" class="fglair-mode-btn ${isOn && modeValue === m.value ? 'active' : ''}" data-mode="${m.value}">${m.icon} ${m.label}</button>
+    <button type="button" class="fglair-mode-btn ${m.className} ${isOn && modeValue === m.value ? 'active' : ''}" data-mode="${m.value}">${m.icon} ${m.label}</button>
   `).join('');
 
   const fanOptionsHtml = FGLAIR_FAN_SPEEDS.map(f => `
@@ -88,8 +109,8 @@ function fglairDeviceCardHtml(device, propMap) {
   return `
     <div class="fglair-card ${isOn ? '' : 'fglair-card-off'}" data-dsn="${device.dsn}">
       <div class="fglair-card-header">
-        <span class="fglair-card-title">🌡️ ${device.name}</span>
-        <span class="fglair-card-ambient">${ambientTemp != null ? `Ambiant : ${ambientTemp}°C` : ''}</span>
+        <span class="fglair-card-title">🌡️ ${displayName}</span>
+        <span class="fglair-card-ambient">${ambientLabel}</span>
       </div>
       <div class="fglair-mode-row">${modesHtml}</div>
       <div class="fglair-temp-row">
@@ -127,10 +148,24 @@ window.MatinModules.fglair = {
       const cardEl = container.querySelector(`.fglair-card[data-dsn="${dsn}"]`);
       if (!entry || !cardEl) return;
       const wrapper = document.createElement('div');
-      wrapper.innerHTML = fglairDeviceCardHtml({ dsn, name: entry.name }, entry.props);
+      wrapper.innerHTML = fglairDeviceCardHtml({ dsn, name: entry.name, customName: entry.customName }, entry.props);
       cardEl.replaceWith(wrapper.firstElementChild);
       bindCard(dsn);
     }
+
+    // Nom personnalisé changé depuis Paramètres (2026-09-13, sur demande
+    // explicite, "changer le nom directement, sans enregistrer les
+    // paramètres et refresh l'app") — met juste à jour le cache local + la
+    // carte déjà affichée, sans re-fetch réseau ni rechargement de page.
+    // `onDeviceRenamed` (preload.js) retire déjà tout listener précédent
+    // avant d'ajouter celui-ci, donc pas de doublon si `render()` est
+    // ré-exécuté (bouton "Actualiser").
+    window.matin.fglair.onDeviceRenamed(({ dsn, customName }) => {
+      const entry = deviceCache.get(dsn);
+      if (!entry) return;
+      entry.customName = customName;
+      rerenderCard(dsn);
+    });
 
     // Envoie UNE commande — retrouve le `key` numérique de cette propriété
     // POUR CET APPAREIL dans le cache (voir en-tête de fichier, écart #3) ;
@@ -197,7 +232,7 @@ window.MatinModules.fglair = {
             console.warn(`[FGLair] Propriétés indisponibles pour ${devices[i].dsn}`, r.reason?.message);
             return '';
           }
-          deviceCache.set(r.value.device.dsn, { name: r.value.device.name, props: r.value.propMap });
+          deviceCache.set(r.value.device.dsn, { name: r.value.device.name, customName: r.value.device.customName, props: r.value.propMap });
           return fglairDeviceCardHtml(r.value.device, r.value.propMap);
         }).join('');
 

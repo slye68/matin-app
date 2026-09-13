@@ -206,6 +206,22 @@ const DEFAULT_MODULES = {
   // gatewayIp/identity/psk pour Trådfri ci-dessus) : voir
   // renderSomfyTahomaConfigSection (config.js).
   somfyTahoma: { enabled: false, position: 26, config: { ip: '', token: '' } },
+  // Raccourcis Google (2026-09-13, sur demande explicite) — pas de compte/
+  // appairage, juste des liens fixes (voir renderer/modules/shortcuts-defs.js
+  // pour la liste, chargée par index.html ET config.html comme IndicesDefs/
+  // FdjGames) : `visible` par service, tout à `true` par défaut (`enabled:
+  // false` quand même, comme les autres modules "sans rien à configurer"
+  // avant leur 1ère activation, ex. Kasa/FGLair ci-dessus). `orientation`
+  // (2026-09-13, sur demande explicite) : colonne verticale par défaut,
+  // bascule possible en ligne horizontale (voir config.js
+  // renderShortcutsConfigSection, dashboard.js isAutoWidthKey).
+  shortcuts: {
+    enabled: false, position: 27,
+    config: {
+      visible: { gmail: true, drive: true, youtube: true, calendar: true, photos: true, maps: true },
+      orientation: 'vertical',
+    },
+  },
   // YouTube Notifications (2026-08-15, sur demande explicite) — `channels`
   // saisis par l'utilisateur en Paramètres → Services (résolution d'ID via
   // l'API Search, voir config.js renderYoutubeConfigSection), `lastCheckSlot`
@@ -2335,6 +2351,32 @@ function fdjNoCacheFetch(url) {
   });
 }
 
+// Diagnostic (2026-09-13, sur demande explicite, "⚠ Données non disponibles"
+// systématique signalé) — adapté à la VRAIE forme d'une erreur `fetch()`
+// Node/Electron ici (process MAIN, pas une requête XHR de navigateur) :
+// `err.status`/`err.statusCode` du pseudocode fourni n'existent PAS sur une
+// erreur `fetch()` qui échoue avant réponse (refus réseau, DNS, timeout) —
+// ces champs n'existent QUE sur l'objet `Response` quand `res.ok` est faux,
+// déjà géré séparément ci-dessous (`if (!res.ok) throw ...`). Le vrai détail
+// utile d'un échec réseau vit dans `err.cause` (code Node bas niveau, ex.
+// ENOTFOUND/ECONNREFUSED/ETIMEDOUT) — logué ICI (process main, terminal
+// `npm run dev`) ET injecté dans le message de l'erreur relancée : une
+// erreur qui traverse l'IPC main→renderer ne conserve fiablement QUE
+// `.message` (`ipcMain.handle` sérialise l'erreur, `.cause`/propriétés
+// custom ne survivent pas garanties) — sans ça, la console DevTools du
+// renderer (là où la demande dit de regarder) n'aurait vu qu'un message
+// générique, jamais la vraie cause.
+function logFdjFetchError(context, err) {
+  console.error(
+    `[FDJ] Erreur réseau — ${context} :`,
+    'message=', err?.message,
+    '| code=', err?.code || err?.cause?.code,
+    '| cause=', err?.cause?.message || err?.cause,
+    '| name=', err?.name,
+  );
+  console.error('[FDJ] Objet erreur complet :', err);
+}
+
 const FDJ_CSV_URLS = {
   loto:         'https://www.mes-resultats-fdj.fr/api/telecharger/loto',
   euromillions: 'https://www.mes-resultats-fdj.fr/api/telecharger/euromillions',
@@ -2485,19 +2527,76 @@ ipcMain.handle('fdj:fetchLatestDraw', async (_e, game) => {
         console.warn(`[FDJ] ${game} — motif de la page d'accueil introuvable, repli sur le CSV`);
       }
     } catch (err) {
-      console.warn(`[FDJ] ${game} — page d'accueil indisponible, repli sur le CSV`, err);
+      logFdjFetchError(`fetchLatestDraw page d'accueil ${game}`, err);
+      console.warn(`[FDJ] ${game} — page d'accueil indisponible, repli sur le CSV`);
     }
   }
 
   const url = FDJ_CSV_URLS[game];
   if (!url) throw new Error(`Jeu FDJ inconnu : ${game}`);
-  const res = await fdjNoCacheFetch(url);
-  if (!res.ok) throw new Error(`FDJ ${game} inaccessible (${res.status})`);
-  const text = await res.text();
-  const row = parseFdjLatestRow(text);
-  if (!row) throw new Error(`CSV FDJ ${game} vide ou invalide`);
-  console.log(`[FDJ] ${game} — tirage lu depuis le CSV, date ${row.date}`);
-  return row;
+  try {
+    const res = await fdjNoCacheFetch(url);
+    if (!res.ok) throw new Error(`FDJ ${game} inaccessible (${res.status})`);
+    const text = await res.text();
+    const row = parseFdjLatestRow(text);
+    if (!row) throw new Error(`CSV FDJ ${game} vide ou invalide`);
+    console.log(`[FDJ] ${game} — tirage lu depuis le CSV, date ${row.date}`);
+    return row;
+  } catch (err) {
+    logFdjFetchError(`fetchLatestDraw CSV ${game}`, err);
+    // Le code réseau bas niveau (`err.cause.code`, ex. ENOTFOUND/ETIMEDOUT)
+    // ne survit PAS à la sérialisation IPC main→renderer (seul `.message`
+    // est garanti) — on l'intègre donc directement dans le message pour
+    // qu'il reste visible dans la console DevTools du renderer, là où la
+    // consigne demande de le lire.
+    const detail = err?.cause?.code ? ` [${err.cause.code}]` : '';
+    throw new Error(`${err?.message || 'Erreur réseau FDJ'}${detail}`);
+  }
+});
+
+// Plusieurs tirages récents (2026-09-13, sur demande explicite — sélecteur
+// de jour(s) de tirage joués) — `parseFdjLatestRow` ci-dessus s'arrête
+// délibérément à la 2e ligne (choix de perf, voir son commentaire),
+// insuffisant dès qu'il faut choisir, PARMI plusieurs tirages récents, celui
+// tombé un jour précis. TOUJOURS la source CSV (jamais la page d'accueil
+// utilisée ci-dessus en priorité pour Loto/EuroMillions) : cette dernière
+// n'expose QUE le tout dernier tirage, aucun historique, elle ne peut donc
+// jamais répondre à "le dernier tirage d'un jour précis" si ce jour n'est
+// pas celui du tout dernier tirage réel.
+function parseFdjRecentRows(csvText, count) {
+  const clean = csvText.charCodeAt(0) === 0xFEFF ? csvText.slice(1) : csvText;
+  const lines = clean.split('\n');
+  const headerLine = (lines[0] || '').trim();
+  if (!headerLine) return [];
+  const headers = headerLine.split(';').map(h => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length && rows.length < count; i++) {
+    const dataLine = lines[i].trim();
+    if (!dataLine) continue;
+    const values = dataLine.split(';').map(v => v.trim());
+    const row = {};
+    headers.forEach((h, j) => { row[h] = values[j]; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+ipcMain.handle('fdj:fetchRecentDraws', async (_e, { game, count }) => {
+  const url = FDJ_CSV_URLS[game];
+  if (!url) throw new Error(`Jeu FDJ inconnu : ${game}`);
+  try {
+    const res = await fdjNoCacheFetch(url);
+    if (!res.ok) throw new Error(`FDJ ${game} inaccessible (${res.status})`);
+    const text = await res.text();
+    const rows = parseFdjRecentRows(text, count || 12);
+    if (!rows.length) throw new Error(`CSV FDJ ${game} vide ou invalide`);
+    console.log(`[FDJ] ${game} — ${rows.length} tirage(s) récent(s) lu(s) depuis le CSV (dernier : ${rows[0].date})`);
+    return rows;
+  } catch (err) {
+    logFdjFetchError(`fetchRecentDraws CSV ${game}`, err);
+    const detail = err?.cause?.code ? ` [${err.cause.code}]` : '';
+    throw new Error(`${err?.message || 'Erreur réseau FDJ'}${detail}`);
+  }
 });
 
 // Codes gagnants (Loto Gagnant / MyMillion) — absents du CSV ci-dessus (aucune
@@ -2590,12 +2689,28 @@ ipcMain.handle('hue:pair', async (_e, bridgeIp) => {
   return entry.success.username;
 });
 
+// `hue.pairedDevices` (2026-09-13, sur demande explicite — bug signalé : le
+// statut d'appairage Hue/Kasa/TaHoma/FGLair disparaît des Paramètres au
+// désactivé/changement de profil) — clé GLOBALE, écrite après CHAQUE appel
+// réussi (pont local ci-dessous ET compte cloud, voir hue:cloudGetGroups plus
+// bas, même clé pour les 2 modes), jamais réinitialisée par un profil (voir
+// snapshotModuleStates/applyModuleStatesSection, qui ne touchent QUE enabled/
+// layout — `config`/ces clés globales n'ont d'ailleurs jamais été concernés
+// par un changement de profil, la disparition observée venait du rendu
+// Paramètres lui-même, voir renderHueConfigSection dans config.js). Permet à
+// Paramètres d'afficher "N lumière(s)/pièce(s)" au chargement SANS relancer
+// de requête réseau (lecture passive de cette clé, jamais un nouvel appel
+// hue:getGroups depuis Paramètres).
+function hueCacheDevices(list) {
+  safeStoreSet('hue.pairedDevices', list.map(g => ({ id: g.id, name: g.name, type: g.type })));
+}
+
 ipcMain.handle('hue:getGroups', async (_e, { bridgeIp, username }) => {
   const res = await fetch(`http://${bridgeIp}/api/${username}/groups`);
   if (!res.ok) throw new Error(`Pont injoignable (${res.status})`);
   const data = await res.json();
   if (Array.isArray(data) && data[0]?.error) throw new Error(data[0].error.description || 'Erreur du pont');
-  return Object.entries(data).map(([id, g]) => ({
+  const groups = Object.entries(data).map(([id, g]) => ({
     id,
     name: g.name,
     type: g.type,
@@ -2603,6 +2718,8 @@ ipcMain.handle('hue:getGroups', async (_e, { bridgeIp, username }) => {
     allOn: !!g.state?.all_on,
     bri: g.action?.bri ?? 254,
   }));
+  hueCacheDevices(groups);
+  return groups;
 });
 
 ipcMain.handle('hue:setGroupState', async (_e, { bridgeIp, username, groupId, state }) => {
@@ -2677,7 +2794,7 @@ ipcMain.handle('hue:cloudGetGroups', async () => {
   // Échelle de luminosité CLIP v2 (0-100%) reconvertie vers l'échelle 0-254
   // du pont local, déjà utilisée par le reste de ce module/hue.js — pour que
   // le renderer manipule TOUJOURS la même échelle, peu importe le mode.
-  return items.map((g) => ({
+  const groups = items.map((g) => ({
     id: g.id,
     name: g.metadata?.name || 'Groupe',
     type: 'cloud',
@@ -2685,6 +2802,8 @@ ipcMain.handle('hue:cloudGetGroups', async () => {
     allOn: !!g.on?.on,
     bri: Math.round((g.dimming?.brightness ?? 100) * 2.54),
   }));
+  hueCacheDevices(groups); // même cache global que le mode pont, voir hue:getGroups plus haut
+  return groups;
 });
 
 ipcMain.handle('hue:cloudSetGroupState', async (_e, { groupId, state }) => {
@@ -3027,7 +3146,49 @@ ipcMain.handle('fglair:getDevices', async () => {
   const res = await fglairAuthedFetch('/devices.json');
   if (!res.ok) throw new Error(`Échec récupération des appareils (HTTP ${res.status})`);
   const data = await res.json();
-  return (data || []).map(d => ({ dsn: d.device?.dsn, name: d.device?.product_name || d.device?.dsn || '?' }));
+  // `customName` (2026-09-13, sur demande explicite, "nom personnalisé") —
+  // PRÉSERVÉ d'un appel à l'autre : l'API Ayla n'a aucune notion de nom
+  // personnalisé, cet appel ÉCRASAIT jusqu'ici `fglair.devices` en entier à
+  // chaque découverte, perdant tout nom déjà enregistré. Fusion sur `dsn`
+  // AVANT réécriture — n'affecte ni l'appel réseau ci-dessus ni
+  // fglairLogin/fglairAuthedFetch, comme demandé explicitement ("ne pas
+  // toucher à la logique d'authentification ni aux appels API").
+  const previousByDsn = new Map((store.get('fglair.devices') || []).map(d => [d.dsn, d]));
+  const devices = (data || []).map(d => {
+    const dsn = d.device?.dsn;
+    return {
+      dsn,
+      name: d.device?.product_name || dsn || '?',
+      customName: previousByDsn.get(dsn)?.customName || '',
+    };
+  });
+  safeStoreSet('fglair.devices', devices);
+  return devices;
+});
+
+// Renomme un appareil (2026-09-13, sur demande explicite) — champ purement
+// LOCAL à Matin, jamais envoyé à l'API Ayla : ne touche QUE `fglair.devices`,
+// jamais fglairLogin/fglairAuthedFetch/les endpoints properties/datapoints
+// ci-dessus.
+ipcMain.handle('fglair:setDeviceName', (_e, { dsn, customName }) => {
+  const devices = store.get('fglair.devices') || [];
+  const device = devices.find((d) => d.dsn === dsn);
+  if (!device) return false;
+  device.customName = (customName || '').trim();
+  safeStoreSet('fglair.devices', devices);
+  // Diffusion IMMÉDIATE vers le dashboard (2026-09-13, sur demande explicite
+  // — "changer le nom dans le module directement, sans enregistrer les
+  // paramètres et refresh l'app") — même mécanisme que theme:updated/
+  // background:updated (config.js → main.js → mainWindow), pour que la carte
+  // se mette à jour SANS passer par le bouton "Enregistrer" de Paramètres
+  // (qui ne concerne que modules/thème, jamais ce champ) ni par un
+  // rechargement de la fenêtre. Canal SILENCIEUX dédié, pas 'modules:updated'
+  // (qui déclenche justement le `location.reload()` qu'il s'agit d'éviter
+  // ici, voir dashboard.js onUpdated).
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('fglair:deviceRenamed', { dsn, customName: device.customName });
+  }
+  return true;
 });
 
 ipcMain.handle('fglair:getProperties', async (_e, dsn) => {
@@ -3382,6 +3543,13 @@ ipcMain.handle('tahoma:discover', async (_e, { ip, token }) => {
     .filter(d => (d.definition?.commands || []).some(c => TAHOMA_SHUTTER_COMMANDS.includes(c.commandName)))
     .map(tahomaDescribeDevice);
   console.log(`[TaHoma] ${devices.length} équipement(s) pilotable(s) trouvé(s) sur ${ip}`);
+  // `somfy.devices` (2026-09-13, sur demande explicite) — clé GLOBALE, écrite
+  // à CHAQUE découverte réussie (bouton Paramètres ET rafraîchissement
+  // périodique du dashboard, voir somfy-tahoma.js, qui appellent tous les 2
+  // ce même handler) : permet à Paramètres d'afficher "N volet(s)/store(s)"
+  // au chargement sans relancer de requête réseau (même mécanisme que
+  // hue.pairedDevices/fglair.devices, voir leurs commentaires).
+  safeStoreSet('somfy.devices', devices.map(d => ({ deviceURL: d.deviceURL, label: d.label })));
   return devices;
 });
 

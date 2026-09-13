@@ -23,3 +23,21 @@ window.IndicesDefs = [
   { symbol: 'BZ=F',   label: '🛢️ Pétrole Brent' },
   { symbol: 'SI=F',   label: '🥈 Argent' },
 ];
+
+// Crypto (2026-09-13, sur demande explicite) — sous-section SÉPARÉE des
+// indices boursiers ci-dessus (source différente, CoinGecko plutôt que
+// Yahoo Finance ; sélection propre `config.selectedCrypto`, voir
+// indices.js/config.js renderIndicesConfigSection) : liste distincte plutôt
+// que fusionnée dans IndicesDefs, pour que la séparation visuelle demandée
+// ("sous-section Crypto") ait un pendant clair côté données, pas seulement
+// côté rendu. `id` = identifiant CoinGecko (utilisé tel quel dans l'URL de
+// l'API ET comme valeur de `config.selectedCrypto`) ; NE PAS confondre avec
+// le module "Crypto" existant (crypto.js, portefeuille personnel suivi
+// manuellement) — ⚠️ explicitement non concerné par cet ajout.
+window.IndicesCryptoDefs = [
+  { id: 'bitcoin',     ticker: 'BTC',  name: 'Bitcoin',  icon: '₿' },
+  { id: 'ethereum',    ticker: 'ETH',  name: 'Ethereum', icon: 'Ξ' },
+  { id: 'tether',      ticker: 'USDT', name: 'Tether',   icon: '◎' },
+  { id: 'binancecoin', ticker: 'BNB',  name: 'BNB',      icon: '◆' },
+  { id: 'ripple',      ticker: 'XRP',  name: 'XRP',      icon: '✦' },
+];

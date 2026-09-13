@@ -159,6 +159,58 @@ function indicesTileHtml(def, quote) {
     </div>`;
 }
 
+// ─── Crypto (2026-09-13, sur demande explicite) — sous-section séparée des
+// indices boursiers ci-dessus (voir IndicesCryptoDefs, indices-defs.js). Un
+// SEUL appel groupé pour les 5 actifs (endpoint CoinGecko `/simple/price`
+// conçu pour ça, `ids=` accepte une liste séparée par virgules) — jamais un
+// fetch par actif, et surtout jamais un setInterval séparé : cette fonction
+// est appelée DEPUIS le render() ci-dessous, donc sur le même cycle que les
+// indices boursiers (MODULE_REGISTRY.indices.refreshMs, dashboard.js — 5 min
+// en pratique, pas les 30 min supposés dans la demande : voir l'en-tête de
+// ce fichier pour la confirmation détaillée de cette valeur ; "même
+// intervalle que les indices existants" reste respecté puisque RIEN n'est
+// changé ici, la valeur réelle s'applique telle quelle aux 2 sections).
+// Couleurs (#22c55e/#ef4444, demandées explicitement) et seuil neutre
+// (|x| < 0.1%) DÉLIBÉRÉMENT distincts de indicesGainClass/--accent-green/
+// --accent-red ci-dessus (utilisés par les indices boursiers, teintes et
+// seuil différents) — classes CSS dédiées (.indices-crypto-*, voir
+// style.css) pour ne rien changer à l'affichage boursier existant.
+const INDICES_COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price'
+  + '?ids=bitcoin,ethereum,tether,binancecoin,ripple'
+  + '&vs_currencies=eur'
+  + '&include_24hr_change=true'
+  + '&include_market_cap=false';
+
+async function indicesFetchCryptoPrices() {
+  const text = await window.matin.rss.fetchFeed(INDICES_COINGECKO_URL);
+  const data = JSON.parse(text);
+  console.log('[Indices] Réponse brute CoinGecko :', data);
+  return data;
+}
+
+function indicesCryptoGainClass(n) {
+  if (n == null || Number.isNaN(n)) return '';
+  if (Math.abs(n) < 0.1) return 'neutral';
+  return n >= 0 ? 'up' : 'down';
+}
+function indicesCryptoArrow(n) {
+  if (n == null || Number.isNaN(n)) return '→';
+  if (Math.abs(n) < 0.1) return '→';
+  return n >= 0 ? '▲' : '▼';
+}
+
+function indicesCryptoTileHtml(def, priceData) {
+  const price = priceData?.eur;
+  const changePct = priceData?.eur_24h_change;
+  const hasError = price == null;
+  return `
+    <div class="indices-tile indices-crypto-tile">
+      <span class="indices-tile-label">${def.icon} ${def.name}${def.name !== def.ticker ? ` (${def.ticker})` : ''}</span>
+      <span class="indices-tile-value">${hasError ? '—' : `${indicesFmtValue(price)} €`}</span>
+      <span class="indices-crypto-pct ${hasError ? '' : indicesCryptoGainClass(changePct)}">${hasError ? 'Indisponible' : `${indicesCryptoArrow(changePct)} ${indicesFmtPct(changePct)}`}</span>
+    </div>`;
+}
+
 window.MatinModules.indices = {
   async render(container, config, _google, setBadge) {
     const selectedSymbols = Array.isArray(config?.selected) ? config.selected : null;
@@ -166,7 +218,15 @@ window.MatinModules.indices = {
       ? window.IndicesDefs.filter(d => selectedSymbols.includes(d.symbol))
       : window.IndicesDefs;
 
-    if (!defs.length) {
+    // Crypto (2026-09-13) — sélection INDÉPENDANTE de `config.selected`
+    // ci-dessus (voir config.js renderIndicesConfigSection) : absent/null =
+    // toutes affichées, même convention que les indices boursiers.
+    const selectedCrypto = Array.isArray(config?.selectedCrypto) ? config.selectedCrypto : null;
+    const cryptoDefs = selectedCrypto
+      ? window.IndicesCryptoDefs.filter(d => selectedCrypto.includes(d.id))
+      : window.IndicesCryptoDefs;
+
+    if (!defs.length && !cryptoDefs.length) {
       container.innerHTML = `<div class="module-empty">Aucun indice sélectionné — choisissez-en dans Paramètres.</div>`;
       setBadge('—');
       return;
@@ -174,7 +234,19 @@ window.MatinModules.indices = {
 
     setBadge('…');
     try {
-      const results = await Promise.allSettled(defs.map(d => indicesFetchQuote(d.symbol)));
+      // Boursier (Yahoo) et crypto (CoinGecko) lancés EN PARALLÈLE — 2
+      // sources indépendantes, mais UN SEUL cycle de rendu/rafraîchissement
+      // (voir le commentaire d'indicesFetchCryptoPrices plus haut) : jamais
+      // un 2e setInterval séparé pour la crypto.
+      const [results, cryptoPrices] = await Promise.all([
+        Promise.allSettled(defs.map(d => indicesFetchQuote(d.symbol))),
+        cryptoDefs.length
+          ? indicesFetchCryptoPrices().catch((err) => {
+              console.error('[Indices] CoinGecko indisponible', err);
+              return null;
+            })
+          : Promise.resolve(null),
+      ]);
       const quotes = results.map((r, i) => {
         if (r.status === 'rejected') {
           console.warn(`[Indices] ${defs[i].symbol} indisponible`, r.reason?.message);
@@ -187,19 +259,31 @@ window.MatinModules.indices = {
       // qui était jusqu'ici seulement dans les logs, voir en-tête de
       // fichier) : le PLUS GRAND délai parmi les tuiles affichées, pas une
       // moyenne — c'est la pire tuile qui doit fixer l'attente de
-      // l'utilisateur sur la fraîcheur de TOUTE la grille.
+      // l'utilisateur sur la fraîcheur de TOUTE la grille. Ne porte QUE sur
+      // les indices boursiers (Yahoo) — CoinGecko ne renvoie aucun
+      // horodatage de cours dans cette réponse (`simple/price`), rien à
+      // mesurer côté crypto.
       const delays = quotes.map(q => q?.delayMin).filter(d => d != null);
       const maxDelay = delays.length ? Math.max(...delays) : null;
 
+      const cryptoFailed = !cryptoPrices;
+      const cryptoSectionHtml = cryptoDefs.length ? `
+        <div class="indices-crypto-section">
+          <div class="indices-crypto-title">Crypto</div>
+          <div class="indices-grid indices-crypto-grid">${cryptoDefs.map(d => indicesCryptoTileHtml(d, cryptoPrices?.[d.id])).join('')}</div>
+        </div>` : '';
+
       container.innerHTML = `
         <div class="indices-module">
-          <div class="indices-grid">${defs.map((d, i) => indicesTileHtml(d, quotes[i])).join('')}</div>
+          ${defs.length ? `<div class="indices-grid">${defs.map((d, i) => indicesTileHtml(d, quotes[i])).join('')}</div>` : ''}
+          ${cryptoSectionHtml}
           ${maxDelay != null ? `<div class="indices-delay-note">${indicesFmtDelayNote(maxDelay)}</div>` : ''}
         </div>
       `;
 
-      const failed = quotes.filter(q => !q).length;
-      setBadge(failed ? `⚠ ${failed}` : `${defs.length}`);
+      const failed = quotes.filter(q => !q).length + (cryptoFailed ? cryptoDefs.length : 0);
+      const total = defs.length + cryptoDefs.length;
+      setBadge(failed ? `⚠ ${failed}` : `${total}`);
     } catch (err) {
       container.innerHTML = `<span class="module-error">Indices indisponibles</span>`;
       console.error('[Indices]', err);

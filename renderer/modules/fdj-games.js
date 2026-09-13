@@ -21,6 +21,15 @@ window.FdjGames = (function () {
   const MAX_GRIDS = 20;
   const MAX_CODES = 20;
 
+  // Sélecteur de jour(s) de tirage joués (2026-09-13, sur demande explicite)
+  // — libellés français indexés comme `Date.getDay()` (0=dimanche), même
+  // convention que `game.drawDays` ci-dessous : `playDays` (config utilisateur,
+  // voir config.js/fdj-common.js) est donc un tableau de NOMBRES, pas de
+  // chaînes françaises comme dans la demande — reste directement comparable
+  // à `game.drawDays` sans conversion, ces libellés ne servant qu'à
+  // l'affichage (pills Paramètres).
+  const DAY_LABELS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
   // Loto — 5/49 + 1 N°Chance. Rang 9 est le seul rang de contrepartie (fixe) ;
   // les rangs 1 à 8 sont tous pari-mutuel (règlement Loto, art. 2.1 et 8).
   const LOTO_RANKS = [
@@ -167,5 +176,5 @@ window.FdjGames = (function () {
     return { numbersMatched, specialsMatched, rank };
   }
 
-  return { MAX_GRIDS, MAX_CODES, GAMES, emptyGrid, normalizeDrawRow, computeGridResult };
+  return { MAX_GRIDS, MAX_CODES, DAY_LABELS, GAMES, emptyGrid, normalizeDrawRow, computeGridResult };
 })();
