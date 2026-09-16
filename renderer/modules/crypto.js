@@ -60,6 +60,45 @@ function cryptoGainClass(n) {
   return n == null ? '' : (n >= 0 ? 'up' : 'down');
 }
 
+// Refonte du schéma d'une ligne (2026-09-14, sur demande explicite, "refonte
+// complète de la logique portefeuille") — la quantité n'est plus saisie à la
+// main : `line.invested` (INVESTI €, tel que sur le justificatif d'achat
+// Binance/Coinbase/Kraken) et `line.price` (prix unitaire d'achat)
+// remplacent `line.qty` comme source de vérité. `line.fees` inchangé.
+//   qté = (INVESTI − FRAIS) ÷ PRIX_ACHAT   (formule/exemple donnés explicitement)
+// `Math.max(0, ...)` évite une quantité négative affichée si des frais
+// saisis dépassent le montant investi (saisie utilisateur incohérente,
+// jamais un vrai cas CoinGecko) plutôt que de laisser passer un nombre
+// négatif dans les totaux du portefeuille.
+//
+// Rétro-compatibilité (ajoutée au-delà de la demande littérale) — une ligne
+// créée AVANT cette refonte n'a pas de champ `invested` (ancien schéma : Qté
+// saisie à la main). Sans ce repli, ces lignes afficheraient soudainement
+// une quantité de 0 après la mise à jour de l'app, alors qu'aucune saisie
+// n'a été perdue — seul le sens du calcul s'inverse. Lue directement depuis
+// le store (indépendamment de Paramètres, voir config.js pour le même repli
+// côté formulaire) : le dashboard peut afficher une ligne jamais rouverte
+// dans Paramètres depuis la mise à jour.
+function cryptoLineQty(line) {
+  if (line.invested == null && line.qty != null) return Number(line.qty) || 0;
+  const price = Number(line.price) || 0;
+  if (price <= 0) return 0;
+  const fees = Number(line.fees) || 0;
+  const invested = Number(line.invested) || 0;
+  return Math.max(0, (invested - fees) / price);
+}
+
+// total_investi par ligne = INVESTI + FRAIS (formule donnée explicitement).
+// Pour une ligne à l'ancien schéma (pas de `invested`), reconstitue le même
+// total que la formule d'origine (qty×prix+frais) affichait déjà — valeur
+// inchangée pour l'utilisateur, pas un recalcul silencieux différent.
+function cryptoLineInvestedTotal(line) {
+  if (line.invested == null && line.qty != null) {
+    return (Number(line.qty) || 0) * (Number(line.price) || 0) + (Number(line.fees) || 0);
+  }
+  return (Number(line.invested) || 0) + (Number(line.fees) || 0);
+}
+
 // Débogage "spinner infini" (2026-09-01, sur demande explicite, points 1/3) —
 // `fetch()` seul n'a AUCUN délai d'attente par défaut : si CoinGecko accepte
 // la connexion sans jamais répondre (limite de débit atteinte sans renvoyer
@@ -73,29 +112,48 @@ function cryptoGainClass(n) {
 // échecs réseau normaux) sait déjà absorber correctement.
 const CRYPTO_FETCH_TIMEOUT_MS = 10000;
 
+function cryptoSleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Retry avec backoff exponentiel sur 429 (2026-09-16, sur demande explicite,
+// limite de débit CoinGecko atteinte avec plusieurs cryptos actives à la
+// fois) — 2s puis 4s, 3 tentatives max (1 essai initial + 2 retries) : au-delà,
+// on laisse l'erreur remonter normalement (le try/catch de l'appelant, déjà
+// écrit pour absorber un échec réseau, prend le relais).
+const CRYPTO_RATE_LIMIT_RETRY_DELAYS_MS = [2000, 4000];
+
 async function cryptoFetchJSON(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CRYPTO_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
-    const text = await res.text();
-    // Log demandé littéralement (2026-09-01, 2e relance sur ce même point) —
-    // format exact "[Crypto] API response: X" en plus du log détaillé
-    // ci-dessous (URL + corps tronqué), qui reste utile pour le débogage réel.
-    console.log(`[Crypto] API response: ${res.status}`);
-    // Point 1 de la demande : log de la réponse BRUTE (avant parsing JSON),
-    // plafonné pour ne pas noyer la console sur une réponse volumineuse
-    // (ex. /coins/markets avec ids=... peut faire plusieurs Ko).
-    console.log(`[Crypto] ${url} → HTTP ${res.status} :`, text.slice(0, 500));
-    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-    return JSON.parse(text);
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error(`CoinGecko ne répond pas (délai de ${CRYPTO_FETCH_TIMEOUT_MS / 1000}s dépassé) — ${url}`);
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CRYPTO_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+      const text = await res.text();
+      // Log demandé littéralement (2026-09-01, 2e relance sur ce même point) —
+      // format exact "[Crypto] API response: X" en plus du log détaillé
+      // ci-dessous (URL + corps tronqué), qui reste utile pour le débogage réel.
+      console.log(`[Crypto] API response: ${res.status}`);
+      // Point 1 de la demande : log de la réponse BRUTE (avant parsing JSON),
+      // plafonné pour ne pas noyer la console sur une réponse volumineuse
+      // (ex. /coins/markets avec ids=... peut faire plusieurs Ko).
+      console.log(`[Crypto] ${url} → HTTP ${res.status} :`, text.slice(0, 500));
+      if (res.status === 429 && attempt < CRYPTO_RATE_LIMIT_RETRY_DELAYS_MS.length) {
+        const wait = CRYPTO_RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+        console.warn(`[Crypto] 429 (limite de débit CoinGecko) — nouvelle tentative dans ${wait}ms (${attempt + 1}/${CRYPTO_RATE_LIMIT_RETRY_DELAYS_MS.length}) : ${url}`);
+        await cryptoSleep(wait);
+        continue;
+      }
+      if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+      return JSON.parse(text);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error(`CoinGecko ne répond pas (délai de ${CRYPTO_FETCH_TIMEOUT_MS / 1000}s dépassé) — ${url}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -222,7 +280,15 @@ async function cryptoComputeGroups(lines) {
     }
   }
 
-  const groups = await Promise.all(Array.from(bySymbol.entries()).map(async ([symbol, groupLines]) => {
+  // Séquentiel, PAS Promise.all (2026-09-16, sur demande explicite) — un
+  // appel /market_chart par crypto détenue envoyé EN MÊME TEMPS déclenchait
+  // le rate limit CoinGecko (429) dès 4-5 cryptos actives simultanément
+  // (BTC+ETH+USDT+BNB+XRP...). 500ms de battement entre chaque, pas après le
+  // dernier (rien à espacer une fois toutes les requêtes envoyées).
+  const entries = Array.from(bySymbol.entries());
+  const groups = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [symbol, groupLines] = entries[i];
     const resolved = resolvedBySymbol.get(symbol);
     let name = symbol, currentPrice = null, changePct = null, points = [];
 
@@ -241,16 +307,18 @@ async function cryptoComputeGroups(lines) {
 
     let totalQty = 0, invested = 0;
     for (const l of groupLines) {
-      totalQty += l.qty;
-      invested += l.qty * l.price + (l.fees || 0);
+      totalQty += cryptoLineQty(l);
+      invested += cryptoLineInvestedTotal(l);
     }
     const pru = totalQty ? invested / totalQty : 0;
     const value = currentPrice != null ? totalQty * currentPrice : null;
     const gain = value != null ? value - invested : null;
     const gainPct = (gain != null && invested) ? (gain / invested) * 100 : null;
 
-    return { symbol, name, currentPrice, changePct, points, lines: groupLines, totalQty, invested, pru, value, gain, gainPct };
-  }));
+    groups.push({ symbol, name, currentPrice, changePct, points, lines: groupLines, totalQty, invested, pru, value, gain, gainPct });
+
+    if (i < entries.length - 1) await cryptoSleep(500);
+  }
 
   groups.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   return groups;
@@ -269,14 +337,15 @@ function cryptoSumTotals(groups) {
 }
 
 function cryptoLineRowHtml(line, currentPrice) {
-  const invested = line.qty * line.price + (line.fees || 0);
-  const value = currentPrice != null ? line.qty * currentPrice : null;
+  const qty = cryptoLineQty(line);
+  const invested = cryptoLineInvestedTotal(line);
+  const value = currentPrice != null ? qty * currentPrice : null;
   const gain = value != null ? value - invested : null;
   const gainPct = (gain != null && invested) ? (gain / invested) * 100 : null;
   return `
     <tr>
       <td>${line.date || '—'}</td>
-      <td>${line.qty}</td>
+      <td class="etf-qty-readonly">${qty.toFixed(6)}</td>
       <td class="etf-money">${cryptoFmtEUR(line.price)}</td>
       <td class="etf-money">${cryptoFmtEUR(invested)}</td>
       <td class="etf-money">${value != null ? cryptoFmtEUR(value) : '—'}</td>

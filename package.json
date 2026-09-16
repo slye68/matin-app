@@ -1,9 +1,9 @@
 {
   "name": "matin-app",
-  "version": "0.1.0",
-  "description": "Matin!* — Dashboard personnel du matin pour Windows",
+  "version": "1.0.0",
+  "description": "Mon Matin — Tableau de bord du matin pour Windows",
   "main": "main/main.js",
-  "author": "Sylvain Antequera",
+  "author": "Mon Matin",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
@@ -15,6 +15,7 @@
   "dependencies": {
     "dotenv": "^9.0.2",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9",
     "interactjs": "^1.10.27",
     "node-tradfri-client": "^3.2.0",
     "tplink-smarthome-api": "^5.0.0"
@@ -24,25 +25,26 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.sylvainantequera.matin",
-    "productName": "Matin",
+    "appId": "com.monmatin.app",
+    "productName": "Mon Matin",
     "directories": {
       "output": "dist"
     },
+    "publish": {
+      "provider": "generic",
+      "url": "https://monmatinapp.netlify.app/"
+    },
     "win": {
       "target": [
-        "appx",
         "nsis"
       ],
       "icon": "renderer/assets/icons/icon.ico"
     },
-    "appx": {
-      "applicationId": "MatinDashboard",
-      "backgroundColor": "#0f1117",
-      "displayName": "Matin — Dashboard du matin",
-      "identityName": "MatinDashboard",
-      "publisher": "CN=SylvainAntequera",
-      "publisherDisplayName": "Sylvain Antequera"
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   },
   "allowScripts": {

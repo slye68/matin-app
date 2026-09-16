@@ -56,9 +56,25 @@ function remindersNextOccurrence(item, from) {
   return null;
 }
 
-function remindersRowHtml(item, late) {
+// Jour affiché à côté de l'heure (2026-09-15, sur demande explicite, "le
+// jour n'est pas affiché dans la liste des rappels enregistrés") —
+// `item.date` seul ne convient pas ici pour un rappel récurrent
+// (daily/weekly/monthly) : c'est la date de RÉFÉRENCE d'origine, pas
+// l'occurrence réellement affichée (ex. un rappel hebdo créé le 5 janvier
+// afficherait toujours "05/01" même listé pour une occurrence de
+// septembre). `occursOn`, calculé par l'appelant pour chaque section
+// (aujourd'hui = maintenant, en retard = item.date, à venir = la date déjà
+// calculée par remindersNextOccurrence), est donc la vraie date affichée.
+const REMINDERS_DAY_ABBR = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+function remindersFormatDayLabel(occursOn) {
+  if (!occursOn) return null;
+  return `${REMINDERS_DAY_ABBR[occursOn.getDay()]} ${remindersPad2(occursOn.getDate())}/${remindersPad2(occursOn.getMonth() + 1)}`;
+}
+
+function remindersRowHtml(item, late, occursOn) {
   const cat = remindersCategory(item.icon);
-  const meta = [item.time || '--:--'];
+  const dayLabel = remindersFormatDayLabel(occursOn);
+  const meta = [dayLabel, item.time || '--:--'].filter(Boolean);
   if (item.recurrence && item.recurrence !== 'once') meta.push(REMINDERS_RECUR_LABEL[item.recurrence]);
   return `
     <div class="reminders-row ${late ? 'reminders-row-late' : ''}">
@@ -120,21 +136,21 @@ window.MatinModules.reminders = {
       sections.push(`
         <div class="reminders-section">
           <div class="reminders-section-title reminders-section-title-late">⚠ En retard</div>
-          ${pastDue.map(item => remindersRowHtml(item, true)).join('')}
+          ${pastDue.map(item => remindersRowHtml(item, true, item.date ? new Date(`${item.date}T00:00:00`) : null)).join('')}
         </div>`);
     }
     if (today.length) {
       sections.push(`
         <div class="reminders-section">
           <div class="reminders-section-title">Aujourd'hui</div>
-          ${today.map(({ item, late }) => remindersRowHtml(item, late)).join('')}
+          ${today.map(({ item, late }) => remindersRowHtml(item, late, now)).join('')}
         </div>`);
     }
     if (upcoming.length) {
       sections.push(`
         <div class="reminders-section">
           <div class="reminders-section-title">À venir (7 jours)</div>
-          ${upcoming.map(({ item }) => remindersRowHtml(item, false)).join('')}
+          ${upcoming.map(({ item, next }) => remindersRowHtml(item, false, next)).join('')}
         </div>`);
     }
 

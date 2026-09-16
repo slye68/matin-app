@@ -8,6 +8,7 @@ const Store = require('electron-store');
 const { runGoogleAuthFlow, refreshAccessToken } = require('./auth/google-oauth');
 const { runSpotifyAuthFlow, refreshAccessToken: refreshSpotifyAccessToken } = require('./auth/spotify-oauth');
 const { runHueAuthFlow, refreshHueAccessToken } = require('./auth/hue-oauth');
+const { autoUpdater } = require('electron-updater');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -686,6 +687,29 @@ function saveProfileSnapshot(key, name) {
 // actif — utilisée à la fois par l'IPC profiles:switch (clic manuel) ET par
 // checkProfileAutoSwitch (activation automatique par jour), voir plus bas.
 function performProfileSwitch(key) {
+  // Sauvegarde automatique et silencieuse du profil qu'on QUITTE, AVANT de
+  // charger le nouveau (2026-09-16, sur demande explicite — bug signalé :
+  // changer de profil perdait les changements de disposition/modules faits
+  // depuis le dernier 💾 manuel, rien ne capturait l'état ACTUEL avant de
+  // l'écraser par le profil cible). Réutilise `saveProfileSnapshot` tel quel
+  // — mêmes champs que le bouton manuel "Sauvegarder le profil" (modules+
+  // disposition de carte, thème, fond ; PAS les dispositions "⊞ Réorganiser",
+  // qui restent un mécanisme séparé, voir le commentaire de
+  // saveProfileSnapshot) — sans changer son nom (2e paramètre omis, la
+  // fonction garde alors `existing.name`). Aucune confirmation, aucun log
+  // utilisateur : ce doit être invisible, comme demandé.
+  //
+  // `getActiveProfileKey()` lu ICI, avant tout autre accès à `profiles` —
+  // `saveProfileSnapshot` fait son propre cycle lecture/modification/écriture
+  // sur le store ; relire `profiles` seulement APRÈS (voir plus bas) évite
+  // d'écraser cette sauvegarde avec un clone désormais périmé pris AVANT
+  // elle (2 lectures indépendantes du même store, jamais la même référence
+  // d'objet).
+  const currentActiveKey = getActiveProfileKey();
+  if (PROFILE_KEYS.includes(currentActiveKey) && currentActiveKey !== key) {
+    saveProfileSnapshot(currentActiveKey);
+  }
+
   const profiles = getProfilesState();
   const target = profiles[key];
   if (!target) return null;
@@ -1235,6 +1259,18 @@ function titleBarColorsForTheme(theme) {
 let mainWindow;
 let configWindow;
 
+// Minuteries persistantes lancées au démarrage (voir app.whenReady plus bas)
+// — nettoyées explicitement dans before-quit (2026-09-16, sur demande
+// explicite, "vérifier s'il y a des setInterval persistants... et les
+// nettoyer"). Note technique : dans Electron (contrairement à un script Node
+// autonome), `app.quit()` ne dépend PAS de la vidange de la boucle
+// d'événements — un `setInterval` actif ne peut donc pas, à lui seul,
+// empêcher le process de quitter. Ce nettoyage est donc une hygiène
+// défensive demandée explicitement, pas le correctif du symptôme réel
+// rapporté (voir mainWindow.on('closed', ...) dans createMainWindow, et le
+// commentaire sur before-quit plus bas pour la vraie cause trouvée).
+const activeIntervals = [];
+
 // ─── Modes d'affichage — Icône flottante (2026-08-23, sur demande explicite,
 // voir "🎨 Personnaliser" → section "Mode d'affichage" ; volet latéral
 // supprimé entièrement le 2026-09-01, voir CONTEXT.md) ────────────────────
@@ -1379,9 +1415,30 @@ function createMainWindow() {
     safeStoreSet('app.windowBounds', { width, height });
   });
 
-  if (process.argv.includes('--dev')) {
-    mainWindow.webContents.openDevTools();
-  }
+  // Cause RÉELLE trouvée du rapport "l'app ne kill pas ses processus à la
+  // fermeture" (2026-09-16) : `sunWindow` (mode d'affichage flottant, voir
+  // plus haut) n'est JAMAIS fermée une fois créée — seulement cachée/montrée
+  // via applyDisplayMode (`.hide()`/`.show()`). Si l'utilisateur a utilisé le
+  // mode flottant au moins une fois dans la session, `sunWindow` reste donc
+  // une fenêtre bien réelle (juste invisible) même après la fermeture de
+  // mainWindow — `BrowserWindow.getAllWindows()` la compte toujours, donc
+  // `window-all-closed` (déjà câblé plus bas sur `app.quit()`, ce point de la
+  // demande existait déjà) ne se déclenche alors JAMAIS, et l'app continue de
+  // tourner invisible avec tous ses processus `electron.exe`. On ferme donc
+  // `sunWindow` explicitement ici plutôt que de la garder en vie "au cas où" :
+  // rien ne la réutilise après la fermeture de mainWindow de toute façon (pas
+  // de mode tray/minimisation dans cette app).
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    if (sunWindow && !sunWindow.isDestroyed()) sunWindow.close();
+  });
+
+  // DevTools ouvert systématiquement, plus seulement derrière --dev
+  // (2026-09-16, sur demande explicite) — s'applique donc aussi à un build
+  // packagé (MSIX/NSIS), pas seulement à `npm run dev` : à revenir en
+  // arrière avant publication si ce n'était voulu que pour du débogage
+  // ponctuel (remettre `if (process.argv.includes('--dev')) { ... }` autour).
+  mainWindow.webContents.openDevTools();
 
   // Menu contextuel natif (clic droit), 2026-09-11 sur demande explicite —
   // révisé le même jour (2e demande : uniquement Couper/Copier/Coller/
@@ -2344,10 +2401,22 @@ ipcMain.handle('rss:fetchFeed', async (_e, url) => {
 // motif de parsing ne matche plus. EuroDreams n'a pas de carte sur cette page
 // (site à la marque "Loto & EuroMillions" — EuroDreams n'apparaît qu'en pied
 // de page) : CSV uniquement pour ce jeu, inchangé.
+// User-Agent complet (2026-09-16, sur demande explicite — EuroMillions
+// bloqué sur le 08/09 alors qu'un tirage du 15/09 existait déjà) — `Mozilla/
+// 5.0` seul (sans OS/moteur/version, l'ancienne valeur) est une signature
+// atypique qu'un CDN/pare-feu anti-bot devant un site Next.js peut choisir
+// de servir depuis un cache d'edge périmé plutôt que de laisser passer vers
+// l'origine — hypothèse plausible mais NON prouvée depuis cet environnement
+// (impossible de reproduire le comportement exact d'un CDN tiers en dehors
+// de l'app packagée). Un User-Agent de navigateur normal réduit ce risque
+// sans rien coûter ; voir aussi fdj-common.js drawLooksStaleForToday, qui
+// détecte et signale ce cas même si CETTE mesure ne suffit pas à l'éviter.
+const FDJ_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
 function fdjNoCacheFetch(url) {
   const bust = `${url.includes('?') ? '&' : '?'}_=${Date.now()}`;
   return fetch(`${url}${bust}`, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+    headers: { 'User-Agent': FDJ_USER_AGENT, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
   });
 }
 
@@ -5263,6 +5332,7 @@ ipcMain.handle('alerts:getCurrent', () => alertsCurrent);
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   createMainWindow();
+  autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('[Updater] Erreur vérification MAJ', err));
   // Réapplique l'inscription registre à CHAQUE lancement (voir
   // app:setStartOnBoot/computeLoginItemSettings plus haut) — pas juste au
   // moment du clic dans Paramètres, pour rester cohérent même si le
@@ -5271,11 +5341,11 @@ app.whenReady().then(() => {
   app.setLoginItemSettings(computeLoginItemSettings(store.get('app.startOnBoot') === true));
   performDriveDailyBackup().catch(err => console.error('[Drive Backup] Échec inattendu de la sauvegarde quotidienne au lancement', err));
   checkReminders();
-  setInterval(checkReminders, REMINDERS_CHECK_MS);
+  activeIntervals.push(setInterval(checkReminders, REMINDERS_CHECK_MS));
   checkAlerts();
-  setInterval(checkAlerts, ALERTS_CHECK_MS);
+  activeIntervals.push(setInterval(checkAlerts, ALERTS_CHECK_MS));
   checkProfileAutoSwitch();
-  setInterval(checkProfileAutoSwitch, PROFILE_AUTOSWITCH_CHECK_MS);
+  activeIntervals.push(setInterval(checkProfileAutoSwitch, PROFILE_AUTOSWITCH_CHECK_MS));
 
   // Raccourci dev "test responsive" (voir cycleDevWindowSizeTest plus haut) —
   // UNIQUEMENT en dev (même convention que mainWindow.webContents.
@@ -5291,10 +5361,29 @@ app.whenReady().then(() => {
   });
 });
 
+// Nettoyage des minuteries persistantes (2026-09-16, sur demande explicite)
+// — voir le commentaire sur `activeIntervals` plus haut : dans Electron,
+// `app.quit()` tue le process indépendamment de tout timer actif, donc ceci
+// n'est PAS le correctif du symptôme rapporté (voir mainWindow.on('closed', ...)
+// dans createMainWindow pour la vraie cause) — hygiène défensive demandée
+// explicitement, appliquée quand même. `before-quit` plutôt que `will-quit`
+// (qui gère déjà `globalShortcut.unregisterAll()` ci-dessous) : nom d'événement
+// donné explicitement dans la demande, et se déclenche plus tôt dans la
+// séquence de fermeture, avant que les fenêtres ne commencent à se fermer.
+app.on('before-quit', () => {
+  activeIntervals.forEach(clearInterval);
+  activeIntervals.length = 0;
+});
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
+// window-all-closed → app.quit() (demandé explicitement) : existait déjà
+// tel quel avant cette demande, rien à changer ici — `process.platform !==
+// 'darwin'` est une convention Electron standard, toujours vraie sur
+// Windows (seule cible réelle de cette app), donc sans effet pratique
+// différent d'un `app.quit()` inconditionnel sur ce projet.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

@@ -2358,8 +2358,16 @@ body.ultrawide .module-card { max-width: 500px; }
    route. Durée de la montée retenue (`6s linear`, voir plus bas — ajustée
    empiriquement en direct par itérations successives, voir CONTEXT.md) pour
    que ce déclenchement par position tombe vers 2,3-2,5s dans une fenêtre
-   typique — + 1s de fondu ≈ 3,3-3,5s au total (mesuré : 2348ms + 1000ms =
-   3348ms lors du dernier test).
+   typique.
+   Fondu réduit 1s → 150ms (2026-09-14, sur demande explicite — "transition
+   rapide, animation du soleil conservée") : cette valeur est le SEUL fondu
+   qui existait dans toute la séquence de changement de profil — la
+   "disparition de l'ancien profil" demandée séparément n'a PAS de fondu à
+   raccourcir de son côté, elle est déjà instantanée (le changement de profil
+   déclenche `location.reload()`, voir dashboard.js — l'ancienne page est
+   détruite immédiatement par le navigateur, aucun `opacity`/`transition` ne
+   s'y applique). La montée du soleil (`6s linear` ci-dessous) reste
+   INCHANGÉE, comme demandé explicitement.
    Ne se joue plus qu'au VRAI lancement de l'app (2026-08-07, sur demande
    explicite) — le bouton "Actualiser" ne recharge PLUS DU TOUT la page
    (voir dashboard.js, `btnRefresh` appelle `renderModuleOnce` en place),
@@ -2390,7 +2398,7 @@ body.ultrawide .module-card { max-width: 500px; }
      du début à la fin — plus de solution de contournement complexe
      (synchroniser dynamiquement `titleBarOverlay` via IPC) nécessaire. */
   background: #0f1117;
-  transition: opacity 1s ease-in;
+  transition: opacity 150ms ease-in;
 }
 /* Mode clair — fond BLANC au lieu du sombre fixe ci-dessus (2026-09-13, sur
    demande explicite — régression signalée : cet overlay restait sombre même
@@ -2950,18 +2958,27 @@ body.ultrawide .module-card { max-width: 500px; }
    déclenchement par position (à 50% de hauteur d'écran) arrivait presque
    instantanément (~200ms) quelle que soit la durée déclarée. `linear` répartit
    le mouvement proportionnellement au temps, ce qui permet de VRAIMENT régler
-   le moment du déclenchement via la durée totale (6s, voir plus haut) —
-   ajusté par 2 itérations mesurées en direct : 4s → fondu à 1930ms, 5,2s →
-   fondu à 2168ms, 6s → fondu à 2348ms (proche du palier visé de ~2,5s ; le
-   rapport temps-de-déclenchement/durée-déclarée n'est pas parfaitement
-   constant d'un essai à l'autre — bruit de mesure normal d'une fenêtre à
-   l'autre plutôt qu'un vrai défaut de proportionnalité de l'easing
-   `linear`). */
+   le moment du déclenchement via la durée totale (voir plus haut) — durée
+   ajustée par 2 itérations mesurées en direct (avant le changement ci-dessous) :
+   4s → fondu à 1930ms, 5,2s → fondu à 2168ms, 6s → fondu à 2348ms.
+   6s → 3s (2026-09-16, sur demande explicite — "le délai avant que le soleil
+   commence à s'animer est trop long") : le déclenchement du fondu étant basé
+   sur la POSITION (voir checkSunPosition dans dashboard.js), pas sur un
+   pourcentage fixe du temps, cette proportion (~39% de la durée totale selon
+   les mesures ci-dessus) reste valable après ce changement — seule la durée
+   TOTALE change, ce qui réduit le temps mort AVANT que le disque ne devienne
+   visible (une bonne partie de la montée se fait hors-champ, sous l'écran)
+   sans toucher à la géométrie (taille du soleil, décalage de départ), plus
+   risquée à retoucher à l'aveugle sans vérification visuelle en direct — donc
+   non modifiée. Nouveau déclenchement estimé par extrapolation linéaire de la
+   même proportion (~39%) : ~1170ms au lieu de ~2348ms — PAS re-mesuré en
+   direct (pas d'accès visuel à l'app), à confirmer/ajuster si le rendu réel
+   diffère. */
 .splash-sun-wrap {
   width: 70vw;
   height: 70vw;
   transform: translateY(100vh);
-  transition: transform 6s linear;
+  transition: transform 3s linear;
 }
 .splash-overlay.splash-sky-rise .splash-sun-wrap { transform: translateY(0); }
 
@@ -3960,6 +3977,27 @@ body.ultrawide .module-card { max-width: 500px; }
   border-color: #a855f7;
   background: rgba(168, 85, 247, 0.08);
 }
+/* Crypto — refonte du formulaire de ligne (2026-09-14, sur demande explicite,
+   "refonte complète de la logique portefeuille") : Investi €/Prix unité
+   €/Frais € remplacent Qté/Prix/Frais, avec une 7e colonne pour la quantité
+   CALCULÉE en lecture seule (voir config.js renderLines) — une colonne de
+   plus que le gabarit ETF/générique ci-dessus (6 colonnes), donc un
+   grid-template-columns dédié plutôt qu'une réutilisation du gabarit commun. */
+.etf-lines-field--crypto .etf-lines-header,
+.etf-lines-field--crypto .etf-line-row {
+  grid-template-columns: 90px 120px 90px 100px 80px 90px 22px;
+}
+.etf-line-qty-readonly {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 10px;
+  font-variant-numeric: tabular-nums;
+}
+/* Qté dans le tableau détaillé de la carte Crypto (etf-table, voir crypto.js
+   cryptoLineRowHtml) — même traitement "grisé" que le formulaire Paramètres
+   ci-dessus : calculée, plus saisie à la main. */
+.etf-qty-readonly { color: var(--text-muted); }
 .row-delete-btn {
   width: 22px;
   height: 22px;
@@ -4097,6 +4135,20 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .hue-config-row input:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
 .hue-config-row input[readonly] { color: var(--text-secondary); }
+/* Sélecteur "Marque" (2026-09-15, sur demande explicite, module
+   Climatisation) — même look que .hue-config-row input ci-dessus, aucune
+   règle générique pour <select> dans ce bloc jusqu'ici (1er utilisé ici). */
+.hue-config-row select {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+.hue-config-row select:focus { outline: none; border-color: var(--accent); background: var(--bg-hover); }
 .hue-config-status { font-size: 11px; color: var(--accent-yellow); min-height: 14px; }
 .hue-config-hint { font-size: 10px; color: var(--text-muted); }
 
@@ -4358,12 +4410,23 @@ body.ultrawide .module-card { max-width: 500px; }
 
 /* ─── Module : Promos Steam ───────────────────────────────────── */
 /* Liste déroulante plutôt qu'une grille (2026-08-10, sur demande explicite) :
-   max-height calé sur 5 lignes (~44px chacune + gap) — la 6e ligne et
-   suivantes ne sont accessibles qu'au scroll, pas de pagination. */
+   max-height calé sur 5 lignes — la 6e ligne et suivantes ne sont accessibles
+   qu'au scroll, pas de pagination.
+   236px→268px (2026-09-16, sur demande explicite, capture à l'appui — le 5e
+   jeu coupé à mi-hauteur, badge -% invisible) : l'ancien calcul ("~44px
+   chacune") sous-estimait la hauteur réelle d'un item — .sp-info (titre 14px
+   + écart 2px + prix 12px, ~36px sur 2 lignes empilées) dépasse la miniature
+   .sp-thumb (28px fixe), c'est donc LUI qui dicte la hauteur de chaque ligne
+   (~48px avec le padding de .sp-item), pas la miniature. `padding-bottom`
+   ajouté en plus, en filet de sécurité pour la dernière ligne (marge de
+   rendu selon police/zoom OS). Voir aussi dashboard.js MODULE_REGISTRY,
+   defaultSize.h augmenté en conséquence pour que le conteneur de la carte
+   laisse vraiment cette hauteur disponible. */
 .sp-list {
   height: 100%;
-  max-height: 236px;
+  max-height: 268px;
   overflow-y: auto;
+  padding-bottom: 4px;
   display: flex;
   flex-direction: column;
   gap: 6px;

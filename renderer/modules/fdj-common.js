@@ -19,9 +19,22 @@ window.MatinModules = window.MatinModules || {};
 
 window.FdjCommon = (function () {
   const FDJ_REFRESH_MS = 6 * 60 * 60 * 1000;
+  // Délai avant la 1re tentative (2026-09-16, sur demande explicite —
+  // "parfois il ne refresh pas correctement" au lancement de l'app) : au
+  // tout premier rendu, le réseau (Wi-Fi qui se reconnecte, VPN, DNS...) n'a
+  // pas toujours fini de s'initialiser au moment exact où Electron affiche
+  // la fenêtre — un fetch tenté trop tôt échoue silencieusement, retombe sur
+  // le cache local, et ne sera retenté que dans FDJ_REFRESH_MS (6h) ou via un
+  // clic manuel sur "Rafraîchir". Laisser 15s avant le 1er essai donne au
+  // réseau le temps de se stabiliser.
+  const FDJ_INITIAL_FETCH_DELAY_MS = 15 * 1000;
   const FDJ_CACHE_PREFIX = 'matin-fdj-last-';
   const FDJ_CODES_CACHE_KEY = 'matin-fdj-codes-cache';
   const FDJ_PRIVACY_PREFIX = 'matin-fdj-privacy-';
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 
   function cacheKey(gameKey) {
     return `${FDJ_CACHE_PREFIX}${gameKey}`;
@@ -126,6 +139,44 @@ window.FdjCommon = (function () {
     const d = parseFdjDate(draw.date);
     if (!d) return true;
     return playDays.includes(d.getDay());
+  }
+
+  // Tirage "valide" mais PÉRIMÉ (2026-09-16, sur demande explicite —
+  // EuroMillions bloqué sur le tirage du 08/09 alors que celui du 15/09
+  // était déjà disponible) — cas DISTINCT d'un échec réseau/parsing : le
+  // fetch réussit (HTTP 200, HTML bien formé), `fetchAndNormalizeDraw` ne
+  // lève donc AUCUNE exception, `stale` (réservé jusqu'ici aux vrais échecs,
+  // voir le catch de fetchAndRender plus bas) ne se déclenchait donc jamais
+  // pour ce cas — aucun avertissement visible, symptôme "silencieux" décrit
+  // dans la demande. Cause probable : la source (page d'accueil) peut être
+  // régénérée/cache à intervalle (ISR côté Next.js, ou CDN d'edge) et donc
+  // répondre avec un instantané d'avant le dernier tirage réel. On compare
+  // donc la date du tirage obtenu au dernier jour de tirage du jeu déjà
+  // PASSÉ (mirroir de nextDrawInfo ci-dessus, qui ne regarde que l'avenir) :
+  // si le tirage récupéré est antérieur à ce jour-là, il est trop vieux pour
+  // être le "dernier tirage" attendu à cet instant.
+  const FDJ_PUBLICATION_DELAY_MS = 3 * 60 * 60 * 1000; // marge après l'heure de tirage — la source elle-même peut ne pas avoir encore publié
+
+  function mostRecentPastDrawDate(game) {
+    const now = new Date();
+    const [h, m] = game.drawTime;
+    for (let i = 0; i <= 7; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      d.setHours(h, m, 0, 0);
+      if (game.drawDays.includes(d.getDay()) && d <= now) return d;
+    }
+    return null;
+  }
+
+  function drawLooksStaleForToday(draw, game) {
+    if (!draw?.date) return false;
+    const drawDate = parseFdjDate(draw.date);
+    const expected = mostRecentPastDrawDate(game);
+    if (!drawDate || !expected) return false;
+    if (Date.now() - expected.getTime() < FDJ_PUBLICATION_DELAY_MS) return false; // le tirage attendu vient d'avoir lieu, pas encore de quoi s'inquiéter
+    const expectedDayStart = new Date(expected.getFullYear(), expected.getMonth(), expected.getDate());
+    return drawDate.getTime() < expectedDayStart.getTime();
   }
 
   function formatCountdown(target) {
@@ -381,7 +432,15 @@ window.FdjCommon = (function () {
             // ne doit jamais écraser un bon tirage déjà en cache (ex. si le
             // fetch retombe sur `allDaysSelected` un autre jour) avec `null`.
             if (draw) saveCache(game.key, draw);
-            stale = false;
+            // `drawLooksStaleForToday` UNIQUEMENT sur le chemin "tous les
+            // jours sélectionnés" (2026-09-16, sur demande explicite) : sur
+            // le chemin filtré ci-dessus, un tirage volontairement plus
+            // ancien que "aujourd'hui" est ATTENDU (l'utilisateur ne joue
+            // qu'un sous-ensemble des jours de tirage) — `getLastPlayedDraw`
+            // a déjà sa propre logique pour ce cas (`noMatchForDays`), la
+            // confondre avec un vrai signal de périmage donnerait un faux
+            // avertissement à chaque refresh pour ces utilisateurs-là.
+            stale = allDaysSelected && draw ? drawLooksStaleForToday(draw, game) : false;
           } catch (err) {
             console.warn(`[FDJ ${game.key}] Résultats indisponibles`, err);
             const cached = loadCache(game.key);
@@ -443,6 +502,7 @@ window.FdjCommon = (function () {
         });
 
         container.innerHTML = `<div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>`;
+        await sleep(FDJ_INITIAL_FETCH_DELAY_MS);
         await fetchAndRender();
 
         setInterval(() => {

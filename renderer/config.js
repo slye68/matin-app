@@ -41,8 +41,16 @@ const MODULE_META = {
   fdjEuromillions: { label: 'EuroMillions', icon: '⭐', requiresGoogle: false, fdjGameKey: 'euromillions' },
   fdjEurodreams:   { label: 'EuroDreams',   icon: '🌟', requiresGoogle: false, fdjGameKey: 'eurodreams' },
   maps:     { label: 'Maps',         icon: '🗺️',   requiresGoogle: false },
+  // `investedMode` (2026-09-14, sur demande explicite, "refonte complète de
+  // la logique portefeuille") — bascule le formulaire générique linesField
+  // (partagé avec ETF ci-dessus) sur les 3 champs d'un vrai justificatif
+  // d'achat crypto (Investi €/Prix unité €/Frais €) au lieu d'une quantité
+  // saisie à la main ; la quantité devient un champ CALCULÉ en lecture seule
+  // (voir renderLines plus bas). Flag propre à Crypto : ETF garde son
+  // formulaire Qté/Prix/Frais inchangé, comme demandé ("MODULE CRYPTO"
+  // uniquement).
   crypto:   { label: 'Crypto',       icon: '₿',    requiresGoogle: false,
-              linesField: { idKey: 'symbol', idLabel: 'Crypto', idPlaceholder: 'BTC', title: 'Lignes du portefeuille (crypto)', datalist: 'crypto-symbols-datalist' } },
+              linesField: { idKey: 'symbol', idLabel: 'Crypto', idPlaceholder: 'BTC', title: 'Lignes du portefeuille (crypto)', datalist: 'crypto-symbols-datalist', investedMode: true } },
   spotify:  { label: 'Spotify',      icon: '🎵',   requiresGoogle: false },
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   // Champ "Ville" ajouté le 2026-09-01 (sur demande explicite, même
@@ -787,12 +795,13 @@ async function initProfileTabs() {
   });
 }
 
-// Réutilise le même popover que showPriceTrackingInfoPopup ci-dessus (.price-
-// tracking-info-popup/-title/-warning, seul autre point d'info de ce
-// fichier) plutôt que d'en dupliquer un — voir .profiles-info-btn dans
-// config.html.
+// Réutilise les mêmes classes de popover (.price-tracking-info-popup/-title/
+// -warning, gardées en CSS malgré leur nom — voir config.html) plutôt que
+// d'en dupliquer un — voir .profiles-info-btn dans config.html. Le bouton
+// "Sites compatibles" qui leur avait donné leur nom d'origine a été retiré
+// depuis (2026-09-15, sur demande explicite) ; ces 2 autres popovers
+// (celui-ci et showFondInfoPopup plus bas) restent inchangés.
 function showProfilesInfoPopup(anchorEl) {
-  document.getElementById('priceTrackingInfoPopup')?.remove();
   document.getElementById('profilesInfoPopup')?.remove();
 
   const popup = document.createElement('div');
@@ -819,7 +828,6 @@ function showProfilesInfoPopup(anchorEl) {
 }
 
 function showFondInfoPopup(anchorEl) {
-  document.getElementById('priceTrackingInfoPopup')?.remove();
   document.getElementById('profilesInfoPopup')?.remove();
   document.getElementById('fondInfoPopup')?.remove();
 
@@ -1179,61 +1187,6 @@ function createSearchEngineRow() {
   return wrapper;
 }
 
-// ℹ (U+2139) + sélecteur de présentation TEXTE (U+FE0E, PAS U+FE0F/émoji) —
-// 2026-08-31, 2e demande le même jour ("changer sa couleur en bleu") : la
-// variante émoji (celle qu'un simple "ℹ️" tapé au clavier produit) est un
-// glyphe couleur FIXE sur la plupart des systèmes, qui ignore `color` en
-// CSS — seule la variante texte hérite réellement de `currentColor`/`color`
-// (voir .price-tracking-info-btn dans config.html).
-const PRICE_TRACKING_INFO_ICON = 'ℹ︎';
-
-// ─── Popup "Sites compatibles" — module Suivi de prix (2026-08-31, sur
-// demande explicite) ─────────────────────────────────────────────────────
-// Petit popover ancré sous l'icône ℹ️ (pas une modale plein écran comme
-// Sauvegardes/Personnaliser — texte trop court pour ça, demandé explicitement
-// "small popup/tooltip") — `position: fixed` + coordonnées calculées depuis
-// `getBoundingClientRect()` plutôt qu'un positionnement CSS relatif au
-// parent : la ligne de module vit dans un panneau d'onglet qui défile
-// (`overflow`), un popover positionné relativement à son parent pourrait s'y
-// retrouver coupé selon le défilement en cours.
-function showPriceTrackingInfoPopup(anchorEl) {
-  document.getElementById('priceTrackingInfoPopup')?.remove(); // jamais 2 popups ouverts à la fois
-
-  const popup = document.createElement('div');
-  popup.id = 'priceTrackingInfoPopup';
-  popup.className = 'price-tracking-info-popup';
-  popup.innerHTML = `
-    <div class="price-tracking-info-title">Sites compatibles testés :</div>
-    <div class="price-tracking-info-sites">
-      <span>✅ Darty</span><span>✅ Fnac</span><span>✅ LDLC</span>
-      <span>✅ Vinted</span><span>✅ Boulanger</span><span>✅ Zalando</span>
-      <span>✅ Jules</span><span>✅ Cultura</span>
-      <span class="price-tracking-info-incompatible">❌ Amazon (non compatible)</span>
-      <span class="price-tracking-info-incompatible">❌ Instant Gaming (non compatible)</span>
-      <span class="price-tracking-info-incompatible">❌ G2A (non compatible)</span>
-    </div>
-    <div class="price-tracking-info-warning">⚠️ Peut fonctionner avec d'autres sites marchands.</div>
-  `;
-  document.body.appendChild(popup);
-
-  const rect = anchorEl.getBoundingClientRect();
-  const popupRect = popup.getBoundingClientRect();
-  popup.style.top = `${rect.bottom + 6}px`;
-  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popupRect.width - 8))}px`;
-
-  // `setTimeout(0)` : sans lui, le clic qui vient d'ouvrir ce popup (déjà en
-  // cours de propagation sur `document`) déclencherait immédiatement sa
-  // propre fermeture — l'écouteur n'est posé qu'APRÈS que ce clic-ci soit
-  // terminé. Capture (3e argument `true`) pour intercepter le clic avant
-  // qu'un autre gestionnaire ne l'arrête via stopPropagation.
-  const closeOnOutsideClick = (e) => {
-    if (popup.contains(e.target)) return;
-    popup.remove();
-    document.removeEventListener('click', closeOnOutsideClick, true);
-  };
-  setTimeout(() => document.addEventListener('click', closeOnOutsideClick, true), 0);
-}
-
 function createModuleRow(key, mod, meta) {
   const wrapper = document.createElement('div');
   wrapper.className = 'module-row-wrap' + (mod.enabled ? '' : ' module-disabled');
@@ -1261,7 +1214,7 @@ function createModuleRow(key, mod, meta) {
 
   row.innerHTML = `
     <span class="module-row-icon">${meta.icon}</span>
-    <span class="module-row-name">${meta.label}${key === 'tradfri' ? ' <span class="beta-badge">Bêta</span>' : ''}${key === 'priceTracking' ? ` <button type="button" class="price-tracking-info-btn" title="Sites compatibles">${PRICE_TRACKING_INFO_ICON}</button>` : ''}</span>
+    <span class="module-row-name">${meta.label}${key === 'tradfri' ? ' <span class="beta-badge">Bêta</span>' : ''}</span>
     ${showAddInstance ? `<button class="row-add-btn" ${maxedOut ? 'disabled' : ''} title="${addTitle}">+</button>` : ''}
     ${showDelete ? `<button class="row-delete-btn" title="${deleteTitle}">×</button>` : ''}
     ${meta.requiresGoogle ? '<span class="module-row-requires">Google requis</span>' : ''}
@@ -1270,13 +1223,6 @@ function createModuleRow(key, mod, meta) {
       <span class="toggle-slider"></span>
     </label>
   `;
-
-  // Popup "Sites compatibles" (2026-08-31, sur demande explicite) — voir
-  // showPriceTrackingInfoPopup plus bas, seul module à porter ce bouton.
-  row.querySelector('.price-tracking-info-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    showPriceTrackingInfoPopup(e.currentTarget);
-  });
 
   // Toggle — bascule aussi .module-disabled sur le wrapper : la config
   // ci-dessous (etf-lines-field/parcels-config-field/fdj-config-field/...)
@@ -1784,9 +1730,16 @@ function createModuleRow(key, mod, meta) {
     // de leur donner chacun leur propre teinte (or/violet, voir style.css)
     // sans dupliquer toute la règle CSS commune.
     linesWrap.className = `module-config-field etf-lines-field etf-lines-field--${key}`;
+    // `investedMode` (Crypto uniquement, voir MODULE_META ci-dessus) : Qté
+    // n'est plus saisie, elle devient la dernière colonne, calculée — l'ordre
+    // Investi/Prix-unité/Frais suit exactement le justificatif d'achat
+    // (email Binance/Coinbase/Kraken) demandé explicitement.
+    const linesHeaderCols = lf.investedMode
+      ? '<span>Investi €</span><span>Prix/unité €</span><span>Frais €</span><span>Qté</span>'
+      : '<span>Qté</span><span>Prix €</span><span>Frais €</span>';
     linesWrap.innerHTML = `
       <div class="etf-lines-header ${lf.hasType ? 'has-type' : ''}">
-        ${lf.hasType ? '<span>Type</span>' : ''}<span>${lf.idLabel}</span><span>Date</span><span>Qté</span><span>Prix €</span><span>Frais €</span><span></span>
+        ${lf.hasType ? '<span>Type</span>' : ''}<span>${lf.idLabel}</span><span>Date</span>${linesHeaderCols}<span></span>
       </div>
       <div class="etf-lines-list"></div>
       <button type="button" class="etf-add-line-btn">+ Ajouter une ligne</button>
@@ -1799,12 +1752,37 @@ function createModuleRow(key, mod, meta) {
     // déclenche, donc toujours défini à ce moment-là).
     let collapsible;
 
+    // Rétro-compatibilité Crypto (2026-09-14, ajouté au-delà de la demande
+    // littérale) — les lignes créées AVANT cette refonte n'ont pas de champ
+    // `invested` (ancien schéma : Qté saisie à la main). Sans ce repli, le
+    // champ "Investi €" apparaîtrait vide pour tout portefeuille déjà
+    // configuré, alors qu'aucune saisie n'a été perdue — juste le sens de
+    // calcul qui s'inverse (Qté était la source, Investi le devient). Le
+    // montant reconstitué suit l'ANCIENNE formule (qty×prix+frais) — même
+    // valeur totale que ce que le module affichait déjà avant cette mise à
+    // jour. Purement un calcul d'AFFICHAGE : `line.qty` n'est jamais effacé
+    // ici, `line.invested` n'est écrit pour de vrai que si l'utilisateur
+    // modifie effectivement la ligne (voir sync ci-dessous).
+    function cryptoLegacyInvested(line) {
+      if (line.invested != null) return line.invested;
+      if (line.qty != null) return (Number(line.qty) || 0) * (Number(line.price) || 0) + (Number(line.fees) || 0);
+      return '';
+    }
+    function cryptoQtyPreview(invested, price, fees) {
+      const p = Number(price) || 0;
+      if (p <= 0) return '0.000000';
+      const i = Number(invested) || 0;
+      const f = Number(fees) || 0;
+      return Math.max(0, (i - f) / p).toFixed(6);
+    }
+
     function renderLines() {
       listEl.innerHTML = '';
       lines.forEach((line) => {
         const lineRow = document.createElement('div');
         lineRow.className = `etf-line-row${lf.hasType ? ' has-type' : ''}`;
         const isSell = line.type === 'sell';
+        const investedDisplay = lf.investedMode ? cryptoLegacyInvested(line) : '';
         lineRow.innerHTML = `
           ${lf.hasType ? `
           <select class="etf-line-type">
@@ -1813,18 +1791,32 @@ function createModuleRow(key, mod, meta) {
           </select>` : ''}
           <input type="text" class="etf-line-id" placeholder="${lf.idPlaceholder}" value="${line[lf.idKey] || ''}" ${lf.datalist ? `list="${lf.datalist}"` : ''}>
           <input type="date" class="etf-line-date" value="${line.date || ''}">
+          ${lf.investedMode ? `
+          <input type="number" min="0" step="0.01" placeholder="ex: 1000" class="etf-line-invested" value="${investedDisplay}">
+          <input type="number" min="0" step="0.01" placeholder="ex: 67450" class="etf-line-price" value="${line.price ?? ''}">
+          <input type="number" min="0" step="0.01" placeholder="ex: 1.50" class="etf-line-fees" value="${line.fees ?? ''}">
+          <span class="etf-line-qty-readonly" title="Quantité calculée : (Investi − Frais) ÷ Prix/unité">${cryptoQtyPreview(investedDisplay, line.price, line.fees)}</span>
+          ` : `
           <input type="number" min="0" step="0.0001" placeholder="Qté" class="etf-line-qty" value="${line.qty ?? ''}">
           <input type="number" min="0" step="0.01" placeholder="Prix" class="etf-line-price" value="${line.price ?? ''}">
           <input type="number" min="0" step="0.01" placeholder="Frais €" class="etf-line-fees" value="${line.fees ?? ''}">
+          `}
           <button type="button" class="row-delete-btn etf-line-delete" title="Supprimer cette ligne">×</button>
         `;
 
         const sync = () => {
           line[lf.idKey] = lineRow.querySelector('.etf-line-id').value.trim().toUpperCase();
           line.date = lineRow.querySelector('.etf-line-date').value;
-          line.qty = parseFloat(lineRow.querySelector('.etf-line-qty').value) || 0;
           line.price = parseFloat(lineRow.querySelector('.etf-line-price').value) || 0;
           line.fees = parseFloat(lineRow.querySelector('.etf-line-fees').value) || 0;
+          if (lf.investedMode) {
+            line.invested = parseFloat(lineRow.querySelector('.etf-line-invested').value) || 0;
+            delete line.qty; // ancien champ — remplacé par le calcul, ne doit plus être réécrit (2026-09-14)
+            const qtyEl = lineRow.querySelector('.etf-line-qty-readonly');
+            if (qtyEl) qtyEl.textContent = cryptoQtyPreview(line.invested, line.price, line.fees);
+          } else {
+            line.qty = parseFloat(lineRow.querySelector('.etf-line-qty').value) || 0;
+          }
           if (lf.hasType) line.type = lineRow.querySelector('.etf-line-type').value;
         };
         lineRow.querySelectorAll('input').forEach(inp => inp.addEventListener('input', sync));
@@ -1843,7 +1835,9 @@ function createModuleRow(key, mod, meta) {
     }
 
     linesWrap.querySelector('.etf-add-line-btn').addEventListener('click', () => {
-      const newLine = { [lf.idKey]: '', date: '', qty: 0, price: 0, fees: 0 };
+      const newLine = lf.investedMode
+        ? { [lf.idKey]: '', date: '', invested: 0, price: 0, fees: 0 }
+        : { [lf.idKey]: '', date: '', qty: 0, price: 0, fees: 0 };
       if (lf.hasType) newLine.type = 'buy';
       lines.push(newLine);
       renderLines();
@@ -2025,6 +2019,74 @@ function monEquipeCompetitionOptionsHtml(selected) {
   return options.map(c => `<option value="${c}" ${c === current ? 'selected' : ''}>${c}</option>`).join('');
 }
 
+// Molette sur un <input type="time"> — utilitaire PARTAGÉ (2026-09-15,
+// fusion de 3 demandes successives sur le même sujet) :
+//   1) throttle 300ms (1re demande, "on dépasse la valeur cible")
+//   2) rendu réutilisable pour tous les time pickers de l'app (2e demande)
+//   3) 1 cran = ±3 (cette demande, au lieu de ±1)
+//
+// Point 1 de CETTE demande ("chercher tous les <select> d'heure/minute et
+// appliquer fixWheelOnSelect()") : AUCUN trouvé, comme déjà vérifié à la
+// demande précédente — tous les `<select>` de config.js listés un par un
+// (icône, sport, adversaire/lieu, compétition, récurrence, type ETF...),
+// aucun n'énumère des heures/minutes en options. `fixWheelOnSelect()` (le
+// pseudocode donné, qui déplace `selectedIndex`) n'a donc AUCUNE cible dans
+// cette app. Les 2 SEULS time pickers réels restent les `<input
+// type="time">` de Mon Équipe et Rappels (voir plus bas) — le pas de 3
+// s'applique à eux.
+//
+// MINUTES : le pas de 3 est obtenu du NAVIGATEUR lui-même, sans JS —
+// `step="180"` (secondes) posé sur chaque input (voir les 2 appels plus
+// bas) fait que le spinner natif de Chromium sur la partie minutes avance
+// déjà de 3 en 3. Mécanisme HTML standard, fiable à 100 % — pas de risque
+// de "forcer le mauvais sous-champ" ici, contrairement à un recalcul manuel.
+//
+// HEURES : aucun attribut standard n'existe pour changer le pas de la
+// partie heures d'un <input type="time"> (le natif avance TOUJOURS d'1h par
+// cran, `step` ne s'applique qu'aux minutes/secondes) — un geste manuel est
+// donc inévitable ici, contrairement aux minutes. Or aucune API DOM ne dit
+// quel sous-champ (heure OU minute) est survolé par la molette (déjà
+// signalé aux 2 décisions précédentes) — approximé ici via la position
+// horizontale du curseur dans le champ (`e.offsetX` dans la moitié gauche ≈
+// partie "HH", format 24h sans AM/PM utilisé en France, donc 2 segments
+// visuels de largeur comparable). Heuristique raisonnable mais PAS garantie
+// pixel-parfaite selon la police/le zoom système du poste — à valider en
+// conditions réelles (voir CONTEXT.md, "à tester en priorité") ; si le seuil
+// de moitié s'avère décalé en pratique, il se règle en un seul endroit ici.
+function attachTimeWheelThrottle(input, throttleMs = 300) {
+  let lastWheelTime = 0;
+  input.addEventListener('wheel', (e) => {
+    const overHour = typeof e.offsetX === 'number' && input.clientWidth > 0
+      && e.offsetX < input.clientWidth / 2;
+
+    if (overHour) {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastWheelTime < throttleMs) return; // trop rapproché du précédent — ignoré
+      lastWheelTime = now;
+      const [hStr, mStr] = (input.value || '00:00').split(':');
+      let h = parseInt(hStr, 10);
+      if (Number.isNaN(h)) h = 0;
+      const step = e.deltaY > 0 ? 3 : -3;
+      h = ((h + step) % 24 + 24) % 24; // boucle 23→0 et 0→23, jamais de valeur hors plage
+      input.value = `${String(h).padStart(2, '0')}:${mStr || '00'}`;
+      input.dispatchEvent(new Event('input', { bubbles: true })); // relit item.time côté appelant, même mécanisme qu'une saisie native
+      return;
+    }
+
+    // Partie minutes (ou position indéterminée) : même throttle qu'avant,
+    // mais on LAISSE PASSER l'événement natif une fois le délai écoulé — le
+    // pas de 3 minutes vient de step="180" sur l'input, pas d'un recalcul
+    // manuel ici (voir commentaire ci-dessus).
+    const now = Date.now();
+    if (now - lastWheelTime < throttleMs) {
+      e.preventDefault();
+      return;
+    }
+    lastWheelTime = now;
+  }, { passive: false });
+}
+
 function renderMonEquipeConfigSection(mod) {
   if (!mod.config) mod.config = {};
   if (typeof mod.config.teamName !== 'string') mod.config.teamName = '';
@@ -2091,14 +2153,16 @@ function renderMonEquipeConfigSection(mod) {
       row.className = 'monequipe-upcoming-row';
       row.innerHTML = `
         <input type="date" class="monequipe-date-input" value="${item.date || ''}">
-        <input type="time" class="monequipe-time-input" value="${item.time || ''}">
+        <input type="time" step="180" class="monequipe-time-input" value="${item.time || ''}">
         <input type="text" class="monequipe-opponent-input" placeholder="Adversaire" value="${item.opponent || ''}">
         <select class="monequipe-venue-select">${monEquipeVenueOptionsHtml(item.venue)}</select>
         <select class="monequipe-competition-select">${monEquipeCompetitionOptionsHtml(item.competition)}</select>
         <button type="button" class="row-delete-btn monequipe-delete-btn" title="Supprimer ce match">×</button>
       `;
       row.querySelector('.monequipe-date-input').addEventListener('input', (e) => { item.date = e.target.value; });
-      row.querySelector('.monequipe-time-input').addEventListener('input', (e) => { item.time = e.target.value; });
+      const timeInput = row.querySelector('.monequipe-time-input');
+      timeInput.addEventListener('input', (e) => { item.time = e.target.value; });
+      attachTimeWheelThrottle(timeInput);
       row.querySelector('.monequipe-opponent-input').addEventListener('input', (e) => { item.opponent = e.target.value; });
       row.querySelector('.monequipe-venue-select').addEventListener('change', (e) => { item.venue = e.target.value; });
       row.querySelector('.monequipe-competition-select').addEventListener('change', (e) => { item.competition = e.target.value; });
@@ -3269,19 +3333,47 @@ function renderFglairConfigSection(mod) {
   wrap.className = 'module-config-field hue-config-field';
   wrap.innerHTML = `
     <div class="hue-config-row">
-      <label>Email FGLair</label>
-      <input type="text" class="fglair-email-input" placeholder="email@exemple.com" value="${cfg.email}" autocomplete="off">
+      <label>Marque</label>
+      <select class="climatisation-brand-select">
+        <option value="fglair">FGLair (Fujitsu)</option>
+      </select>
     </div>
-    <div class="hue-config-row">
-      <label>Mot de passe</label>
-      <input type="password" class="fglair-password-input" placeholder="Mot de passe FGLair" value="${cfg.password}" autocomplete="off">
-      <button type="button" class="fglair-password-toggle" title="Afficher/masquer le mot de passe">👁</button>
+    <div class="climatisation-brand-fields" data-brand-fields="fglair">
+      <div class="hue-config-row">
+        <label>Email FGLair</label>
+        <input type="text" class="fglair-email-input" placeholder="email@exemple.com" value="${cfg.email}" autocomplete="off">
+      </div>
+      <div class="hue-config-row">
+        <label>Mot de passe</label>
+        <input type="password" class="fglair-password-input" placeholder="Mot de passe FGLair" value="${cfg.password}" autocomplete="off">
+        <button type="button" class="fglair-password-toggle" title="Afficher/masquer le mot de passe">👁</button>
+      </div>
+      <button type="button" class="fglair-test-btn etf-add-line-btn">Tester la connexion</button>
+      <p class="hue-config-status" data-status="fglair"></p>
+      <p class="hue-config-hint">Les climatiseurs de votre compte FGLair sont détectés automatiquement — aucune saisie manuelle nécessaire.</p>
+      <div class="fglair-devices-list"></div>
     </div>
-    <button type="button" class="fglair-test-btn etf-add-line-btn">Tester la connexion</button>
-    <p class="hue-config-status" data-status="fglair"></p>
-    <p class="hue-config-hint">Les climatiseurs de votre compte FGLair sont détectés automatiquement — aucune saisie manuelle nécessaire.</p>
-    <div class="fglair-devices-list"></div>
   `;
+
+  // Marque (2026-09-15, sur demande explicite) — prépare l'interface pour
+  // d'autres marques futures (Mitsubishi, Daikin...) SANS toucher à la
+  // logique FGLair existante ci-dessous : une seule option pour l'instant,
+  // les champs FGLair restent donc TOUJOURS affichés (comme aujourd'hui).
+  // Sauvegardée sous `climatisation.marque` — une clé electron-store à part,
+  // PAS dans `mod.config` (demandé explicitement tel quel), via le canal
+  // store générique déjà exposé (voir main.js ipcMain 'store:get'/'store:set',
+  // preload.js window.matin.store) plutôt qu'un canal dédié à créer.
+  const brandSelect = wrap.querySelector('.climatisation-brand-select');
+  window.matin.store.get('climatisation.marque')
+    .then((saved) => { if (saved) brandSelect.value = saved; })
+    .catch((err) => console.warn('[Config] Échec lecture climatisation.marque', err));
+  brandSelect.addEventListener('change', () => {
+    window.matin.store.set('climatisation.marque', brandSelect.value)
+      .catch((err) => console.warn('[Config] Échec sauvegarde climatisation.marque', err));
+    // Une seule marque disponible aujourd'hui : rien à afficher/masquer.
+    // Quand une 2e marque sera ajoutée, c'est ICI qu'il faudra basculer entre
+    // les blocs `[data-brand-fields]` correspondants.
+  });
 
   const emailInput = wrap.querySelector('.fglair-email-input');
   const passwordInput = wrap.querySelector('.fglair-password-input');
@@ -3532,16 +3624,30 @@ function renderRemindersConfigSection(mod) {
   const listEl = wrap.querySelector('.reminders-config-list');
   const addBtn = wrap.querySelector('.reminders-add-btn');
 
+  // Date au format FR (JJ/MM/AAAA) pour l'affichage — `item.date` est
+  // stocké au format natif de <input type="date"> (AAAA-MM-JJ).
+  function remindersFormatDatePreview(dateStr) {
+    if (!dateStr) return null;
+    const [y, m, d] = dateStr.split('-');
+    if (!y || !m || !d) return null;
+    return `${d}/${m}/${y}`;
+  }
+
   // Résumé lisible affiché au-dessus de chaque ligne de champs (icône + titre
   // + heure, éventuellement récurrence) — la grille compacte à 6 colonnes
   // reste dense à lire d'un coup d'œil, ce résumé montre le rendu final sans
   // décoder chaque petit champ.
+  // Date ajoutée à côté de l'heure (2026-09-15, sur demande explicite, "le
+  // jour n'est pas affiché dans la liste des rappels enregistrés") — le
+  // champ `date` était déjà saisi/sauvegardé correctement (voir plus bas,
+  // sync de `.reminders-date-input` inchangé), seul CE résumé l'omettait.
   function remindersPreviewHtml(item) {
     const cat = window.ReminderCategories?.byKey?.[item.icon] || { emoji: '⏰' };
     const title = item.title?.trim() || '(sans titre)';
+    const dateLabel = remindersFormatDatePreview(item.date);
     const time = item.time || '--:--';
     const recur = item.recurrence && item.recurrence !== 'once' ? ` · ${REMINDERS_RECUR_PREVIEW_LABEL[item.recurrence]}` : '';
-    return `${cat.emoji} <strong>${title}</strong> — <span class="reminders-preview-time">${time}</span>${recur}`;
+    return `${cat.emoji} <strong>${title}</strong> — <span class="reminders-preview-time">${dateLabel ? `${dateLabel} · ` : ''}${time}</span>${recur}`;
   }
 
   function renderItems() {
@@ -3560,7 +3666,7 @@ function renderRemindersConfigSection(mod) {
         <select class="reminders-icon-select">${remindersCategoryOptionsHtml(item.icon)}</select>
         <input type="text" class="reminders-title-input" placeholder="Ex : Médicament matin" value="${item.title || ''}">
         <input type="date" class="reminders-date-input" value="${item.date || ''}">
-        <input type="time" class="reminders-time-input" value="${item.time || ''}">
+        <input type="time" step="180" class="reminders-time-input" value="${item.time || ''}">
         <select class="reminders-recur-select">
           <option value="once" ${!item.recurrence || item.recurrence === 'once' ? 'selected' : ''}>Une fois</option>
           <option value="daily" ${item.recurrence === 'daily' ? 'selected' : ''}>Quotidien</option>
@@ -3575,7 +3681,9 @@ function renderRemindersConfigSection(mod) {
       row.querySelector('.reminders-icon-select').addEventListener('change', (e) => { item.icon = e.target.value; refreshPreview(); });
       row.querySelector('.reminders-title-input').addEventListener('input', (e) => { item.title = e.target.value; refreshPreview(); });
       row.querySelector('.reminders-date-input').addEventListener('input', (e) => { item.date = e.target.value; refreshPreview(); });
-      row.querySelector('.reminders-time-input').addEventListener('input', (e) => { item.time = e.target.value; refreshPreview(); });
+      const remindersTimeInput = row.querySelector('.reminders-time-input');
+      remindersTimeInput.addEventListener('input', (e) => { item.time = e.target.value; refreshPreview(); });
+      attachTimeWheelThrottle(remindersTimeInput);
       row.querySelector('.reminders-recur-select').addEventListener('change', (e) => { item.recurrence = e.target.value; refreshPreview(); });
 
       row.querySelector('.reminders-delete-btn').addEventListener('click', () => {

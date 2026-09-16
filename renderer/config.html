@@ -330,29 +330,13 @@
     }
     .module-row-icon { font-size: 18px; }
     .module-row-name { flex: 1; font-size: 13px; font-weight: 500; }
-    /* Bouton ℹ️ "Sites compatibles" — module Suivi de prix uniquement
-       (2026-08-31, sur demande explicite). Nu (pas de fond/bordure), taille
-       proche du texte du titre pour rester discret à côté du libellé.
-       `margin-left`/`color` ajustés le 2026-08-31 (2e demande, même jour) —
-       `color` n'a d'effet que si la police système rend ℹ️ en style TEXTE
-       (glyphe monochrome héritant de `currentColor`) plutôt qu'en style
-       ÉMOJI (glyphe couleur fixe, ignore `color`) ; les 2 rendus existent
-       selon la plateforme, sans garantie universelle depuis du CSS seul. */
-    .price-tracking-info-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 12px;
-      padding: 0;
-      margin-left: 8px;
-      vertical-align: middle;
-      opacity: 0.8;
-      color: #4f8ef7;
-    }
-    .price-tracking-info-btn:hover { opacity: 1; }
-    /* Popover "Sites compatibles" (position: fixed, coordonnées posées en JS
-       — voir showPriceTrackingInfoPopup dans config.js) : fond sombre,
-       coins arrondis, ombre portée pour se détacher du reste de la fenêtre. */
+    /* Popover (position: fixed, coordonnées posées en JS — voir
+       showProfilesInfoPopup/showFondInfoPopup dans config.js) : fond sombre,
+       coins arrondis, ombre portée pour se détacher du reste de la fenêtre.
+       Nom "price-tracking-info-*" hérité du bouton ℹ️ "Sites compatibles" du
+       module Suivi de prix qui l'utilisait à l'origine — retiré le
+       2026-09-15 (sur demande explicite), classes gardées telles quelles
+       puisque toujours réutilisées par les 2 popovers ci-dessus. */
     .price-tracking-info-popup {
       position: fixed;
       z-index: 300;
@@ -896,12 +880,13 @@
       gap: 5px;
     }
     /* ℹ️ info "multi-PC" à côté du libellé PROFILS (2026-09-03, sur demande
-       explicite) — même bouton nu + popover que .price-tracking-info-btn/
-       -popup plus haut (seul autre point d'info de ce fichier), réutilisés
-       tels quels par showProfilesInfoPopup (config.js) plutôt que dupliqués :
-       seul ce petit bouton a besoin d'une classe dédiée, `letter-spacing:
-       normal` pour annuler celui du libellé PROFILS (0.1em) qui écartèrerait
-       le glyphe ℹ️ sinon. */
+       explicite) — même popover (.price-tracking-info-popup, voir plus haut)
+       que showProfilesInfoPopup (config.js) réutilise plutôt que de le
+       dupliquer ; le bouton nu qui avait servi de modèle à ce style
+       (`.price-tracking-info-btn`, module Suivi de prix) a été retiré depuis
+       (2026-09-15) — seul ce petit bouton-ci a besoin d'une classe dédiée,
+       `letter-spacing: normal` pour annuler celui du libellé PROFILS (0.1em)
+       qui écartèrerait le glyphe ℹ️ sinon. */
     .profiles-info-btn {
       background: none;
       border: none;

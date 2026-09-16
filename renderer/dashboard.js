@@ -66,8 +66,12 @@ const MODULE_REGISTRY = {
   // laissait plus assez de place pour la 3e section. Juste un défaut,
   // redimensionnable librement ensuite (snap-to-grid retiré le 2026-08-11).
   cinema:     { label: 'Cinéma',        icon: '🎬', requiresGoogle: false, defaultSize: { w: 420, h: 520 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'services' },
-  steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false, defaultSize: { w: 380, h: 300 }, refreshMs: 6 * 60 * 60 * 1000, theme: 'services' },
-  epicPromos: { label: 'Promos Epic Games', icon: '🎁', requiresGoogle: false, defaultSize: { w: 380, h: 300 }, refreshMs: 6 * 60 * 60 * 1000, theme: 'services' },
+  // h 300→332 (2026-09-16, sur demande explicite, capture à l'appui) — le
+  // dernier des 5 jeux affichés était coupé à mi-hauteur, voir style.css
+  // .sp-list pour le calcul détaillé (la hauteur réelle d'un item avait été
+  // sous-estimée à la conception).
+  steamPromos:{ label: 'Promos Steam', icon: '🏷️', requiresGoogle: false, defaultSize: { w: 380, h: 332 }, refreshMs: 6 * 60 * 60 * 1000, theme: 'services' },
+  epicPromos: { label: 'Promos Epic Games', icon: '🎁', requiresGoogle: false, defaultSize: { w: 380, h: 332 }, refreshMs: 6 * 60 * 60 * 1000, theme: 'services' },
   hue:        { label: 'Philips Hue',   icon: '💡', requiresGoogle: false, defaultSize: { w: 320, h: 260 }, refreshMs: 30 * 1000, theme: 'maison' },
   kasa:       { label: 'TP-Link Kasa',  icon: '🔌', requiresGoogle: false, defaultSize: { w: 360, h: 400 }, refreshMs: 30 * 1000, theme: 'maison' },
   tradfri:    { label: 'IKEA Trådfri',  icon: '💡', requiresGoogle: false, defaultSize: { w: 380, h: 440 }, refreshMs: 30 * 1000, theme: 'maison' },
@@ -396,7 +400,9 @@ function resolveModuleSubtitle(key, config) {
 const MODULE_CLICK_URLS = {
   calendar: 'https://calendar.google.com',
   gmail: 'https://mail.google.com',
-  googleTasks: 'https://tasks.google.com',
+  // googleTasks retiré (2026-09-16, sur demande explicite, même traitement
+  // que priceTracking ci-dessous) — le titre de carte n'ouvre plus rien au
+  // clic.
   // URI protocole `spotify:` (2026-09-12, sur demande explicite) — remplace
   // le lien web `https://open.spotify.com` : ouvre directement l'app Windows
   // Spotify (si installée) plutôt que le lecteur web dans le navigateur.
@@ -2246,6 +2252,19 @@ async function renderModuleOnce(key, meta, config) {
     // revalide le token à chaque appel plutôt que de réutiliser celui,
     // potentiellement expiré, capturé au chargement initial de la page.
     const google = meta.requiresGoogle ? await window.matin.google.getValidToken() : null;
+
+    // Compte Google non connecté (2026-09-15, sur demande explicite) — la
+    // carte reste désormais créée dès que le module est activé (voir plus
+    // haut dans initDashboard, l'ancien skip a été retiré) ; c'est ICI que
+    // ça se voit : message explicite à la place du contenu, plutôt qu'un
+    // appel à mod.render() forcément voué à échouer sans token.
+    if (meta.requiresGoogle && !google?.accessToken) {
+      contentEl.innerHTML = `<div class="module-empty">Connectez votre compte Google dans les paramètres.</div>`;
+      const badgeEl = document.getElementById(`badge-${key}`);
+      if (badgeEl) badgeEl.textContent = '⚠';
+      return;
+    }
+
     await mod.render(
       contentEl,
       config,
@@ -2316,11 +2335,18 @@ function playSplashAnimation() {
     function startFade() {
       if (fadeStarted) return;
       fadeStarted = true;
-      overlay.classList.add('splash-fade-out'); // fondu 1s, voir style.css
+      // Fondu 1s → 150ms (2026-09-14, sur demande explicite, "transition
+      // rapide" au changement de profil) — ce timeout doit rester synchronisé
+      // avec `transition: opacity 150ms` posé sur `.splash-overlay`
+      // (style.css) : c'est lui qui déclenche la suite (révélation des cartes
+      // via `revealModuleCards`), il ne doit ni couper la transition CSS en
+      // plein vol (valeur plus courte) ni la faire attendre inutilement
+      // (valeur plus longue).
+      overlay.classList.add('splash-fade-out');
       setTimeout(() => {
         overlay.classList.add('splash-done');
         resolve();
-      }, 1000);
+      }, 150);
     }
 
     // Un changement de classe au même tick que le premier paint ne déclenche
@@ -2347,7 +2373,12 @@ function playSplashAnimation() {
     // où même la position de repos du soleil resterait au-dessus de cette
     // ligne), force le fondu après un délai maximal plutôt que de laisser
     // l'overlay bloqué indéfiniment.
-    setTimeout(startFade, 5000);
+    // 5000ms → 2500ms (2026-09-16) — ré-proportionné à la même moitié que la
+    // durée de la montée (6s → 3s, voir .splash-sun-wrap dans style.css) :
+    // ce filet reste plus long que le nouveau cas normal (~1,2s), juste
+    // remis à l'échelle pour ne pas laisser un délai de secours devenu 2x
+    // plus long que la montée elle-même.
+    setTimeout(startFade, 2500);
   });
 }
 
@@ -2571,8 +2602,11 @@ async function initDashboard() {
   const dashboard   = document.getElementById('dashboard');
   const canvas      = document.getElementById('dashboardCanvas');
   modulesConf       = await window.matin.modules.getAll();
-  const googleData  = await window.matin.google.getValidToken();
-  const hasGoogle   = !!googleData?.accessToken;
+  // `hasGoogle`/le skip de carte entière qui vivait ici ont été retirés
+  // (2026-09-15, sur demande explicite) — un module Google sans compte
+  // connecté reste maintenant VISIBLE tant que son toggle est activé, voir
+  // renderModuleOnce plus bas qui affiche désormais un message explicite à
+  // la place du contenu au lieu de ne jamais créer la carte.
 
   // Trier par position (sert uniquement à ordonner la disposition PAR DÉFAUT —
   // une fois une disposition enregistrée, position n'a plus d'effet visuel)
@@ -2613,12 +2647,6 @@ async function initDashboard() {
   for (const [key, moduleConf] of sorted) {
     const meta = resolveModuleMeta(key);
     if (!meta) continue;
-
-    // Module Google sans auth → skip
-    if (meta.requiresGoogle && !hasGoogle) {
-      console.log(`[Matin] Module ${key} ignoré — non connecté Google`);
-      continue;
-    }
 
     const title = resolveModuleTitle(key, meta, moduleConf.config);
     const subtitle = resolveModuleSubtitle(key, moduleConf.config);
