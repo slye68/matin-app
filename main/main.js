@@ -2436,12 +2436,31 @@ ipcMain.handle('assistant:webSearch', async (_e, query) => {
   if (!res.ok) throw new Error(`Erreur recherche web (${res.status})`);
   const html = await res.text();
   const results = [];
-  const re = /<a[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  const re = /<a([^>]*class="result__a"[^>]*)>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = re.exec(html)) && results.length < 5) {
-    const title = assistantStripHtml(m[1]);
-    const snippet = assistantStripHtml(m[2]);
-    if (title || snippet) results.push({ title, snippet });
+    const title = assistantStripHtml(m[2]);
+    const snippet = assistantStripHtml(m[3]);
+    // URL (2026-09-25, bloc-notes/source de l'assistant) : DuckDuckGo passe par
+    // un lien de redirection dont la vraie cible est dans le paramètre uddg.
+    let url = '';
+    const href = /href="([^"]+)"/.exec(m[1]);
+    if (href) {
+      try {
+        const u = new URL(href[1].replace(/&amp;/g, '&'), 'https://duckduckgo.com');
+        url = u.searchParams.get('uddg') || u.href;
+      } catch { url = ''; }
+    }
+    if (!/^https?:\/\//i.test(url)) url = '';
+    // Annonces (2026-09-25) : elles ont aussi la classe result__a, mais leur
+    // bloc porte `result--ad` et leur lien reste sur duckduckgo.com (y.js,
+    // pas de uddg). On écarte ces blocs et tout lien interne DuckDuckGo.
+    const blockStart = html.lastIndexOf('<div class="result results_links', m.index);
+    if (blockStart >= 0 && /result--ad/.test(html.slice(blockStart, m.index))) continue;
+    let host = '';
+    try { host = url ? new URL(url).hostname : ''; } catch { host = ''; }
+    if (!url || host === 'duckduckgo.com' || host.endsWith('.duckduckgo.com')) continue;
+    if (title || snippet) results.push({ title, snippet, url });
   }
   return results;
 });

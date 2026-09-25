@@ -25,17 +25,24 @@ const ASSISTANT_VOICE_MAP = { 'fr-FR': 'Aoede', 'en-US': 'Charon', 'es-ES': 'Fen
 const ASSISTANT_SYSTEM_PROMPT = `Tu es Matin, un assistant vocal généraliste intégré à un dashboard Windows.
 Réponds de façon concise et naturelle — ta réponse sera lue à voix haute, ne cite jamais de lien.
 Tu as accès au dashboard de l'utilisateur via des outils :
-- web_search : recherche sur internet. Utilise-le pour toute question d'actualité ou d'information récente, puis reformule les résultats avec tes mots.
+- google_search : pour toute information à jour (cours de bourse, de l'or, des devises, prix, actualité, résultats sportifs, horaires). Donne le chiffre précis et l'heure si disponible.
+- web_search : uniquement si l'utilisateur veut une source ou un lien affiché dans le bloc-notes, ou si google_search n'a rien donné. Chaque résultat est numéroté [source n].
 - read_dashboard : lit le contenu affiché des modules (météo, matchs, agenda…) — utilise-le pour répondre à toute question sur ce que le dashboard affiche.
 - execute_dashboard_command : TOGGLE_THEME, OPEN_SETTINGS, CLOSE_SETTINGS, REFRESH_ALL.
-- set_module_enabled : active ou désactive un module.
+- set_module_enabled : active ou désactive UN module.
+- set_modules_enabled : active et/ou désactive PLUSIEURS modules en une seule action (listes enable / disable). À préférer dès que la demande concerne plus d'un module : un seul rechargement du dashboard au lieu d'un par module.
+- execute_dashboard_command REORGANIZE : réorganise automatiquement la disposition des modules (style tiré au hasard, tailles inchangées) ; UNDO_REORGANIZE annule la dernière réorganisation.
 - switch_profile : bascule sur le profil 1 ou 2.
 - control_lights : allume/éteint/règle la luminosité des lumières (Hue, Kasa, Trådfri), toutes ou par nom.
 - control_shutters : ouvre/ferme ou règle le pourcentage des volets Somfy, tous ou par nom.
 - control_climate : climatisation (marche/arrêt, mode, température).
 - control_music : Spotify (play, pause, suivant, précédent).
 - open_shortcut : ouvre Gmail, Drive, YouTube, Agenda, Photos ou Maps.
-Confirme brièvement à voix haute ce que tu as fait, ou dis clairement si une action a échoué.`;
+- set_wallpaper : change le fond d'écran du dashboard (Paramètres → Personnaliser). Nom du fond (ex. « aurore boréale », « plage », « neige », « aucun »), ou « aléatoire »/« suivant ». Certains fonds ne vont qu'avec le thème sombre, d'autres qu'avec le thème clair : si le fond demandé ne correspond pas au thème actuel, dis-le et propose de basculer le thème (execute_dashboard_command TOGGLE_THEME).
+- show_note : affiche un texte écrit dans un bloc-notes à l'écran (recette, liste, résumé, explication longue…). Dès que l'utilisateur demande quelque chose d'écrit ou de long à consulter, utilise show_note avec le contenu COMPLET en texte simple (une ligne par élément, "- " pour les listes, lignes vides entre sections, jamais de markdown ni de HTML), puis dis seulement à voix haute que c'est affiché. Si le texte vient d'une recherche web, passe source = numéro [source n] du résultat web ; ne recopie jamais d'URL.
+- show_source : ajoute un lien de source (icône internet) au dernier bloc-notes, ou en crée un. À utiliser quand l'utilisateur demande la source ou le lien : passe source = numéro [source n] du résultat web ; ne recopie jamais d'URL, et ne lis jamais de lien à voix haute.
+Confirme brièvement à voix haute ce que tu as fait, ou dis clairement si une action a échoué.
+EXCEPTION : après set_module_enabled ou set_modules_enabled (activation/désactivation de modules) réussi, réponds UNIQUEMENT « Fait ! », sans rien ajouter (le dashboard se recharge juste après, une phrase plus longue serait coupée). En cas d'échec ou de module inconnu, dis-le normalement.`;
 
 // ── Lecture du dashboard ─────────────────────────────────────────────────
 // Texte affiché de chaque carte (titre + contenu), tronqué : pas d'accès aux
@@ -57,7 +64,7 @@ function assistantDashboardSummary(onlyModule, maxPerModule = 500) {
 // Liste "clé (libellé)" des modules pour que le modèle puisse les désigner.
 function assistantModuleList() {
   const reg = typeof MODULE_REGISTRY !== 'undefined' ? MODULE_REGISTRY : {};
-  return Object.entries(reg).map(([k, m]) => `${k} (${m.label})`).join(', ');
+  return Object.entries(reg).filter(([k]) => !(typeof HIDDEN_MODULE_KEYS !== 'undefined' && HIDDEN_MODULE_KEYS.includes(k))).map(([k, m]) => `${k} (${m.label})`).join(', ');
 }
 
 // Outils d'action : chacun renvoie un objet résultat (jamais d'exception vers
@@ -67,11 +74,51 @@ async function assistantSetModuleEnabled({ module, enabled }) {
   const wanted = String(module || '').toLowerCase();
   const key = Object.keys(all).find((k) => k.toLowerCase() === wanted)
     || Object.keys(all).find((k) => (typeof MODULE_REGISTRY !== 'undefined' && MODULE_REGISTRY[k]?.label || '').toLowerCase() === wanted);
-  if (!key) return { error: `Module inconnu : ${module}` };
+  if (!key || (typeof HIDDEN_MODULE_KEYS !== 'undefined' && HIDDEN_MODULE_KEYS.includes(key))) return { error: `Module inconnu : ${module}` };
   if (key === 'assistant' && !enabled) return { error: "Je ne peux pas me désactiver moi-même." };
   all[key].enabled = !!enabled;
   await window.matin.modules.update(all);
   return { result: `${key} ${enabled ? 'activé' : 'désactivé'}` };
+}
+
+// Plusieurs modules en UNE écriture (2026-09-25, sur demande explicite) :
+// chaque modules.update déclenche un rechargement complet du dashboard, le
+// faire module par module en enchaînerait autant (et couperait l'écoute de
+// l'assistant à chaque fois). `enable`/`disable` : tableaux de clés ou
+// libellés (une chaîne séparée par des virgules est aussi acceptée).
+async function assistantSetModulesEnabled({ enable, disable }) {
+  const toList = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim()).filter(Boolean);
+  const on = toList(enable);
+  const off = toList(disable);
+  if (!on.length && !off.length) return { error: 'Aucun module indiqué (enable / disable).' };
+  const all = await window.matin.modules.getAll();
+  const reg = typeof MODULE_REGISTRY !== 'undefined' ? MODULE_REGISTRY : {};
+  const resolve = (name) => {
+    const wanted = assistantNorm(name);
+    return Object.keys(all).find((k) => assistantNorm(k) === wanted)
+      || Object.keys(all).find((k) => assistantNorm(reg[k]?.label || '') === wanted)
+      || Object.keys(all).find((k) => assistantNorm(reg[k]?.label || '').includes(wanted) && wanted.length > 2);
+  };
+  const changed = [];
+  const unknown = [];
+  const skipped = [];
+  for (const [names, value] of [[on, true], [off, false]]) {
+    for (const name of names) {
+      const key = resolve(name);
+      if (!key || (typeof HIDDEN_MODULE_KEYS !== 'undefined' && HIDDEN_MODULE_KEYS.includes(key))) { unknown.push(name); continue; }
+      if (key === 'assistant' && !value) { skipped.push('assistant (je ne peux pas me désactiver moi-même)'); continue; }
+      if (all[key].enabled === value) continue;
+      all[key].enabled = value;
+      changed.push(`${key} ${value ? 'activé' : 'désactivé'}`);
+    }
+  }
+  if (changed.length) await window.matin.modules.update(all);
+  if (!changed.length && !unknown.length && !skipped.length) return { result: 'Rien à changer : les modules étaient déjà dans cet état.' };
+  return {
+    result: changed.length ? `${changed.join(', ')}. Le dashboard se recharge.` : 'Aucun changement.',
+    ...(unknown.length ? { unknown: `Modules inconnus : ${unknown.join(', ')}` } : {}),
+    ...(skipped.length ? { skipped: skipped.join(', ') } : {}),
+  };
 }
 
 async function assistantSwitchProfile({ profile }) {
@@ -221,11 +268,320 @@ async function assistantControlMusic({ action }) {
 // Recherche web DuckDuckGo (exécutée côté main, voir main.js assistant:webSearch).
 // Remplace `google_search` : déclaré à côté des fonctions, il n'était en
 // pratique jamais utilisé par le modèle audio natif.
+// Registre des sources (2026-09-25) : un modèle audio ne sait pas recopier une
+// URL exacte (il la tronque ou l'invente). Le modèle ne voit donc que des
+// numéros [source n] ; les vraies URLs restent ici et show_note/show_source
+// les résolvent par numéro. Une URL fournie par le modèle n'est jamais utilisée.
+let assistantLastSources = []; // [{ n, url, title }]
+function assistantAddSources(items) {
+  let n = assistantLastSources.reduce((max, s) => Math.max(max, s.n), 0);
+  const added = [];
+  for (const { url, title } of items) {
+    const safe = assistantSafeUrl(url);
+    if (!safe || assistantLastSources.some((s) => s.url === safe)) continue;
+    const s = { n: ++n, url: safe, title: String(title || 'Source') };
+    assistantLastSources.push(s);
+    added.push(s);
+  }
+  return added;
+}
+function assistantSourceByNumber(source) {
+  return assistantLastSources.find((s) => s.n === Number(source)) || null;
+}
+
+// Sources Google Search (grounding) : ajoutées au registre à la suite des
+// numéros existants ; si un bloc-notes vient d'être créé (< 30s), il reçoit
+// aussi jusqu'à 3 de ces liens. Ils passent par une redirection Google.
+function assistantAddGroundingSources(chunks) {
+  assistantAddSources(chunks.map((c) => c?.web).filter((w) => w?.uri).map((w) => ({ url: w.uri, title: w.title })))
+    .forEach((s) => { s.grounding = true; });
+  // Toutes les sources Google connues (pas seulement les nouvelles) : le
+  // bloc-notes peut avoir été créé après un premier envoi de ces sources.
+  const added = assistantLastSources.filter((s) => s.grounding);
+  if (!added.length || !assistantCard) return;
+  const notes = assistantNotesLoad();
+  const last = notes[notes.length - 1];
+  if (!last || Date.now() - last.ts > 30 * 1000) return;
+  if (!last.sources) last.sources = [];
+  let attached = last.sources.filter((x) => x.grounding).length;
+  let changed = false;
+  for (const s of added) {
+    if (attached >= 3) break;
+    if (last.sources.some((x) => x.url === s.url)) continue;
+    last.sources.push({ url: s.url, label: s.title.slice(0, 60), grounding: true });
+    attached++;
+    changed = true;
+  }
+  if (!changed) return;
+  assistantNotesSave(notes);
+  assistantOpenNotes(assistantCard, notes.length - 1);
+}
+
 async function assistantWebSearch({ query }) {
   if (!query) return { error: 'Requête vide.' };
   const results = await window.matin.assistant.webSearch(String(query));
   if (!results.length) return { error: 'Aucun résultat.' };
-  return { result: results.map((r, i) => `${i + 1}. ${r.title} — ${r.snippet}`).join('\n') };
+  // Nouvelle recherche = nouvelle numérotation à partir de 1.
+  assistantLastSources = [];
+  const numbered = results.map((r) => ({ r, s: assistantAddSources([{ url: r.url, title: r.title }])[0] }));
+  return { result: numbered.map(({ r, s }, i) => `${i + 1}. ${r.title} — ${r.snippet}${s ? ` [source ${s.n}]` : ''}`).join('\n') };
+}
+
+// ── Bloc-notes de l'assistant (2026-09-25, sur demande explicite) ─────────
+// Panneau déplié sous (ou au-dessus de) l'orbe, DANS la carte : il suit donc
+// le déplacement du module. Notes gardées 24 h dans localStorage (historique
+// consultable avec ‹ ›), puis purgées. Texte posé en textContent (jamais
+// d'HTML venant du modèle) ; liens limités à http(s).
+const ASSISTANT_NOTES_KEY = 'matin-assistant-notes-v1';
+const ASSISTANT_NOTES_TTL_MS = 24 * 60 * 60 * 1000;
+const ASSISTANT_NOTES_MAX = 30;
+let assistantNoteIdx = 0;
+
+function assistantNotesLoad() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(ASSISTANT_NOTES_KEY) || '[]'); } catch { list = []; }
+  if (!Array.isArray(list)) list = [];
+  const fresh = list.filter((n) => n && Date.now() - n.ts < ASSISTANT_NOTES_TTL_MS);
+  if (fresh.length !== list.length) assistantNotesSave(fresh);
+  return fresh; // du plus ancien au plus récent
+}
+function assistantNotesSave(list) {
+  try { localStorage.setItem(ASSISTANT_NOTES_KEY, JSON.stringify(list.slice(-ASSISTANT_NOTES_MAX))); } catch (e) { console.warn('[Assistant] Notes non sauvegardées', e); }
+}
+const assistantSafeUrl = (u) => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '');
+
+function assistantEnsurePanel(card) {
+  if (card.querySelector('.asst-panel')) return card.querySelector('.asst-panel');
+  const panel = document.createElement('div');
+  panel.className = 'asst-panel';
+  panel.hidden = true;
+  panel.innerHTML = `
+    <div class="asst-panel-head">
+      <span class="asst-panel-title"></span>
+      <span class="asst-panel-nav">
+        <button type="button" data-a="prev" title="Note précédente">‹</button>
+        <span class="asst-panel-count"></span>
+        <button type="button" data-a="next" title="Note suivante">›</button>
+      </span>
+      <button type="button" data-a="source" title="Ouvrir la source" hidden>🌐</button>
+      <button type="button" data-a="copy" title="Copier le texte">📋</button>
+      <button type="button" data-a="del" title="Supprimer cette note">🗑</button>
+      <button type="button" data-a="close" title="Fermer (Échap)">✕</button>
+    </div>
+    <div class="asst-panel-body"></div>
+    <div class="asst-panel-foot"></div>`;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'asst-notes-btn';
+  btn.hidden = true;
+  btn.title = "Notes de l'assistant (24 h)";
+  btn.innerHTML = '📝<span class="asst-notes-count"></span>';
+  card.append(panel, btn);
+
+  btn.addEventListener('click', () => assistantOpenNotes(card, assistantNotesLoad().length - 1));
+  panel.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-a]');
+    if (!b) return;
+    const notes = assistantNotesLoad();
+    const note = notes[assistantNoteIdx];
+    switch (b.dataset.a) {
+      case 'close': assistantClosePanel(card); break;
+      case 'del': {
+        // Supprime la note affichée puis montre sa voisine (ou ferme s'il n'en reste plus).
+        notes.splice(assistantNoteIdx, 1);
+        assistantNotesSave(notes);
+        if (notes.length) assistantOpenNotes(card, Math.min(assistantNoteIdx, notes.length - 1));
+        else assistantClosePanel(card);
+        break;
+      }
+      case 'delall': {
+        // Double clic de confirmation (3 s) : évite d'effacer tout l'historique par erreur.
+        if (b.dataset.armed) { assistantNotesSave([]); assistantClosePanel(card); break; }
+        b.dataset.armed = '1'; b.textContent = 'Confirmer ?';
+        setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Tout effacer'; } }, 3000);
+        break;
+      }
+      case 'prev': assistantOpenNotes(card, Math.max(0, assistantNoteIdx - 1)); break;
+      case 'next': assistantOpenNotes(card, Math.min(notes.length - 1, assistantNoteIdx + 1)); break;
+      case 'copy':
+        if (note) navigator.clipboard.writeText(`${note.title}\n\n${note.content}`).then(() => {
+          b.textContent = '✓'; setTimeout(() => { b.textContent = '📋'; }, 1200);
+        }).catch((err) => console.warn('[Assistant] Copie impossible', err));
+        break;
+      case 'source': {
+        const url = assistantSafeUrl(note?.sources?.[0]?.url);
+        if (url) window.matin.shell.openExternal(url);
+        break;
+      }
+      case 'src-i': {
+        const url = assistantSafeUrl(note?.sources?.[Number(b.dataset.i)]?.url);
+        if (url) window.matin.shell.openExternal(url);
+        break;
+      }
+    }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) assistantClosePanel(card); });
+  setInterval(() => assistantRefreshNotesUi(card), 10 * 60 * 1000);
+  assistantRefreshNotesUi(card);
+  return panel;
+}
+
+function assistantRefreshNotesUi(card) {
+  const btn = card.querySelector('.asst-notes-btn');
+  const panel = card.querySelector('.asst-panel');
+  if (!btn || !panel) return;
+  const n = assistantNotesLoad().length;
+  btn.hidden = n === 0 || !panel.hidden;
+  btn.querySelector('.asst-notes-count').textContent = n > 1 ? String(n) : '';
+  if (n === 0 && !panel.hidden) assistantClosePanel(card);
+}
+
+function assistantClosePanel(card) {
+  const panel = card.querySelector('.asst-panel');
+  if (panel) panel.hidden = true;
+  assistantRefreshNotesUi(card);
+}
+
+function assistantOpenNotes(card, idx) {
+  const panel = assistantEnsurePanel(card);
+  const notes = assistantNotesLoad();
+  if (!notes.length) { assistantClosePanel(card); return; }
+  assistantNoteIdx = Math.max(0, Math.min(notes.length - 1, idx));
+  const note = notes[assistantNoteIdx];
+  panel.querySelector('.asst-panel-title').textContent = note.title || 'Note';
+  panel.querySelector('.asst-panel-count').textContent = `${assistantNoteIdx + 1}/${notes.length}`;
+  panel.querySelector('[data-a="prev"]').disabled = assistantNoteIdx === 0;
+  panel.querySelector('[data-a="next"]').disabled = assistantNoteIdx === notes.length - 1;
+  const body = panel.querySelector('.asst-panel-body');
+  body.textContent = note.content || (note.sources?.length ? 'Source :' : '');
+  body.scrollTop = 0;
+  const srcs = (note.sources || []).filter((s) => assistantSafeUrl(s.url));
+  panel.querySelector('[data-a="source"]').hidden = srcs.length === 0;
+  const foot = panel.querySelector('.asst-panel-foot');
+  foot.textContent = '';
+  const age = Math.max(1, Math.round((Date.now() - note.ts) / 60000));
+  const stamp = document.createElement('span');
+  stamp.textContent = age < 60 ? `il y a ${age} min` : `il y a ${Math.round(age / 60)} h`;
+  foot.append(stamp);
+  if (srcs.length > 1 || (srcs.length === 1 && !note.content)) {
+    srcs.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.dataset.a = 'src-i'; b.dataset.i = String(i);
+      b.textContent = `🌐 ${s.label || 'Source'}`;
+      foot.append(b);
+    });
+  }
+  if (notes.length > 1) {
+    const all = document.createElement('button');
+    all.type = 'button'; all.dataset.a = 'delall'; all.textContent = 'Tout effacer';
+    all.style.marginLeft = 'auto';
+    foot.append(all);
+  }
+  // Ouvre vers le bas, ou vers le haut s'il n'y a pas la place sous la carte.
+  const r = card.getBoundingClientRect();
+  const below = window.innerHeight - r.bottom;
+  panel.classList.toggle('asst-up', below < 320 && r.top > below);
+  panel.hidden = false;
+  if (typeof bringToFront === 'function') bringToFront(card);
+  assistantRefreshNotesUi(card);
+}
+
+async function assistantShowNote({ title, content, source }) {
+  if (!assistantCard) return { error: 'Module assistant indisponible.' };
+  const text = String(content || '').trim();
+  if (!text) return { error: 'Contenu vide.' };
+  // Source résolue par numéro dans le registre (jamais une URL du modèle).
+  let src = null;
+  if (source !== undefined && source !== null && source !== '') {
+    src = assistantSourceByNumber(source);
+    if (!src) return { error: 'Source inconnue : relance web_search.' };
+  }
+  const notes = assistantNotesLoad();
+  const note = { id: Date.now(), ts: Date.now(), title: String(title || 'Note').slice(0, 80), content: text.slice(0, 8000), sources: [] };
+  if (src) note.sources.push({ url: src.url, label: src.title.slice(0, 60) });
+  notes.push(note);
+  assistantNotesSave(notes);
+  assistantOpenNotes(assistantCard, notes.length - 1);
+  return { result: "Note affichée à l'écran." };
+}
+
+async function assistantShowSource({ source }) {
+  if (!assistantCard) return { error: 'Module assistant indisponible.' };
+  const found = assistantSourceByNumber(source);
+  if (!found) return { error: 'Source inconnue : relance web_search.' };
+  const safe = found.url;
+  const notes = assistantNotesLoad();
+  const last = notes[notes.length - 1];
+  const src = { url: safe, label: found.title.slice(0, 60) };
+  if (last && Date.now() - last.ts < 5 * 60 * 1000) {
+    if (!last.sources) last.sources = [];
+    if (!last.sources.some((s) => s.url === safe)) last.sources.push(src);
+  } else {
+    notes.push({ id: Date.now(), ts: Date.now(), title: src.label, content: '', sources: [src] });
+  }
+  assistantNotesSave(notes);
+  assistantOpenNotes(assistantCard, notes.length - 1);
+  return { result: "Source disponible via l'icône internet." };
+}
+
+// ── Fonds d'écran (2026-09-25, sur demande explicite) ─────────────────────
+// Catalogue miroir de PERSONNALISER_OPTIONS (config.js, fenêtre Paramètres —
+// pas accessible depuis le dashboard, d'où la copie ; à tenir à jour avec lui).
+// Appliqué via le MÊME canal que le clic dans Paramètres → Personnaliser
+// (window.matin.background.set) : effet immédiat, AUCUN rechargement de page,
+// donc la session vocale n'est pas coupée.
+const ASSISTANT_WALLPAPERS = [
+  { key: 'none', label: 'Aucun fond', theme: null },
+  { key: 'stars', label: 'Fond étoilé', theme: 'dark' },
+  { key: 'aurora', label: 'Aurore boréale', theme: 'dark' },
+  { key: 'particles', label: 'Particules flottantes', theme: 'dark' },
+  { key: 'rain', label: 'Pluie', theme: 'dark' },
+  { key: 'snow', label: 'Neige', theme: 'dark' },
+  { key: 'matrix', label: 'Matrix', theme: 'dark' },
+  { key: 'nebula', label: 'Nébuleuse', theme: 'dark' },
+  { key: 'beach', label: 'Plage au lever du soleil', theme: 'dark' },
+  { key: 'mountain', label: 'Lever de soleil en montagne', theme: 'dark' },
+  { key: 'lac', label: 'Lac et forêt', theme: 'dark' },
+  { key: 'paper', label: 'Grain de papier', theme: 'light' },
+  { key: 'geometric', label: 'Lignes géométriques', theme: 'light' },
+  { key: 'gradient', label: 'Dégradé doux', theme: 'light' },
+  { key: 'winter-frost', label: 'Givre sur vitre', theme: 'light' },
+  { key: 'winter-pines', label: 'Sapins dans la brume', theme: 'light' },
+  { key: 'winter-peaks', label: 'Cime enneigée', theme: 'light' },
+  { key: 'winter-mist', label: 'Arbres dans la neige', theme: 'light' },
+  { key: 'winter-illus', label: 'Montagnes illustrées', theme: 'light' },
+  { key: 'winter-sea', label: "Horizon d'hiver", theme: 'light' },
+];
+
+async function assistantSetWallpaper({ name }) {
+  const theme = document.documentElement.dataset.colorScheme === 'light' ? 'light' : 'dark';
+  const usable = ASSISTANT_WALLPAPERS.filter((w) => w.theme === null || w.theme === theme);
+  const query = assistantNorm(name);
+  if (!query) return { error: `Précise le fond. Disponibles (thème ${theme === 'dark' ? 'sombre' : 'clair'}) : ${usable.map((w) => w.label).join(', ')}` };
+
+  let chosen = null;
+  if (/^(aleatoire|hasard|au hasard|surprends)/.test(query)) {
+    const pool = usable.filter((w) => w.key !== 'none' && w.key !== lastAppBackgroundKey);
+    chosen = pool[Math.floor(Math.random() * pool.length)];
+  } else if (/^(suivant|prochain|autre|change)/.test(query)) {
+    const i = usable.findIndex((w) => w.key === lastAppBackgroundKey);
+    chosen = usable[(i + 1) % usable.length];
+  } else if (/^(aucun|sans|pas de|enleve|supprime|retire)/.test(query)) {
+    chosen = ASSISTANT_WALLPAPERS[0];
+  } else {
+    const match = (list) => list.find((w) => assistantNorm(w.label) === query || w.key === query)
+      || list.find((w) => assistantNorm(w.label).includes(query) || query.includes(assistantNorm(w.label)) || query.includes(w.key));
+    chosen = match(usable);
+    if (!chosen) {
+      // Existe-t-il pour l'AUTRE thème ? On le dit plutôt que de répondre « inconnu ».
+      const other = match(ASSISTANT_WALLPAPERS);
+      if (other) return { error: `« ${other.label} » n'existe qu'en thème ${other.theme === 'dark' ? 'sombre' : 'clair'} (actuellement ${theme === 'dark' ? 'sombre' : 'clair'}). Propose de basculer le thème.` };
+      return { error: `Fond inconnu : ${name}. Disponibles : ${usable.map((w) => w.label).join(', ')}` };
+    }
+  }
+  if (!chosen) return { error: 'Aucun fond disponible.' };
+  await window.matin.background.set(chosen.key);
+  return { result: `Fond « ${chosen.label} » appliqué` };
 }
 
 // Lance un raccourci du module Raccourcis (services Google) dans le navigateur.
@@ -269,12 +625,16 @@ async function assistantRunToolRaw(name, args) {
       case 'execute_dashboard_command': assistantExecuteCommand(args?.command); return { result: 'ok' };
       case 'read_dashboard': return { result: assistantDashboardSummary(args?.module, 1500) || 'Aucun contenu lisible.' };
       case 'set_module_enabled': return await assistantSetModuleEnabled(args || {});
+      case 'set_modules_enabled': return await assistantSetModulesEnabled(args || {});
       case 'switch_profile': return await assistantSwitchProfile(args || {});
       case 'control_lights': return await assistantControlLights(args || {});
       case 'control_shutters': return await assistantControlShutters(args || {});
       case 'control_climate': return await assistantControlClimate(args || {});
       case 'control_music': return await assistantControlMusic(args || {});
       case 'open_shortcut': return await assistantOpenShortcut(args || {});
+      case 'set_wallpaper': return await assistantSetWallpaper(args || {});
+      case 'show_note': return await assistantShowNote(args || {});
+      case 'show_source': return await assistantShowSource(args || {});
       default: return { error: `Outil inconnu : ${name}` };
     }
   } catch (err) {
@@ -298,7 +658,7 @@ let assistantPlaybackTimer = null;
 // Avatar holographique (voir modules/avatar.js) monté dans l'orbe, et
 // analyseur branché sur la sortie audio de Gemini pour animer la bouche et
 // la waveform pendant `speaking`.
-const ASSISTANT_AVATAR_SRC = 'assets/avatar-holo.webp'; // relatif à renderer/index.html
+const ASSISTANT_AVATAR_SRC = 'assets/avatar-holo-2k.webp'; // relatif à renderer/index.html
 let assistantAvatar = null;
 let assistantOutAnalyser = null;
 let assistantOutTime = null;
@@ -306,13 +666,17 @@ let assistantOutFreq = null;
 let assistantSpeakRaf = 0;
 
 function assistantPumpSpeakingLevel() {
-  if (!assistantOutAnalyser || !assistantAvatar) { assistantSpeakRaf = 0; return; }
+  if (!assistantAvatar) { assistantSpeakRaf = 0; return; }
+  // Analyseur pas encore créé (1er chunk audio : l'état 'speaking' est posé
+  // AVANT assistantEnqueueAudio) : on continue de tourner au lieu de s'arrêter,
+  // sinon la bouche restait figée pour toute la réponse.
+  if (!assistantOutAnalyser) { assistantSpeakRaf = requestAnimationFrame(assistantPumpSpeakingLevel); return; }
   assistantOutAnalyser.getFloatTimeDomainData(assistantOutTime);
   let s = 0;
   for (let i = 0; i < assistantOutTime.length; i++) s += assistantOutTime[i] * assistantOutTime[i];
   const rms = Math.sqrt(s / assistantOutTime.length);
   assistantOutAnalyser.getByteFrequencyData(assistantOutFreq);
-  assistantAvatar.setAudio(Math.min(1, rms * 5), assistantOutFreq);
+  assistantAvatar.setAudio(Math.min(1, rms * 8), assistantOutFreq);
   assistantSpeakRaf = requestAnimationFrame(assistantPumpSpeakingLevel);
 }
 function assistantStopSpeakingPump() {
@@ -325,6 +689,8 @@ function assistantStopSpeakingPump() {
 // minuteur de silence) ; l'avatar suit.
 function assistantSetState(state) {
   if (!assistantCard) return;
+  // Point de départ du compte à rebours de silence (voir ASSISTANT_SILENCE_MS).
+  if (state === 'listening' && !assistantCard.classList.contains('orb-listening')) assistantListenSince = performance.now();
   assistantCard.classList.remove('orb-idle', 'orb-listening', 'orb-thinking', 'orb-speaking');
   assistantCard.classList.add('orb-' + state);
   if (!assistantAvatar) return;
@@ -362,6 +728,18 @@ function assistantExecuteCommand(command) {
       break;
     case 'REFRESH_ALL':
       document.getElementById('btnRefresh')?.click();
+      break;
+    case 'REORGANIZE':
+      // Réutilise TEL QUEL le bouton "⊞ Réorganiser" (dashboard.js
+      // performAutoArrange, style aléatoire, snapshot pour annuler, sauvegarde
+      // du layout) : ouvre la popup de confirmation puis la valide, sans
+      // dupliquer ni exposer la logique de disposition. Seule la POSITION
+      // des cartes change, jamais leur taille.
+      document.getElementById('btnAutoArrange')?.click();
+      document.getElementById('autoArrangeConfirmOk')?.click();
+      break;
+    case 'UNDO_REORGANIZE':
+      document.getElementById('autoArrangeUndo')?.click();
       break;
     default:
       console.warn('[Assistant] Commande inconnue :', command);
@@ -443,19 +821,45 @@ function assistantPlayEndSound() {
   assistantPlayTones([{ delay: 0, from: 660, to: 330, dur: 0.3, vol: 0.2 }]);
 }
 
-// Coupure auto après ASSISTANT_SILENCE_MS sans voix (RMS sous le seuil).
-const ASSISTANT_SILENCE_THR = 0.005;
-const ASSISTANT_SILENCE_MS = 6000;
+// ── Fin de conversation automatique (2026-09-25, refonte) ────────────────
+// Avant : seuil fixe 0.005 — le simple bruit ambiant (a fortiori avec le gain
+// de sensibilité) passait pour de la parole, marquait "l'utilisateur a parlé"
+// et désactivait le minuteur : la session restait ouverte indéfiniment.
+// Maintenant : horodatages vérifiés à chaque bloc audio (~256ms) et seuil de
+// parole relatif au bruit de fond mesuré en continu.
+//  - en écoute, sans parole depuis la fin de la réponse → fin après 1,5s
+//    (5s au tout début de session, le temps de commencer à parler) ;
+//  - après avoir parlé, en attente de la réponse (recherche, outil…) → fin
+//    seulement si rien ne vient de Gemini pendant 12s (fausse détection).
+const ASSISTANT_SILENCE_MS = 1500;
+const ASSISTANT_FIRST_SILENCE_MS = 5000;
+const ASSISTANT_AWAIT_REPLY_MS = 12000;
+const ASSISTANT_SPEECH_MIN = 0.012;   // plancher absolu du seuil de parole
+const ASSISTANT_SPEECH_RATIO = 3.5;   // parole = RMS > bruit de fond × ce ratio
 let assistantSpokeSinceTurn = false;
-let assistantSilenceTimer = null;
+let assistantHadModelTurn = false;
+let assistantListenSince = 0;   // entrée dans l'état 'listening'
+let assistantLastActivity = 0;  // dernière parole détectée ou message de Gemini
+let assistantNoiseFloor = 0.004;
+let assistantCalib = [];
+let assistantLoudBlocks = 0;
 let assistantGain = 1; // lu depuis `assistant_gain` à chaque début de session
+// Toute activité de Gemini (réponse, outil) repousse l'échéance d'attente.
 function assistantResetSilenceTimer() {
-  if (assistantSilenceTimer) { clearTimeout(assistantSilenceTimer); assistantSilenceTimer = null; }
+  assistantLastActivity = performance.now();
+}
+function assistantEndForSilence(reason) {
+  console.log(`[Assistant] Fin automatique : ${reason}`);
+  assistantDisconnect();
+  assistantSetState('idle');
 }
 
 function assistantDisconnect() {
-  assistantResetSilenceTimer();
   assistantSpokeSinceTurn = false;
+  assistantHadModelTurn = false;
+  assistantNoiseFloor = 0.004;
+  assistantCalib = [];
+  assistantLoudBlocks = 0;
   if (assistantSessionReady) assistantPlayEndSound(); // seulement si une session était réellement active
   assistantClearPlayback();
   if (assistantProcessorNode) { assistantProcessorNode.disconnect(); assistantProcessorNode = null; }
@@ -489,21 +893,34 @@ async function assistantStartMic() {
       for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
       const rms = Math.sqrt(sum / float32.length);
       if (assistantCard?.classList.contains('orb-listening')) assistantAvatar?.setAudio(Math.min(1, rms * 6));
-      // Timer de silence : uniquement pendant l'écoute (jamais pendant la
-      // réponse), et SEULEMENT tant que l'utilisateur n'a rien dit depuis le
-      // dernier tour du modèle — une fois qu'on a parlé, le silence qui suit
-      // est l'attente de la réponse de Gemini (recherche, outil… parfois >3s),
-      // pas un abandon : c'était la cause des conversations coupées d'elles-mêmes.
+      // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
       if (assistantCard?.classList.contains('orb-listening')) {
-        if (rms > ASSISTANT_SILENCE_THR) { assistantSpokeSinceTurn = true; assistantResetSilenceTimer(); }
-        else if (!assistantSilenceTimer && !assistantSpokeSinceTurn) {
-          assistantSilenceTimer = setTimeout(() => {
-            assistantSilenceTimer = null;
-            assistantDisconnect();
-            assistantSetState('idle');
-          }, ASSISTANT_SILENCE_MS);
+        const now = performance.now();
+        // Étalonnage : les 3 premiers blocs (~0,8s, juste après le bip)
+        // mesurent le bruit de la pièce au lieu d'être jugés comme parole.
+        if (assistantCalib.length < 3) {
+          assistantCalib.push(rms);
+          if (assistantCalib.length === 3) assistantNoiseFloor = [...assistantCalib].sort((a, b) => a - b)[1];
+        } else {
+          const threshold = Math.max(ASSISTANT_SPEECH_MIN, assistantNoiseFloor * ASSISTANT_SPEECH_RATIO);
+          // Parole = au moins 2 blocs consécutifs (~0,5s) au-dessus du seuil :
+          // un claquement ou un bruit bref ne compte pas.
+          assistantLoudBlocks = rms > threshold ? assistantLoudBlocks + 1 : 0;
+          if (assistantLoudBlocks >= 2) {
+            assistantSpokeSinceTurn = true;
+            assistantLastActivity = now;
+          } else if (rms <= threshold) {
+            assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2; // suivi du bruit hors parole
+          }
         }
-      } else assistantResetSilenceTimer();
+        if (!assistantSpokeSinceTurn) {
+          const limit = assistantHadModelTurn ? ASSISTANT_SILENCE_MS : ASSISTANT_FIRST_SILENCE_MS;
+          if (now - assistantListenSince > limit) { assistantEndForSilence(`${limit / 1000}s sans parole`); return; }
+        } else if (now - assistantLastActivity > ASSISTANT_AWAIT_REPLY_MS) {
+          assistantEndForSilence('aucune réponse après la dernière parole');
+          return;
+        }
+      }
 
       const int16 = assistantFloatToInt16(float32);
       assistantWs.send(JSON.stringify({
@@ -534,9 +951,11 @@ function assistantHandleMessage(event) {
   }
 
   const content = data.serverContent;
+  if (content?.groundingMetadata?.groundingChunks) assistantAddGroundingSources(content.groundingMetadata.groundingChunks);
   if (content) {
     if (content.modelTurn?.parts) {
       assistantSpokeSinceTurn = false;
+      assistantHadModelTurn = true;
       assistantResetSilenceTimer();
       assistantSetState('speaking');
       content.modelTurn.parts.forEach((part) => { if (part.inlineData?.data) assistantEnqueueAudio(part.inlineData.data); });
@@ -560,8 +979,15 @@ function assistantHandleMessage(event) {
 
 // Modèle Live choisi via ListModels (2026-09-25) : `gemini-2.0-flash-live-001`
 // codé en dur avait été retiré ("not found ... for bidiGenerateContent").
-// Garde uniquement les modèles déclarant `bidiGenerateContent`, préfère
-// "live"/"native-audio" puis "flash". Catalogue loggé en console.
+// Garde uniquement les modèles déclarant `bidiGenerateContent`. Ordre de choix
+// (2026-09-25) : réglage `assistant_model` s'il existe dans la liste, puis
+// ASSISTANT_MODEL_PREFERENCE, puis un score sans bonus "flash" (qui faisait
+// retenir un aperçu remplacé, sans Google Search, au lieu de gemini-3.8-live).
+const ASSISTANT_MODEL_PREFERENCE = ['gemini-3.8-live', 'gemini-2.5-flash-native-audio-preview-12-2025', 'gemini-3.1-flash-live-preview'];
+// Modèles Live qui refusent l'outil google_search.
+const ASSISTANT_NO_GOOGLE_SEARCH = ['gemini-3.1-flash-live-preview'];
+// Appels d'outils synchrones : le modèle attend la réponse avant de parler.
+const assistantBlocking = (decls) => decls.map((d) => ({ ...d, behavior: 'BLOCKING' }));
 let assistantLiveModel = null;
 async function assistantPickLiveModel(apiKey) {
   if (assistantLiveModel) return assistantLiveModel;
@@ -570,16 +996,36 @@ async function assistantPickLiveModel(apiKey) {
   if (!res.ok) throw new Error(data?.error?.message || `ListModels ${res.status}`);
   const live = (data?.models || []).filter((m) => (m.supportedGenerationMethods || []).includes('bidiGenerateContent'));
   console.log('[Assistant] Modèles Live disponibles :', live.map((m) => m.name));
-  const score = (n) => (/native-audio|live/i.test(n) ? 2 : 0) + (/flash/i.test(n) ? 1 : 0) - (/preview|exp/i.test(n) ? 0.5 : 0);
-  live.sort((a, b) => score(b.name) - score(a.name));
   if (!live.length) throw new Error('Aucun modèle compatible Live pour cette clé.');
+  const bare = (m) => m.name.replace(/^models\//, '');
+  const byBare = (id) => live.find((m) => bare(m) === id);
+
+  const forced = String((await window.matin.store.get('assistant_model')) || '').replace(/^models\//, '');
+  if (forced && byBare(forced)) {
+    assistantLiveModel = byBare(forced).name;
+    console.log('[Assistant] Choix du modèle : réglage assistant_model');
+    return assistantLiveModel;
+  }
+  if (forced) console.warn(`[Assistant] assistant_model « ${forced} » absent de la liste, choix automatique.`);
+  for (const id of ASSISTANT_MODEL_PREFERENCE) {
+    if (byBare(id)) {
+      assistantLiveModel = byBare(id).name;
+      console.log(`[Assistant] Choix du modèle : ordre de préférence (${id})`);
+      return assistantLiveModel;
+    }
+  }
+  const score = (n) => (/native-audio|live/i.test(n) ? 2 : 0) - (/preview|exp/i.test(n) ? 0.5 : 0);
+  live.sort((a, b) => score(b.name) - score(a.name));
   assistantLiveModel = live[0].name;
+  console.log('[Assistant] Choix du modèle : repli par score (aucun modèle préféré disponible)');
   return assistantLiveModel;
 }
 
 async function assistantStartSession() {
   const apiKey = (await window.matin.store.get('gemini_api_key')) || '';
   const lang = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
+  const voice = (await window.matin.store.get('assistant_voice')) || ''; // '' = voix par langue
+  console.log('[Assistant] Voix :', voice || `${ASSISTANT_VOICE_MAP[lang] || 'Aoede'} (auto)`);
   assistantGain = Math.max(0.5, Math.min(6, Number(await window.matin.store.get('assistant_gain')) || 1));
   if (!apiKey) {
     console.warn('[Assistant] Aucune clé API Gemini configurée (Paramètres → Utile → Assistant vocal).');
@@ -591,6 +1037,8 @@ async function assistantStartSession() {
   try { model = await assistantPickLiveModel(apiKey); }
   catch (err) { console.error('[Assistant] Sélection du modèle Live impossible :', err.message); assistantSetState('idle'); return; }
   console.log('[Assistant] Modèle Live utilisé :', model);
+  const withGoogleSearch = !ASSISTANT_NO_GOOGLE_SEARCH.includes(model.replace(/^models\//, ''));
+  if (!withGoogleSearch) console.log('[Assistant] Google Search désactivé : non géré par ce modèle.');
   const ws = new WebSocket(`${ASSISTANT_WS_BASE}?key=${encodeURIComponent(apiKey)}`);
   assistantWs = ws;
 
@@ -600,14 +1048,18 @@ async function assistantStartSession() {
         model,
         generation_config: {
           response_modalities: ['AUDIO'],
-          speech_config: { voice_config: { prebuilt_voice_config: { voice_name: ASSISTANT_VOICE_MAP[lang] || 'Aoede' } } },
+          speech_config: { voice_config: { prebuilt_voice_config: { voice_name: voice || ASSISTANT_VOICE_MAP[lang] || 'Aoede' } } },
         },
         // Aperçu du dashboard injecté au démarrage de session (read_dashboard
         // permet ensuite de relire à jour un module précis).
         system_instruction: { parts: [{ text: `${ASSISTANT_SYSTEM_PROMPT}\n\nModules disponibles : ${assistantModuleList()}.\n\nContenu actuel du dashboard (aperçu) :\n${assistantDashboardSummary('', 350).slice(0, 6000)}` }] },
         tools: [
+          ...(withGoogleSearch ? [{ google_search: {} }] : []),
           {
-            function_declarations: [
+            // `behavior: 'BLOCKING'` ajouté à chaque déclaration juste après
+            // (voir assistantBlocking) : sur gemini-3.8-live les appels sont
+            // NON_BLOCKING par défaut.
+            function_declarations: assistantBlocking([
               {
                 name: 'web_search',
                 description: "Recherche sur internet (actualité, faits récents, météo, résultats, infos que tu ne connais pas). À utiliser dès qu'une question demande une information à jour.",
@@ -618,8 +1070,19 @@ async function assistantStartSession() {
                 description: 'Exécute une commande simple sur le dashboard Matin',
                 parameters: {
                   type: 'OBJECT',
-                  properties: { command: { type: 'STRING', enum: ['TOGGLE_THEME', 'OPEN_SETTINGS', 'CLOSE_SETTINGS', 'REFRESH_ALL'] } },
+                  properties: { command: { type: 'STRING', enum: ['TOGGLE_THEME', 'OPEN_SETTINGS', 'CLOSE_SETTINGS', 'REFRESH_ALL', 'REORGANIZE', 'UNDO_REORGANIZE'] } },
                   required: ['command'],
+                },
+              },
+              {
+                name: 'set_modules_enabled',
+                description: 'Active et/ou désactive PLUSIEURS modules du dashboard en une seule fois (un seul rechargement). Listes de clés ou libellés.',
+                parameters: {
+                  type: 'OBJECT',
+                  properties: {
+                    enable: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Modules à activer' },
+                    disable: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Modules à désactiver' },
+                  },
                 },
               },
               {
@@ -688,7 +1151,22 @@ async function assistantStartSession() {
                 description: 'Ouvre un raccourci du dashboard dans le navigateur : Gmail, Drive, YouTube, Agenda, Photos, Maps.',
                 parameters: { type: 'OBJECT', properties: { name: { type: 'STRING' } }, required: ['name'] },
               },
-            ],
+              {
+                name: 'set_wallpaper',
+                description: "Change le fond d'écran du dashboard. name = nom du fond (aurore boréale, plage, neige, pluie, matrix, étoilé, nébuleuse, lac et forêt, montagne, particules, papier, dégradé, givre, sapins…), « aucun », « aléatoire » ou « suivant ».",
+                parameters: { type: 'OBJECT', properties: { name: { type: 'STRING' } }, required: ['name'] },
+              },
+              {
+                name: 'show_note',
+                description: "Affiche un texte écrit (recette, liste, résumé…) dans un bloc-notes à l'écran. Contenu complet en texte simple.",
+                parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, content: { type: 'STRING' }, source: { type: 'INTEGER', description: 'Numéro [source n] du résultat web (optionnel)' } }, required: ['title', 'content'] },
+              },
+              {
+                name: 'show_source',
+                description: 'Ajoute un lien de source (icône internet) au dernier bloc-notes ou en crée un.',
+                parameters: { type: 'OBJECT', properties: { source: { type: 'INTEGER', description: 'Numéro [source n] du résultat web' } }, required: ['source'] },
+              },
+            ]),
           },
         ],
       },
@@ -725,6 +1203,7 @@ window.MatinModules.assistant = {
     const card = container.closest('.module-card');
     if (!card) return;
     assistantCard = card;
+    assistantEnsurePanel(card);
     assistantSetState(assistantWs ? 'listening' : 'idle');
 
     // Écouteurs posés une seule fois (render() peut être ré-exécuté).
