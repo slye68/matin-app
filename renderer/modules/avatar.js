@@ -112,6 +112,28 @@
       ph: rand(0, Math.PI * 2),
     }));
 
+    // ── Interaction yeux : regard vers la souris, survol, clignements ──
+    // Les yeux font partie de l'image : seule la lueur superposée glisse vers
+    // le curseur, et le visage s'incline légèrement (rotation 3D).
+    let gazeTX = 0, gazeTY = 0, gazeX = 0, gazeY = 0;
+    let hoverT = 0, hover = 0;
+    let nextBlink = 2 + Math.random() * 3, blinkStart = -1;
+    const BLINK_DUR = 0.16;
+    function onPointer(ev) {
+      const r = root.getBoundingClientRect();
+      if (!r.width) return;
+      const cx = r.left + r.width * GEO.cx, cy = r.top + r.height * GEO.cy;
+      const dx = ev.clientX - cx, dy = ev.clientY - cy;
+      // Saturation douce : ~1 à 500px du visage, jamais au-delà.
+      gazeTX = Math.max(-1, Math.min(1, dx / 500));
+      gazeTY = Math.max(-1, Math.min(1, dy / 500));
+      hoverT = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom ? 1 : 0;
+    }
+    function onLeave() { gazeTX = 0; gazeTY = 0; hoverT = 0; }
+    window.addEventListener('pointermove', onPointer, { passive: true });
+    document.documentElement.addEventListener('mouseleave', onLeave);
+    window.addEventListener('blur', onLeave);
+
     // ── Paramètres animés ──
     const col = [0, 200, 255];
     const k = { bright: 0, eyes: 0, halo: 0, spin: 0, wave: 0, spread: 0 };
@@ -158,16 +180,40 @@
       const c = THEME[state];
       for (let i = 0; i < 3; i++) col[i] = lerp(col[i], c[i], e);
 
-      // Visage : respiration + luminosité
+      // Regard + survol lissés (pendant la réflexion, le regard dérive seul)
+      const gE = 1 - Math.pow(0.004, dt);
+      const tx = state === 'thinking' ? Math.sin(t * 0.7) * 0.5 : gazeTX;
+      const ty = state === 'thinking' ? -0.4 + Math.sin(t * 0.5) * 0.15 : gazeTY;
+      gazeX = lerp(gazeX, tx, gE);
+      gazeY = lerp(gazeY, ty, gE);
+      hover = lerp(hover, hoverT, 1 - Math.pow(0.01, dt));
+
+      // Clignements : aléatoires (3-6 s), plus fréquents pendant la réflexion
+      if (blinkStart < 0 && t >= nextBlink) blinkStart = t;
+      let blink = 1;
+      if (blinkStart >= 0) {
+        const p = (t - blinkStart) / BLINK_DUR;
+        if (p >= 1) {
+          blinkStart = -1;
+          nextBlink = t + (state === 'thinking' ? rand(1.2, 2.5) : rand(3, 6));
+        } else blink = 1 - Math.sin(p * Math.PI);
+      }
+
+      // Visage : respiration + luminosité + légère inclinaison vers le curseur
       const br = Math.sin(t * (Math.PI * 2 / 6.5));
       const amp = state === 'idle' ? 0.006 : 0.009;
-      face.style.transform = `translateY(${(-br * 0.35).toFixed(3)}%) scale(${(1 + br * amp).toFixed(4)})`;
-      face.style.filter = `brightness(${(1 + k.bright + br * 0.02).toFixed(3)}) saturate(${(1 + k.bright * 0.6).toFixed(3)})`;
+      const tilt = REDUCED ? 0 : 1;
+      face.style.transform = `perspective(700px) rotateY(${(gazeX * 7 * tilt).toFixed(2)}deg) rotateX(${(-gazeY * 5 * tilt).toFixed(2)}deg) translateY(${(-br * 0.35).toFixed(3)}%) scale(${(1 + br * amp).toFixed(4)})`;
+      face.style.filter = `brightness(${(1 + k.bright + hover * 0.06 + br * 0.02).toFixed(3)}) saturate(${(1 + k.bright * 0.6).toFixed(3)})`;
 
-      // Yeux
-      const eo = Math.min(1, k.eyes * (0.92 + 0.08 * Math.sin(t * 3.1)));
+      // Yeux : lueur (survol = plus vive), clignement, décalage vers le regard
+      const eo = Math.min(1, (k.eyes + hover * 0.35) * (0.92 + 0.08 * Math.sin(t * 3.1))) * blink;
       eyeL.style.opacity = eo.toFixed(3);
       eyeR.style.opacity = (eo * (0.97 + 0.03 * Math.sin(t * 2.3))).toFixed(3);
+      const ex = (gazeX * S * 0.012).toFixed(2), ey = (gazeY * S * 0.008).toFixed(2);
+      const eyeT = `translate(-50%,-50%) translate(${ex}px,${ey}px) scaleY(${(0.25 + 0.75 * blink).toFixed(3)})`;
+      eyeL.style.transform = eyeT;
+      eyeR.style.transform = eyeT;
 
       // Bouche (parole uniquement)
       const open = state === 'speaking' ? Math.min(1, lvlFast * 1.6) : 0;
@@ -310,6 +356,9 @@
       pause();
       ro.disconnect();
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pointermove', onPointer);
+      document.documentElement.removeEventListener('mouseleave', onLeave);
+      window.removeEventListener('blur', onLeave);
       root.remove();
     }
 
