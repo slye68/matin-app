@@ -150,9 +150,10 @@ const MODULE_REGISTRY = {
   // ou non (impossible avec le setInterval fixe de scheduleModuleRefresh),
   // même principe que ETF/Crypto/Spotify/Podcast/Currency (voir live.js).
   // Thème 'other-sports' pour rejoindre le regroupement visuel "Sports" du
-  // Réorganiser automatique (même bordure de catégorie que Sports/ol) —
-  // l'accent rouge "en direct" demandé est posé séparément (voir
-  // #module-live dans style.css, qui l'emporte sur la couleur de thème).
+  // Réorganiser automatique (même bordure de catégorie que Sports/ol) — la
+  // refonte visuelle du 2026-09-22 pose son propre accent teal par-dessus
+  // (voir [id^="module-live"] dans style.css, qui l'emporte sur la couleur
+  // de thème), plus rouge comme avant (le rouge reste réservé à "EN DIRECT").
   live: { label: 'LIVE FOOT!', icon: '⚽', requiresGoogle: false, defaultSize: { w: 340, h: 360 }, theme: 'other-sports' },
   // Mon Équipe (2026-08-15, sur demande explicite) — suivi manuel (calendrier
   // + résultats saisis à la main, voir main.js/config.js), pas de fetch
@@ -163,6 +164,10 @@ const MODULE_REGISTRY = {
   // 'other-sports' réutilisé tel quel (même bordure verte #10b981 que
   // Sports/LIVE!, demandée explicitement pour ce module).
   monEquipe: { label: 'Mon Équipe', icon: '🎽', requiresGoogle: false, defaultSize: { w: 340, h: 440 }, refreshMs: 24 * 60 * 60 * 1000, theme: 'other-sports' },
+  // Assistant vocal (2026-09-25, reconstruit) — orbe circulaire 200×200 sans
+  // en-tête (voir style.css #module-assistant), pas de refreshMs : état piloté
+  // en interne par assistant.js.
+  assistant: { label: 'Assistant vocal', icon: '🎙️', requiresGoogle: false, defaultSize: { w: 200, h: 200 } },
 };
 
 // Abaissés de 260×160 à 80×40 (2026-08-15, sur demande explicite — "laisser
@@ -1747,6 +1752,14 @@ function createModuleCard(key, meta, title, subtitle) {
   `;
   if (clickable) {
     card.querySelector('.module-title').addEventListener('click', () => {
+      // YouTube (2026-09-22, sur demande explicite, PÉRIMÈTRE STRICT — ce
+      // clic uniquement) : cas à part AVANT resolveModuleClickUrl — tente
+      // l'appli YouTube native (Store/PWA) via son protocole, replie sur le
+      // navigateur si non installée, jamais de popup d'erreur dans les 2 cas
+      // (voir main.js ipcMain.handle('youtube:openApp') pour le détail de la
+      // vérification, et pourquoi `exec('start youtube://', ...)` proposé
+      // dans la demande a été écarté).
+      if (key === 'youtube') { window.matin.youtube.openApp(); return; }
       const url = resolveModuleClickUrl(key, card);
       // `.catch` silencieux (2026-09-12, sur demande explicite pour le cas
       // Spotify — voir MODULE_CLICK_URLS) : `spotify:` rejette la promesse
@@ -2148,7 +2161,11 @@ function makeInteractive(card, key, dashboard, canvas) {
       // QUE si le pointeur a dépassé son seuil de déclenchement de glisser
       // (même principe déjà en place pour les titres de carte cliquables,
       // voir plus haut `clickable`/`module-title-clickable`).
-      allowFrom: isFixedWidthKey(key) ? '.module-header, .shortcuts-module' : '.module-header',
+      // Assistant : aucun en-tête visible → toute la surface de l'orbe sert
+      // de zone de glisser (le tap simple reste géré par interact.js `tap`).
+      allowFrom: key === 'assistant'
+        ? '.module-content'
+        : (isFixedWidthKey(key) ? '.module-header, .shortcuts-module' : '.module-header'),
       // Accrochage à la grille retiré (2026-08-11, sur demande explicite) —
       // placement libre au pixel près, seule la restriction aux bords du
       // dashboard reste active.
@@ -2430,7 +2447,7 @@ async function loadModule(key, meta, config) {
 // Générique par construction (cherche n'importe quel ancêtre scrollable,
 // pas une liste de classes à maintenir) : couvre aussi bien le conteneur
 // générique `.module-content` de chaque carte que des listes imbriquées
-// avec leur propre défilement (ex. `.monequipe-section-list`, `.fdj-grids-list`).
+// avec leur propre défilement (ex. `.fdj-grids-list`).
 const SCROLL_STEP_FACTOR = 0.4;
 
 function findScrollableAncestor(el) {

@@ -39,15 +39,25 @@ window.MatinModules = window.MatinModules || {};
 // retiré de l'UI (absent de la maquette demandée) mais la commande reste
 // acceptée côté main.js (TAHOMA_SHUTTER_COMMANDS) si un futur besoin la
 // réintroduit.
+// `.somfy-percent` déplacé à côté du NOM (2026-09-24, sur demande explicite
+// — "décale le bouton fermer trop loin de la barre") : auparavant dernier
+// enfant de `.somfy-shutter-controls`, entre le slider et ▼, il prenait de
+// la place sur CETTE rangée et repoussait ▼ d'autant. Regroupé avec le nom
+// dans `.tahoma-device-head` (nouvelle rangée, voir style.css) — la rangée
+// de contrôles ne porte plus que ▲/slider/▼, `tahomaBindDeviceRow`
+// inchangée (elle retrouve `.somfy-percent` par `row.querySelector`, peu
+// importe sa position dans le DOM de `row`).
 function tahomaDeviceRowHtml(d) {
   const position = typeof d.position === 'number' ? d.position : 0;
   return `
     <div class="kasa-device tahoma-device" data-device-url="${d.deviceURL}">
-      <span class="kasa-device-name" title="${d.label}">${d.label}</span>
+      <div class="tahoma-device-head">
+        <span class="kasa-device-name" title="${d.label}">${d.label}</span>
+        <span class="somfy-percent">${position}%</span>
+      </div>
       <div class="somfy-shutter-controls">
         <button type="button" class="somfy-btn-open" title="Ouvrir">▲</button>
         <input type="range" class="somfy-slider" min="0" max="100" step="1" value="${position}">
-        <span class="somfy-percent">${position}%</span>
         <button type="button" class="somfy-btn-close" title="Fermer">▼</button>
       </div>
     </div>`;

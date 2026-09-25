@@ -629,6 +629,30 @@ body.ultrawide .module-card { max-width: 500px; }
 .module-card[data-theme="services"]     .module-title { color: #94a3b8; }
 .module-card[data-theme="perso"]        .module-title { color: #ec4899; }
 
+/* Titres accentués par marque, mode sombre uniquement (2026-09-24, sur
+   demande explicite) — remplacent la couleur générique du thème ci-dessus
+   pour CES 4 modules précis (Spotify/Somfy TaHoma/Cinéma/YouTube), glow
+   assorti à chaque couleur. Spécificité (1 ID + 1 classe) l'emporte sur les
+   règles `[data-theme=...]` ci-dessus (0 ID + 2 classes/attribut). Mode
+   clair NON touché (aucune règle `:root[data-color-scheme="light"]` ici),
+   demandé explicitement. */
+#module-spotify.module-card .module-title {
+  color: #1db954;
+  text-shadow: 0 0 10px rgba(29, 185, 84, 0.6), 0 0 25px rgba(29, 185, 84, 0.25);
+}
+#module-somfyTahoma.module-card .module-title {
+  color: #f97316;
+  text-shadow: 0 0 10px rgba(249, 115, 22, 0.6), 0 0 25px rgba(249, 115, 22, 0.25);
+}
+#module-cinema.module-card .module-title {
+  color: #facc15;
+  text-shadow: 0 0 10px rgba(250, 204, 21, 0.6), 0 0 25px rgba(250, 204, 21, 0.25);
+}
+#module-youtube.module-card .module-title {
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.6), 0 0 25px rgba(239, 68, 68, 0.25);
+}
+
 /* Bordures de catégorie adoucies en thème clair (2026-08-11, sur demande
    explicite) — les mêmes couleurs pleines ci-dessus paraissent trop vives
    sur le nouveau fond crème/parchemin ; rgba() à 0.7 d'opacité (pas de
@@ -649,86 +673,184 @@ body.ultrawide .module-card { max-width: 500px; }
 :root[data-color-scheme="light"] .module-card[data-theme="services"]     { border-left-color: rgba(148, 163, 184, 0.7); }
 :root[data-color-scheme="light"] .module-card[data-theme="perso"]        { border-left-color: rgba(236, 72, 153, 0.7); }
 
-/* ─── Module : LIVE! (2026-08-11, sur demande explicite) ─────────────────
-   Bordure ROUGE COMPLÈTE (pas juste l'accent gauche des autres thèmes,
-   d'où un sélecteur par id plutôt que [data-theme=...]) : distingue ce
-   module des autres cartes "Sports" (thème 'other-sports' réutilisé
-   uniquement pour le regroupement du Réorganiser automatique, voir
-   dashboard.js MODULE_REGISTRY). */
-#module-live { border-color: #ef4444; }
-#module-live .module-icon { color: #ef4444; }
-#module-live .module-title { color: #ef4444; }
-/* Même radoucissement à 0.7 d'opacité qu'aux 10 bordures par catégorie
-   ci-dessus, en thème clair — LIVE! utilise un ID plutôt que [data-theme]
-   mais reste conceptuellement une "bordure colorée de catégorie". */
-:root[data-color-scheme="light"] #module-live { border-color: rgba(239, 68, 68, 0.7); }
+/* ─── Module : LIVE FOOT! — refonte "broadcast sportif" (2026-09-22, sur
+   demande explicite, maquette fournie) ─────────────────────────────────────
+   REMPLACE entièrement l'ancien look (bordure rouge pleine + en-tête rouge
+   translucide + cartes `.live-card` à 5 colonnes) : nouveau look sombre dédié
+   avec dégradés + grille façon pelouse dans l'en-tête, police Barlow
+   Condensed pour "FOOTBALL" (chargée via Google Fonts, voir index.html).
+   `[id^="module-live"]` (pas `#module-live` figé, contrairement à l'ancien
+   bloc) : couvre AUSSI la 2e instance ajoutée depuis (`module-live_2`, voir
+   dashboard.js isLiveKey) — CORRECTIF au passage, l'ancien sélecteur par id
+   fixe ne l'aurait jamais habillée. Teal `#00d48a` reprend l'accent de
+   catégorie (bordure gauche/icône/titre) à la place du rouge d'origine — le
+   rouge reste réservé à "EN DIRECT" uniquement, plus cohérent avec le reste
+   de la maquette où le rouge signale spécifiquement l'urgence/le direct. */
+[id^="module-live"].module-card { border-color: #00d48a; }
+[id^="module-live"].module-card .module-icon { color: #00d48a; }
+[id^="module-live"].module-card .module-title { color: #00d48a; }
+:root[data-color-scheme="light"] [id^="module-live"].module-card { border-color: rgba(0, 212, 138, 0.7); }
 
-/* ─── Bandeaux de module — fond coloré pleine largeur (2026-09-09, sur
-   demande explicite : meilleure lisibilité des bandeaux en mode clair et
-   sombre ; Finance en orange foncé en mode sombre).
-   Extension pleine largeur : margin: -14px -16px 0 compense exactement le
-   padding: 14px 16px de .module-card ; padding: 14px 16px le restaure pour
-   que le contenu reste aligné. border-radius: 13px 13px 0 0 = radius-lg (14px)
-   moins la bordure 1px (radius intérieur ≈ 13px). */
-
-.module-card[data-theme] .module-header,
-#module-live .module-header {
-  margin: -14px -16px 0;
+/* En-tête : fond navy très sombre + 2 dégradés superposés (vert sombre à
+   gauche, bleu nuit à droite) + grille de lignes fines très atténuée
+   (`repeating-linear-gradient`, ~0.02 d'opacité demandée) simulant une
+   pelouse. `position:relative`+`overflow:hidden` : l'icône ballon et le
+   badge de comptage (ajoutés/repositionnés par live.js liveUpdateHeader)
+   sont en absolu par-dessus, et la grille ne doit pas déborder des coins
+   arrondis. Padding top/bottom symétrique (2026-09-22, révisé le même jour,
+   nouvelle demande explicite, "FOOTBALL remonté en haut") — remplace le
+   `padding-top: 30px` de la version précédente, qui réservait la place pour
+   le tag "EN DIRECT" alors positionné en absolu AU-DESSUS du titre ;
+   `.live-chip` vit désormais dans le flux normal, sous le titre (voir
+   .live-chip plus bas), plus besoin de cette réserve. */
+[id^="module-live"].module-card .module-header {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(115deg, rgba(0, 212, 138, 0.16), transparent 45%),
+    linear-gradient(245deg, rgba(37, 99, 235, 0.18), transparent 50%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 26px),
+    #06101d;
   padding: 14px 16px;
-  border-radius: 13px 13px 0 0;
+}
+:root[data-color-scheme="light"] [id^="module-live"].module-card .module-header {
+  /* REVIENT sur le "choix assumé" du 2026-09-22 (fond sombre conservé tel
+     quel en mode clair) — sur nouvelle demande explicite (2026-09-24) : bleu
+     clair translucide + bordure basse, pour rester lisible sur fond clair
+     plutôt que de reproduire le look "broadcast" sombre dans ce thème. */
+  background: rgba(59, 130, 246, 0.15);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.35);
+}
+[id^="module-live"].module-card .module-title {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 20px; /* 40px → 38px (2026-09-22) → 15px (v4) → 20px (2026-09-24, v5, sur demande explicite) */
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  text-transform: uppercase;
+}
+/* Texte bleu foncé (2026-09-24, sur demande explicite — remplace le blanc,
+   illisible sur le nouveau fond bleu clair translucide du header ci-dessus). */
+:root[data-color-scheme="light"] [id^="module-live"].module-card .module-title { color: #1d4ed8; }
+[id^="module-live"].module-card .module-icon { display: none; } /* remplacée par l'icône ballon dédiée, voir .lf-ball-icon */
+[id^="module-live"].module-card .module-subtitle {
+  font-size: 12px;
+  color: #8aa0b8;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
-/* Fonds mode sombre ─────────────────────────────────────────────────── */
-.module-card[data-theme="finance"]      .module-header { background: rgba(180,  83,   9, 0.38); }
-.module-card[data-theme="football"]     .module-header { background: rgba( 37,  99, 235, 0.25); }
-.module-card[data-theme="basket"]       .module-header { background: rgba(234,  88,  12, 0.28); }
-.module-card[data-theme="other-sports"] .module-header { background: rgba(  5, 150, 105, 0.22); }
-.module-card[data-theme="actualites"]   .module-header { background: rgba( 67,  56, 202, 0.28); }
-.module-card[data-theme="fdj"]          .module-header { background: rgba( 22, 163,  74, 0.22); }
-.module-card[data-theme="musique"]      .module-header { background: rgba(147,  51, 234, 0.28); }
-.module-card[data-theme="maison"]       .module-header { background: rgba(  8, 145, 178, 0.22); }
-.module-card[data-theme="services"]     .module-header { background: rgba(100, 116, 139, 0.18); }
-.module-card[data-theme="perso"]        .module-header { background: rgba(219,  39, 119, 0.22); }
-#module-live                             .module-header { background: rgba(220,  38,  38, 0.30); }
+/* "LIVE" — anciennement `.lf-live-tag` positionné en absolu AU-DESSUS du
+   titre (1re version de cette refonte, même jour) ; REMPLACÉ par `.live-chip`
+   sur nouvelle demande explicite (nom de classe donné littéralement) :
+   toujours PRÉSENT dans le DOM (plus ajouté/retiré), inséré une seule fois
+   dans le flux normal ENTRE le titre et le sous-titre (voir live.js
+   liveUpdateHeader), pas en position absolue. `.inactive` (nom donné
+   littéralement) bascule le point rouge clignotant en gris fixe quand aucun
+   match suivi n'est en direct — au lieu de faire disparaître l'indicateur
+   entièrement comme avant. */
+.live-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 1px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ef4444;
+}
+.live-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  animation: lf-blink 1.1s ease-in-out infinite;
+}
+.live-chip.inactive { color: var(--text-muted); }
+.live-chip.inactive .live-chip-dot { background: var(--text-muted); box-shadow: none; animation: none; }
 
-/* Fonds mode clair — opacité réduite sur fond crème ─────────────────── */
-:root[data-color-scheme="light"] .module-card[data-theme="finance"]      .module-header { background: rgba(180,  83,   9, 0.11); }
-:root[data-color-scheme="light"] .module-card[data-theme="football"]     .module-header { background: rgba( 37,  99, 235, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="basket"]       .module-header { background: rgba(234,  88,  12, 0.10); }
-:root[data-color-scheme="light"] .module-card[data-theme="other-sports"] .module-header { background: rgba(  5, 150, 105, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="actualites"]   .module-header { background: rgba( 67,  56, 202, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="fdj"]          .module-header { background: rgba( 22, 163,  74, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="musique"]      .module-header { background: rgba(147,  51, 234, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="maison"]       .module-header { background: rgba(  8, 145, 178, 0.09); }
-:root[data-color-scheme="light"] .module-card[data-theme="services"]     .module-header { background: rgba(100, 116, 139, 0.08); }
-:root[data-color-scheme="light"] .module-card[data-theme="perso"]        .module-header { background: rgba(219,  39, 119, 0.09); }
-:root[data-color-scheme="light"] #module-live                             .module-header { background: rgba(220,  38,  38, 0.09); }
+/* Icône ballon décorative — ajoutée une fois par liveUpdateHeader, toujours
+   visible, position absolue en haut à droite. */
+.lf-ball-icon {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  color: #4b6a8a;
+  opacity: 0.9;
+}
+.lf-ball-icon svg { width: 100%; height: 100%; }
 
-/* RÉÉCRITES le 2026-09-04 (sur demande explicite, réécriture complète de
-   live.js/config.js) — noms de classes `.live-match-*` CONSERVÉS pour les
-   éléments dont le rôle est inchangé (liste, ligne, équipes, score, point
-   "en direct") ; nouvelles classes pour les éléments qui n'existaient pas
-   dans l'ancien gabarit à 2 lignes (statut à droite du nom de compétition,
-   sous-ligne date/heure, séparateur de date, en-tête de journée) ;
-   supprimées : couleur par résultat domicile/extérieur (`.live-score-*`,
-   plus jamais posée par live.js — seul le badge module, coloré par emoji
-   faute de pouvoir poser une classe CSS dessus, reflète encore un résultat,
-   voir live.js liveCompetitionBadge) et toute l'animation "But !"
-   (`.live-goal-*`/`.live-goal-shake`/keyframes associés, mécanisme entier
-   retiré avec le reste de l'ancienne implémentation, plus aucun appelant). */
-.live-match-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-/* `.live-card` (2026-09-12, redesign complet des cartes par match, voir
-   live.js liveMatchCompetitionRowHtml) — REMPLACE `.live-match-row`/
-   `.live-match-header-row`/`.live-match-teams` (grille 3 colonnes) :
-   live.js ne les pose plus du tout, elles n'avaient plus aucun effet
-   (constaté : carte totalement non stylée, éléments empilés en flux normal
-   au lieu d'une ligne — bug signalé, "tout est décalé"). Grille à 5
-   colonnes correspondant aux 5 enfants directs de `.live-card` : [badge
-   heure/statut][équipe domicile][VS ou score][équipe extérieure][statut] —
-   `1fr` sur les 2 colonnes équipe (comme l'ancienne `.live-match-teams`)
-   pour qu'elles absorbent l'espace restant et gardent noms/logos alignés
-   vers le centre (voir `.live-match-team`/`-away` ci-dessous, inchangées). */
-.live-card {
+/* Badge de comptage — `.module-badge` générique (déjà rempli par
+   liveCompetitionBadge, voir live.js — nombre de matchs affichés, ou "●
+   LIVE (n)"), repositionné/recoloré en teal par CETTE carte (2026-09-22, sur
+   demande explicite, "à la place de l'orange Journée") : sort du flux normal
+   de `.module-header` (sinon centré verticalement à côté du titre, plus
+   large maintenant) pour se caler juste sous l'icône ballon, comme sur la
+   maquette. Les autres modules qui utilisent `.module-badge` (immense
+   majorité de l'app) ne sont pas concernés, ce sélecteur est scopé à
+   `[id^="module-live"]`. */
+[id^="module-live"].module-card .module-badge {
+  position: absolute;
+  top: 46px;
+  right: 16px;
+  background: rgba(0, 212, 138, 0.14);
+  border: 1px solid rgba(0, 212, 138, 0.4);
+  color: #00d48a;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Onglets de filtre (visuels uniquement, voir live.js liveTabsHtml) */
+.lf-tabs {
+  display: flex;
+  gap: 16px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  overflow-x: auto;
+}
+.lf-tab {
+  flex-shrink: 0;
+  padding-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  cursor: default;
+}
+.lf-tab-active { color: #00d48a; border-bottom-color: #00d48a; }
+
+/* Séparateur de date centré — "— JEUDI 24 SEPTEMBRE —" (voir live.js
+   liveFmtDateSeparator, déjà en majuscules). Lignes via `::before`/`::after`
+   sur le texte plutôt que 2 éléments séparés dans le HTML. */
+.lf-date-sep { display: flex; align-items: center; margin: 10px 0 6px; }
+.lf-date-sep:first-child { margin-top: 0; }
+.lf-date-sep-text {
+  flex-shrink: 0;
+  margin: 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.lf-date-sep-text::before,
+.lf-date-sep-text::after { content: none; }
+.lf-date-sep::before,
+.lf-date-sep::after { content: ''; flex: 1 1 auto; height: 1px; background: var(--border); }
+
+.lf-match-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+
+/* Rangée de match — grille à 5 colonnes : [pill][équipe dom.][VS][équipe
+   ext.][statut]. `1fr` sur les 2 colonnes équipe pour absorber l'espace
+   restant et garder noms/logos alignés vers le centre (voir .lf-team
+   plus bas). */
+.lf-row {
   display: grid;
   grid-template-columns: auto 1fr auto 1fr auto;
   align-items: center;
@@ -740,144 +862,85 @@ body.ultrawide .module-card { max-width: 500px; }
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.live-card:hover { border-color: #ef4444; background: var(--bg-hover); }
-.live-card-live { border-color: rgba(239, 68, 68, 0.4); }
-/* Terminé — style discret : contraste avec les cartes en direct/à venir sans
-   disparaître complètement. */
-.live-card-post { opacity: 0.7; }
+.lf-row:hover { border-color: #00d48a; background: var(--bg-hover); }
+.lf-row-post { opacity: 0.7; }
+/* Tout prochain match (voir live.js, nextMatchId) — fond légèrement teinté +
+   bordure teal, comme demandé. */
+.lf-row-next { background: rgba(0, 212, 138, 0.08); border-color: rgba(0, 212, 138, 0.4); }
 
-/* Badge heure/statut (1re colonne) — pilule rouge si en cours, neutre sinon. */
-.live-card-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 99px;
-  white-space: nowrap;
-  text-align: center;
-}
-.live-card-badge-live { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-.live-card-badge-pre {
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-}
-
-/* "VS" (matchs à venir, 3e colonne) — même colonne que `.live-match-score`
-   (matchs en cours/terminés, classe inchangée, voir plus bas), jamais les
-   deux en même temps sur une même carte (voir liveMatchCompetitionRowHtml,
-   centerHtml). */
-.live-card-vs {
+/* Pill horaire (à venir) ou score (en cours/terminé), 1re colonne. */
+.lf-pill {
+  min-width: 46px;
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
   text-align: center;
+  padding: 3px 7px;
+  border-radius: 99px;
+  background: #0e1929;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
+.lf-pill-next { background: #00d48a; color: #06101d; }
+.lf-pill-score { background: var(--bg-panel); color: var(--text-primary); border: 1px solid var(--border); }
+.lf-pill-live { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
 
-/* Statut à droite (5e colonne) — redondant avec le badge à gauche par
-   conception (voir le commentaire de liveMatchCompetitionRowHtml, live.js). */
-.live-card-status { font-size: 10px; font-weight: 600; white-space: nowrap; text-align: right; }
-.live-card-status-live { color: #ef4444; }
-.live-card-status-pre  { color: var(--text-muted); }
-.live-card-status-post { color: var(--accent-green); }
+.lf-vs { font-size: 11px; font-weight: 700; color: var(--text-muted); text-align: center; }
 
-/* Logo d'équipe (2026-09-12, sur demande explicite) — `.live-match-team`
-   passe de span-texte-simple à conteneur flex (logo + nom) : le nom
-   truncatable vit désormais dans `.live-match-team-name` (seul élément
-   auquel `overflow`/`text-overflow`/`white-space` s'appliquent), le logo
-   n'étant pas concerné par cette troncature. `justify-content: flex-end`
-   (domicile) / `flex-start` (extérieur) reproduisent l'alignement
-   droite/gauche d'origine (`text-align`) tout en gardant logo+nom groupés et
-   collés au centre de la ligne (contre le score), quelle que soit la
-   longueur du nom. */
-.live-match-team {
+.lf-team {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-width: 0; /* nécessaire pour que text-overflow s'applique dans un enfant flex */
-  font-size: 14px;
-  font-weight: 500;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
   justify-content: flex-end;
 }
-.live-match-team-away { justify-content: flex-start; }
-.live-match-team-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.live-team-logo-wrap { flex-shrink: 0; display: block; }
-.live-team-logo {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  display: block;
-  flex-shrink: 0;
-}
-/* Repli initiales — logo absent, ou présent mais l'image échoue à charger
-   (voir onerror dans liveTeamLogoHtml, live.js). `display:none` par défaut
-   quand le repli suit un `<img>` (permutés par onerror, voir live.js) — posé
-   en inline dans le HTML lui-même, pas ici, donc pas redéclaré. */
-.live-team-logo-fallback {
-  width: 24px;
-  height: 24px;
+.lf-team-away { justify-content: flex-start; }
+.lf-team-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-team-logo-wrap { flex-shrink: 0; display: block; }
+.lf-team-logo { width: 22px; height: 22px; object-fit: contain; display: block; flex-shrink: 0; }
+.lf-team-logo-fallback {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
-.live-match-score {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  text-align: center;
-}
-.live-match-score-live { color: #ef4444; }
 
-/* Point rouge pulsant — même principe d'animation que d'autres indicateurs
-   "en direct" déjà présents ailleurs dans l'app (opacity/scale en boucle),
-   ici dédié à ce seul module. */
-.live-dot {
-  width: 7px;
-  height: 7px;
+/* Badge statut, 5e colonne. */
+.lf-status { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; text-align: right; }
+.lf-status-pre  { color: var(--text-muted); }
+.lf-status-next { color: #00d48a; }
+.lf-status-post { color: var(--text-secondary); text-transform: none; font-weight: 600; }
+.lf-status-live { display: inline-flex; align-items: center; gap: 4px; color: #ef4444; }
+.lf-status-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ef4444;
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
-  animation: live-dot-pulse 1.4s ease-in-out infinite;
-  flex-shrink: 0;
+  animation: lf-blink 1.1s ease-in-out infinite;
 }
-@keyframes live-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.35; transform: scale(0.7); }
+@keyframes lf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.lf-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
-/* En-tête de journée — mode Compétition uniquement (voir
-   liveCompetitionModeHtml) : "[compétition] — Journée N" (N omis si
-   indisponible). */
-.live-comp-header {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-/* Séparateur inséré entre 2 matchs consécutifs dont le jour diffère — mode
-   Compétition uniquement, une journée peut s'étaler sur plusieurs jours. */
-.live-date-separator {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin: 6px 0 2px;
-}
-.live-date-separator:first-child { margin-top: 0; }
 
 .module-header {
   display: flex;
@@ -1460,67 +1523,17 @@ body.ultrawide .module-card { max-width: 500px; }
 .crypto-change { font-family: var(--font-mono); font-size: 12px; margin-top: 2px; }
 
 /* ─── Module : Sports ────────────────────────────────────────── */
+/* .sports-module/.sports-no-data PARTAGÉES avec d'autres modules (France/
+   Tech/Bourse/Sciences/Gaming/Santé via rss-feed.js pour .sports-module ;
+   mon-equipe.js/live.js pour .sports-no-data) — gardées INCHANGÉES.
+   `.sports-results-row`/`.sports-result-*` (ancien "dernier résultat",
+   déjà orphelines avant cette refonte) et `.sports-next*` (ancien gabarit
+   Prochain match, remplacé) supprimées : plus aucun appelant, voir .ol-*
+   plus bas pour leur remplaçant. `.sports-standings-line` gardée ET
+   toujours utilisée par ol.js (même classe/id), juste sa couleur
+   surchargée plus bas pour cette refonte (voir [id^="module-ol"]
+   .sports-standings-line). */
 .sports-module { display: flex; flex-direction: column; gap: 10px; height: 100%; }
-
-.sports-results-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.sports-result-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-.sports-result-pill {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 99px;
-}
-.sports-result-pill.result-win  { color: var(--accent-green); background: rgba(52,211,153,0.1); }
-.sports-result-pill.result-loss { color: var(--accent-red);   background: rgba(248,113,113,0.1); }
-.sports-result-pill.result-draw { color: var(--text-muted);   background: var(--bg-panel-alt); }
-.sports-result-opp {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100px;
-}
-
-.sports-next {
-  background: var(--bg-panel-alt);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-}
-.sports-next-label {
-  display: block;
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  margin-bottom: 3px;
-}
-.sports-next-detail {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--text-primary);
-}
-.sports-next-opp {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .sports-no-data { font-size: 12px; color: var(--text-muted); }
 
 /* Classement (2026-08-31, sur demande explicite) — placeholder TOUJOURS posé
@@ -1537,341 +1550,732 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .sports-standings-line:not(:empty) { margin-top: 4px; }
 
-/* ─── Module : Mon Équipe (2026-08-15, sur demande explicite) ───────────────
-   Réutilise .sports-module/.sports-next/.sports-next-label/-detail/-opp/
-   .sports-no-data tels quels (voir plus haut) pour "Dernier résultat" — même
-   langage visuel que Sports/LIVE! (thème 'other-sports' partagé, voir
-   dashboard.js). "Prochain match" a son propre habillage depuis le 2026-09-01
-   (voir .monequipe-next-* plus bas) ; "Prochains matchs"/"Matchs passés"
-   (renommée depuis "Derniers résultats" le 2026-09-03, sur demande explicite
-   — voir mon-equipe.js) sont désormais 2 sections REPLIABLES
-   (.monequipe-section-*, même mécanique que .fdj-grids-section — voir
-   fdj-common.js), plus une simple liste fixe. */
-.monequipe-module { gap: 8px; }
-.monequipe-list-row {
+/* ─── Module : Sports — refonte visuelle HEADER + PROCHAIN MATCH (2026-09-22,
+   sur demande explicite, maquette fournie, PÉRIMÈTRE STRICT) ─────────────
+   La section Actualités (.sports-ticker-*, plus bas dans ce fichier,
+   PARTAGÉE avec France/Tech/Bourse/Sciences/Gaming/Santé) n'est TOUCHÉE PAR
+   AUCUNE règle ci-dessous — explicitement hors sujet de cette demande.
+   Palette FIXE (dark, pas de variante clair — demandé explicitement),
+   variables scopées à `.ol-module` plutôt qu'au `:root` global. Header posé
+   sur `.module-header`/`.module-icon` GÉNÉRIQUES (scopés `[id^="module-ol"]`,
+   couvre les instances ol_2..ol_5, voir dashboard.js isSportsKey) plutôt que
+   dupliqués dans `.module-content` — même technique que Mon Équipe (voir
+   olUpdateHeader, ol.js). */
+.ol-module {
+  --ol-bg: #0a1120;
+  --ol-card: #0d1828;
+  --ol-surface: #111e30;
+  --ol-gold: #e8a020;
+  --ol-gold-dim: rgba(232, 160, 32, 0.10);
+  --ol-gold-border: rgba(232, 160, 32, 0.26);
+  --ol-blue: #1565d8;
+  --ol-blue-dim: rgba(21, 101, 216, 0.15);
+  --ol-blue-border: rgba(21, 101, 216, 0.32);
+  --ol-blue-text: #5b9ef7;
+  --ol-text: #d4e2f4;
+  --ol-text-muted: #4a6280;
+  --ol-text-dim: #1f3048;
+  --ol-border: #152030;
+  --ol-divider: #0e1825;
+
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 6px;
-  background: var(--bg-panel-alt);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-width: 0;
+  color: var(--ol-text);
+  font-family: 'Inter', var(--font-ui);
 }
-/* Lignes "Prochains matchs" reformatées en une seule chaîne fluide (2026-08-31,
-   sur demande explicite — voir monEquipeMatchLineHtml/monEquipeUpcomingRowHtml,
-   mon-equipe.js) : `display:flex` de .monequipe-list-row ci-dessus casserait
-   l'espacement des séparateurs " · " (texte brut entre les <span> colorés,
-   pas des enfants flex distincts comme l'ancien format à 3 colonnes) —
-   repasse donc en flux normal pour cette variante uniquement. */
-.monequipe-list-row-line { display: block; }
-.monequipe-list-date {
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-  flex-shrink: 0;
+
+/* Carte + en-tête générique neutralisés vers la palette fixe ci-dessus (même
+   spécificité que les règles `.module-card[data-theme=...]` posées plus
+   haut dans ce fichier — l'emporte par ORDRE de cascade, cette section
+   venant après, même technique que Mon Équipe). */
+[id^="module-ol"].module-card { background: var(--ol-card, #0d1828); border-color: var(--ol-border, #152030); border-left-color: transparent; }
+/* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
+   atténué" de la version précédente, retiré) — patron "France" : fond clair
+   hérité, header légèrement teinté, titre en accent orange, texte des items
+   sombre/lisible. Regroupe `[id^="module-ol"]` (module Sports) ET
+   `#module-sportNews` (Actus Sportives) — même accent orange demandé pour
+   les 2. `background` manquait pour `.module-card` (règle absente jusqu'ici,
+   créée ci-dessous) — `--ol-card` redéfini en plus (source du `background`
+   de la règle de base, voir tout en haut de cette section) pour couvrir tout
+   endroit qui la consommerait. */
+:root[data-color-scheme="light"] [id^="module-ol"] { --ol-card: var(--bg-panel); }
+:root[data-color-scheme="light"] [id^="module-ol"].module-card { background: var(--bg-panel); }
+:root[data-color-scheme="light"] [id^="module-ol"].module-card .module-header,
+:root[data-color-scheme="light"] #module-sportNews.module-card .module-header {
+  background: rgba(249, 115, 22, 0.06);
 }
-.monequipe-list-opp {
+:root[data-color-scheme="light"] [id^="module-ol"].module-card .module-title,
+:root[data-color-scheme="light"] #module-sportNews.module-card .module-title {
+  color: #c2410c;
+  text-shadow: none;
+}
+:root[data-color-scheme="light"] [id^="module-ol"] .sports-ticker-vitem,
+:root[data-color-scheme="light"] #module-sportNews .sports-ticker-vitem {
   color: var(--text-primary);
+}
+/* Section "Prochain match" (.ol-match-card, voir plus bas dans ce fichier) —
+   AUCUNE surcharge mode clair jusqu'ici (2026-09-24, sur demande explicite) :
+   gardait son fond navy sombre (`linear-gradient(160deg, #101e34, #080e1a)`)
+   et son texte blanc même quand le reste de la carte (header/ticker
+   actualités, voir les 3 règles juste au-dessus) bascule déjà correctement
+   en clair. Légère teinte sombre plutôt qu'un fond blanc plein (cohérent
+   avec le reste très sobre du thème clair de l'app), texte en gris
+   anthracite pour rester lisible. */
+:root[data-color-scheme="light"] [id^="module-ol"] .ol-match-card {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: none;
+}
+:root[data-color-scheme="light"] [id^="module-ol"] .ol-match-teams,
+:root[data-color-scheme="light"] [id^="module-ol"] .ol-match-date {
+  color: #374151;
+}
+[id^="module-ol"].module-card:hover,
+[id^="module-ol"].module-card.dragging,
+[id^="module-ol"].module-card.resizing {
+  border-top-color: var(--ol-border, #152030);
+  border-right-color: var(--ol-border, #152030);
+  border-bottom-color: var(--ol-border, #152030);
+}
+[id^="module-ol"] .sports-no-data,
+[id^="module-ol"] .module-empty,
+[id^="module-ol"] .module-error,
+[id^="module-ol"] .sports-standings-line {
+  color: var(--ol-text-muted, #4a6280);
+}
+/* Trait sous la ligne de classement (2026-09-22, sur demande explicite) —
+   surcharge SCOPÉE à ce module uniquement du `border-top: 1px solid
+   var(--border-light)` partagé par .sports-ticker-vwrap (France/Tech/Bourse/
+   Sciences/Gaming/Santé/Sports, voir plus bas) : plus épais et blanc pour
+   marquer nettement la frontière entre le bloc statique (Prochain match) et
+   le flux défilant (actualités), sans changer les autres modules. */
+[id^="module-ol"] .sports-ticker-vwrap {
+  border-top: 2px solid rgba(255, 255, 255, 0.45);
+}
+
+/* SECTION 1 — Header */
+/* Espacement resserré (2026-09-24, sur demande explicite — "remonte la
+   section Prochain match") : padding bas du header 14px → 8px, gap carte
+   10px → 4px (ci-dessous) et padding haut de .ol-next-head 10px → 4px (plus
+   bas) — 3 réductions cumulées, chacune modeste, plutôt qu'une seule marge
+   négative fragile. */
+[id^="module-ol"].module-card { gap: 4px; }
+[id^="module-ol"].module-card .module-header {
+  position: relative;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
+  margin: -14px -16px 0;
+  padding: 18px 16px 8px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(165deg, #0d1f38 0%, #080f1c 100%);
 }
-.monequipe-list-meta {
-  color: var(--text-muted);
-  font-size: 11px;
-  flex-shrink: 0;
-  white-space: nowrap;
+[id^="module-ol"].module-card .module-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 88% -10%, rgba(21, 101, 216, 0.16), transparent 55%),
+    radial-gradient(circle at -10% 120%, rgba(16, 60, 40, 0.16), transparent 55%);
+  pointer-events: none;
 }
-
-/* Couleurs dédiées par type d'info sur les lignes de match (2026-08-16, sur
-   demande explicite ; heure alignée sur la couleur de la date le 2026-08-31,
-   2e demande explicite — "date/heure en bleu" comme un seul groupe plutôt
-   que l'heure grise d'origine) — appliquées via des <span> imbriqués dans
-   le bloc "Prochains matchs" (voir mon-equipe.js). Même spécificité (une
-   seule classe) que les règles ci-dessus qu'elles remplacent (date/type) ou
-   complètent : venant après dans ce fichier, elles l'emportent en cas
-   d'égalité — ordre de déclaration important, ne pas déplacer avant
-   .monequipe-list-date/-meta.
-   .monequipe-info-venue-home/-away et .monequipe-info-opponent SUPPRIMÉES
-   (2026-09-03, sur demande explicite) — l'ordre "Notre équipe vs
-   Adversaire"/"Adversaire vs Notre équipe" (voir .monequipe-team-us/
-   -opponent plus bas) remplace le badge Domicile/Extérieur + le "vs
-   Adversaire" neutre qu'elles habillaient, plus aucun appelant ne les
-   référence (monEquipeMatchLineHtml/monEquipeResultRowHtml réécrites). */
-.monequipe-info-date  { color: #4f8ef7; }
-/* Type en bleu, date+heure fusionnées en vert (2026-08-31, sur demande
-   explicite — voir mon-equipe.js). */
-.monequipe-info-type  { color: #ffffff; text-transform: uppercase; }
-.monequipe-info-datetime { color: var(--accent-yellow); }
-/* Score en tête de ligne "Matchs passés" — SUPPRIMÉE (2026-09-03, sur
-   demande explicite) : remplacée par .monequipe-result-score plus bas, même
-   format que "Dernier résultat" désormais (uniformisation demandée), plus
-   aucun appelant ne référence .monequipe-info-score. */
-
-/* "Dernier résultat" (2026-09-03, sur demande explicite — remplace "<score>
-   · Domicile/Extérieur <adversaire>" par "<notre équipe> <score>
-   <adversaire>", voir mon-equipe.js monEquipeLastResultHtml) : noms d'équipe
-   en police UI (pas mono, contrairement à .sports-next-detail qui les
-   englobe — cohérent avec .monequipe-next-team ci-dessus, pas monospace non
-   plus), score en mono/gras, coloré selon le résultat (vert victoire/rouge
-   défaite/couleur héritée par défaut pour une égalité).
-   RÉUTILISÉES pour "Matchs passés" (2026-09-03, même jour, sur demande
-   explicite "même présentation que Dernier résultat" — voir mon-equipe.js
-   monEquipeResultRowHtml) : `.monequipe-result-line` n'y est PAS posée (les
-   lignes de cette liste restent `.monequipe-list-row-line`, format fluide
-   `display:block` à la `.monequipe-list-row-line`, pas flex — seules
-   -team/-score/-win/-loss sont partagées, la mise en page du conteneur
-   diffère). */
-.monequipe-result-line {
+[id^="module-ol"].module-card .module-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.009) 0 1px, transparent 1px 24px);
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+  mask-image: linear-gradient(to bottom, black, transparent);
+  pointer-events: none;
+}
+/* Pastille (cercle + initiales/logo) RETIRÉE (2026-09-24, sur demande
+   explicite) — `display:none` plutôt que supprimer le JS qui la peuple
+   (olUpdateHeader, voir ol.js) : même pattern déjà utilisé pour LIVE FOOT!
+   (voir [id^="module-live"].module-card .module-icon plus haut), la carte
+   perd juste ce badge visuel, `.module-title`/le clic titre restent
+   inchangés. */
+[id^="module-ol"] .module-icon { display: none; }
+[id^="module-ol"] .module-title {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  text-transform: none;
+  letter-spacing: normal;
 }
-.monequipe-result-team { font-family: var(--font-ui); font-weight: 600; }
-.monequipe-result-score { font-family: var(--font-mono); font-weight: 700; }
-.monequipe-score-win  { color: var(--accent-green); }
-.monequipe-score-loss { color: #ef4444; }
-
-/* "Prochain match" redesign (2026-09-01, sur demande explicite) — carte avec
-   léger dégradé (bleu compétition → vert date/heure, mêmes teintes que les
-   badges qu'elle contient, juste très diluées), badge compétition en pilule,
-   date/heure agrandie, "Équipe vs Adversaire" (au lieu du simple "vs
-   Adversaire" des listes) — voir mon-equipe.js monEquipeNextMatchHtml.
-   `.sports-next` (fond plein, voir plus haut) reste la base commune avec
-   "Dernier résultat" ; cette classe ADDITIONNELLE ne fait que remplacer son
-   fond par le dégradé et souligner le bord. */
-.monequipe-next-card {
-  background: linear-gradient(135deg, rgba(79, 142, 247, 0.10), rgba(52, 211, 153, 0.05));
-  border: 1px solid rgba(79, 142, 247, 0.18);
-}
-.monequipe-next-content { display: flex; flex-direction: column; gap: 6px; }
-.monequipe-next-badge {
-  display: inline-block;
-  width: fit-content;
-  font-size: 10px;
-  font-weight: 700;
+.ol-header-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ol-club-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 400; /* 900 → 400 (2026-09-24, sur demande explicite — "supprimer le gras sur le nom du module/de l'équipe suivie", un seul élément couvre les 2 : c'est le nom de l'équipe suivie affiché dans le bandeau header) */
+  font-size: 15.4px; /* 28px → 11px (v5) → 14px (v6) → 15.4px (2026-09-24, v7, sur demande explicite, +10%) */
+  line-height: 1;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #ffffff;
-  background: rgba(79, 142, 247, 0.16);
-  padding: 3px 9px;
-  border-radius: 99px;
-}
-/* Jaune + sans gras (2026-09-03, sur demande explicite — remplace le vert
-   #34d399/gras d'origine). */
-.monequipe-next-datetime {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 400;
-  color: var(--accent-yellow);
-}
-.monequipe-next-teams {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.monequipe-next-team {
+  color: #fff;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 45%;
 }
-/* Notre équipe en orange, l'adversaire en rose très clair (2026-09-03, sur
-   demande explicite ; rouge #ef4444 d'origine remplacé par #fca5a5 le même
-   jour, 2e demande explicite — "rose très clair", choisi plutôt que
-   #fbcfe8 : même famille que le rouge d'origine (juste une teinte plus
-   claire), cohérent avec le reste des couleurs fixes de ce module, alors que
-   #fbcfe8 aurait introduit une teinte magenta inédite ailleurs dans le
-   projet) — PARTAGÉES entre "Prochain match" (avec .monequipe-next-team
-   pour la mise en page, voir monEquipeNextMatchHtml) ET "Prochains matchs"
-   (voir monEquipeMatchLineHtml, même jour, 2e demande explicite — même
-   ordre/couleurs qu'au-dessus, badge Domicile/Extérieur supprimé là aussi).
-   L'ORDRE des 2 spans (posé côté JS selon Domicile/Extérieur) indique
-   désormais le lieu, remplaçant toute mention textuelle "Domicile"/
-   "Extérieur". Pas de variable --accent-orange dans ce projet (voir
-   #f59e0b utilisé tel quel ailleurs, ex. thème Finance) donc hex brut ici
-   aussi, pour les 2 couleurs. */
-/* Notre équipe en vert foncé, adversaire en rouge (2026-09-10, sur demande explicite) */
-.monequipe-team-us       { color: #15803d; }
-.monequipe-team-opponent { color: #ef4444; }
-.monequipe-next-vs {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--text-muted);
-  flex-shrink: 0;
+.ol-header-rule { width: 22px; height: 1.5px; background: linear-gradient(90deg, var(--ol-gold, #e8a020), transparent); }
+.ol-sport-label {
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--ol-text-muted, #4a6280);
+}
+[id^="module-ol"] .module-badge {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--ol-gold-dim, rgba(232, 160, 32, 0.10));
+  border: 1px solid var(--ol-gold-border, rgba(232, 160, 32, 0.26));
+  color: var(--ol-gold, #e8a020);
+}
+[id^="module-ol"] .module-badge:empty { display: none; padding: 0; border: none; background: none; }
+[id^="module-ol"] .module-badge .ol-icon { width: 9px; height: 9px; color: var(--ol-gold, #e8a020); opacity: 0.85; }
+.ol-round-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 21px;
+  line-height: 1;
 }
 
-/* Sections repliables "Prochains matchs"/"Matchs passés" (2026-09-01,
-   sur demande explicite, "comme ETF/FDJ" ; 2e section renommée depuis
-   "Derniers résultats" le 2026-09-03) — mécanique IDENTIQUE à
-   .fdj-grids-section/-toggle/-chevron/-collapse (voir plus haut dans ce
-   fichier et fdj-common.js) : grid-template-rows 0fr → 1fr animé en 300ms,
-   dépliée `flex:1 1 auto` pour utiliser l'espace disponible dans la carte
-   (celle-ci grandit avec elle, voir dashboard.js isAutoHeightKey). Repliquée
-   plutôt que réutilisée telle quelle : classes propres à ce module pour ne
-   jamais coupler son comportement à celui de FDJ (une évolution future de
-   l'un ne doit pas modifier l'autre par accident). */
-.monequipe-section { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-.monequipe-section.expanded { flex: 1 1 auto; min-height: 0; }
-.monequipe-section-toggle {
+/* SECTION 2 — Prochain match */
+.ol-next-section { display: flex; flex-direction: column; }
+.ol-next-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px 6px; /* 10px → 4px en haut, 2026-09-24, sur demande explicite */
+}
+.ol-next-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ol-text-muted, #4a6280);
+}
+.ol-next-head-title .ol-icon { color: var(--ol-gold, #e8a020); }
+.ol-soon-badge {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--ol-blue-text, #5b9ef7);
+  background: var(--ol-blue-dim, rgba(21, 101, 216, 0.15));
+  border: 1px solid var(--ol-blue-border, rgba(21, 101, 216, 0.32));
+  border-radius: 20px;
+  padding: 3px 9px;
+}
+.ol-next-body { min-height: 0; }
+.ol-next-empty {
+  margin: 0 10px;
+  padding: 14px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ol-text-muted, #4a6280);
+}
+/* Encadré 2 lignes (2026-09-24, sur demande explicite — REMPLACE la
+   bandelette 3 colonnes du 2026-09-22, "Équipe A | date | Équipe B" ci-
+   dessus, qui forçait la troncature des noms complets faute de place) :
+   ligne 1 = compétition/date/heure, alignées à gauche ; ligne 2 = noms
+   complets des 2 équipes, centrés pleine largeur. Voir ol.js
+   renderNextMatchHtml pour le nouveau balisage. */
+.ol-match-card {
+  margin: 0 10px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #101e34, #080e1a);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+.ol-match-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.ol-match-competition {
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 9px; /* 7.5px × 1.2 (2026-09-24, sur demande explicite) */
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ol-text-muted, #4a6280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+/* Séparateur visuel entre compétition/date/heure — `::before` sur chaque
+   enfant SUIVANT un `.ol-match-competition`/`.ol-match-date` (pas de
+   marqueur générique entre TOUS les enfants : `.ol-match-competition` est
+   optionnel, voir ol.js, un point orphelin en tête de ligne serait visible
+   si elle est absente). */
+.ol-match-competition + .ol-match-date::before,
+.ol-match-date + .ol-match-time::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--ol-text-muted, #4a6280);
+}
+.ol-match-date {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 15.6px; /* 13px × 1.2 (2026-09-24, sur demande explicite) */
+  line-height: 1;
+  color: #fff;
+}
+.ol-match-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 12px; /* 10px × 1.2 (2026-09-24, sur demande explicite) */
+  color: var(--ol-text-muted, #4a6280);
+}
+.ol-match-time .ol-icon { width: 9px; height: 9px; }
+/* Noms COMPLETS, jamais tronqués (2026-09-24, sur demande explicite) :
+   aucun `white-space:nowrap`/`text-overflow:ellipsis` ici — passe à la
+   ligne plutôt que de couper si les 2 noms ne tiennent pas sur une seule
+   ligne à cette largeur de carte. */
+.ol-match-teams {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 400; /* 800 → 400 (2026-09-24, sur demande explicite — noms des 2 équipes sans gras) */
+  font-size: 18px; /* 15px × 1.2 (2026-09-24, sur demande explicite) */
+  line-height: 1.25;
+  text-transform: uppercase;
+  color: #fff;
+  text-align: center;
+}
+.ol-match-vs {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 13.2px; /* 11px × 1.2 (2026-09-24, sur demande explicite) */
+  text-transform: none;
+  color: var(--ol-text-muted, #4a6280);
+  margin: 0 2px;
+}
+
+/* ─── Module : Mon Équipe — refonte visuelle (2026-09-21, sur demande
+   explicite, maquette fournie) ────────────────────────────────────────────
+   REMPLACE l'ancien habillage `.monequipe-*` (affichage) et ses surcharges
+   mode clair, entièrement supprimés : voir mon-equipe.js pour le balisage
+   `.me-*`. Les classes `.monequipe-*` de PARAMÈTRES (config.html) sont un
+   autre jeu, non concerné. `.sports-no-data` (états vides) reste celle de
+   Sports/LIVE!, définie plus haut. Accents fixes (vert = notre équipe,
+   rouge = adversaire, orange = identité du module) ; fonds/textes via les
+   variables de thème, donc mode clair/sombre sans bloc dédié sauf les rares
+   contrastes à ajuster en fin de section. */
+
+/* En-tête de carte — scopé `[id^="module-monEquipe"]` (couvre aussi les
+   instances monEquipe_2/_3, voir dashboard.js isMonEquipeKey). L'icône est
+   sortie de `.module-title` par monEquipeUpdateHeader pour s'étendre sur
+   titre + sous-titre, dans un anneau orange. */
+/* La teinte verte du thème 'other-sports' (voir .module-card[data-theme] plus
+   haut : fond d'en-tête + bordure gauche) est neutralisée pour ce module — la
+   maquette a un en-tête sans teinte. Sélecteur `.module-card` ajouté pour
+   égaler la spécificité de ces règles (posées plus haut, gagnent sinon). */
+[id^="module-monEquipe"].module-card { border-left-color: var(--border); }
+[id^="module-monEquipe"].module-card .module-header { gap: 12px; background: transparent; }
+[id^="module-monEquipe"] .module-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  font-size: 24px;
+  line-height: 1;
+  border-radius: 50%;
+  border: 2px solid #f97316;
+  background: rgba(249, 115, 22, 0.12);
+}
+[id^="module-monEquipe"] .module-title-group { flex: 1 1 auto; }
+[id^="module-monEquipe"] .module-title {
+  display: block;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+[id^="module-monEquipe"] .module-title-group .module-title { white-space: normal; }
+.me-title-first { color: var(--text-primary); }
+.me-title-rest  { color: #f97316; }
+[id^="module-monEquipe"] .module-subtitle { font-size: 12px; color: var(--text-secondary); }
+[id^="module-monEquipe"] .module-badge:empty { display: none; }
+
+/* Slogan à droite de l'en-tête (config.tagline) — police manuscrite
+   Windows (Segoe Script, présente d'origine : aucune police à charger). */
+.me-tagline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 0 0 auto;
+  max-width: 34%;
+  text-align: right;
+}
+.me-tagline-text {
+  font-family: 'Segoe Script', 'Segoe UI', cursive;
+  font-style: italic;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+}
+.me-tagline-icon { font-size: 14px; line-height: 1; }
+.module-card.size-icon-only .me-tagline { display: none; }
+
+.me-module { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+/* Cartes */
+.me-card {
+  container-type: inline-size;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+/* "Prochain match" — bordure en dégradé vert → orange (border-box peint sous
+   un padding-box uni : seule la bordure transparente laisse voir le dégradé). */
+.me-card-next {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--bg-panel-alt), var(--bg-panel-alt)) padding-box,
+    linear-gradient(135deg, #22c55e, #f59e0b) border-box;
+}
+.me-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-panel-alt);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
 }
-.monequipe-section-toggle:hover { background: var(--bg-hover); }
-.monequipe-section-label {
-  font-size: 9px;
-  font-weight: 600;
+.me-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  white-space: nowrap;
+  color: var(--text-primary);
 }
-.monequipe-section-chevron {
+.me-card-title-icon { font-size: 14px; }
+.me-card-body { padding: 14px; }
+.me-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: #818cf8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.me-link:hover { text-decoration: underline; }
+.me-link-arrow { display: inline-block; margin-left: 6px; font-size: 10px; transition: transform 200ms ease; }
+[data-me-toggle].expanded .me-link-arrow { transform: rotate(180deg); }
+/* "Prochains matchs" : l'en-tête ENTIER déplie la liste (retouche du
+   2026-09-21). Pas de trait sous l'en-tête : la 1re ligne dépliée a déjà son
+   propre trait du dessus, et replié il ne doit pas rester de double filet en
+   bas de carte. */
+.me-card-head[data-me-toggle] { cursor: pointer; user-select: none; border-bottom: none; transition: background 0.15s; }
+.me-card-head[data-me-toggle]:hover { background: var(--bg-hover); }
+.me-card-head[data-me-toggle]:focus-visible { outline: 2px solid #818cf8; outline-offset: -2px; }
+.me-card-head[data-me-toggle]:hover .me-link { text-decoration: underline; }
+
+/* Étiquettes */
+.me-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.me-tag {
   font-size: 9px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  transition: transform 300ms ease;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
 }
-.monequipe-section.expanded .monequipe-section-chevron { transform: rotate(90deg); }
-.monequipe-section-collapse {
+.me-tag-us  { color: #22c55e; background: rgba(34, 197, 94, 0.14); border: 1px solid rgba(34, 197, 94, 0.3); }
+.me-tag-opp { color: #ef4444; background: rgba(239, 68, 68, 0.14); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+/* "Logo" d'équipe = pictogramme sport dans un anneau (vert = nous, rouge =
+   adversaire). */
+.me-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid;
+  line-height: 1;
+}
+.me-logo-lg { width: 44px; height: 44px; font-size: 22px; }
+.me-logo-md { width: 28px; height: 28px; font-size: 15px; }
+.me-logo-sm { width: 22px; height: 22px; font-size: 12px; border-width: 1.5px; }
+.me-logo-us  { border-color: #22c55e; background: rgba(34, 197, 94, 0.12); }
+.me-logo-opp { border-color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+
+/* Prochain match */
+.me-next-body { display: flex; align-items: center; gap: 12px; }
+.me-next-date { display: flex; flex-direction: column; flex: 0 0 auto; }
+.me-date-big {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.me-date-time { margin-top: 2px; font-size: 12px; color: var(--text-secondary); }
+/* Grille 3 lignes (logo / nom / étiquette) partagée par les 2 équipes via
+   subgrid : quand un nom passe sur 2 lignes et pas l'autre, les étiquettes
+   restent alignées. Sans subgrid (moteur ancien) : simple désalignement, pas
+   de casse. */
+.me-next-teams {
   display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 300ms ease;
-  min-height: 0;
-}
-.monequipe-section.expanded .monequipe-section-collapse {
-  grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: 8px;
+  row-gap: 6px;
   flex: 1 1 auto;
-  min-height: 0;
+  min-width: 0;
 }
-.monequipe-section-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.me-team {
+  display: grid;
+  grid-row: 1 / span 3;
+  grid-template-rows: subgrid;
+  justify-items: center;
+  align-items: start;
+  min-width: 0;
+  text-align: center;
+}
+.me-next-teams > .me-vs { grid-row: 1 / span 3; align-self: center; }
+.me-team-name {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.me-vs { flex: 0 0 auto; font-size: 12px; font-weight: 800; color: var(--text-secondary); }
 
-/* ─── Mon Équipe — redesign MODE CLAIR UNIQUEMENT (2026-09-12, sur demande
-   explicite, point 5 : "le mode sombre reste inchangé") ────────────────────
-   Tout ce bloc est scopé `:root[data-color-scheme="light"] [id^="module-
-   monEquipe"]` — `[id^="module-monEquipe"]` (plutôt qu'un `#module-monEquipe`
-   figé) couvre AUSSI les instances multiples ajoutées depuis (module-
-   monEquipe_2/_3, voir dashboard.js isMonEquipeKey) : chaque équipe reste sa
-   propre carte, toutes doivent recevoir le même habillage. Le mode clair
-   scopé garantit qu'AUCUNE de ces règles ne s'applique en mode sombre, qui
-   garde son apparence actuelle telle quelle. */
+/* Dernier résultat — COMPACTÉ (2026-09-23, sur demande explicite, "périmètre
+   strict CSS, section Dernier résultat uniquement") : toutes les valeurs
+   ci-dessous sont soit des classes `.me-result-*` déjà EXCLUSIVES à cette
+   section (`.me-score`/`.me-score-win`/`-loss`/`-dim` inclus : jamais posées
+   ailleurs — les scores des LIGNES "Prochains matchs"/résultats dépliés
+   utilisent `.me-row-score`, une classe séparée avec sa propre taille,
+   inchangée), soit déjà scopées via un sélecteur composé qui ne touche
+   qu'ici (`.me-result-date .me-badge`, `.me-result-id .me-team-name`,
+   `.me-result-id .me-logo-md`) — rien de partagé avec "Prochain match"/
+   "Prochains matchs"/l'en-tête du module n'est modifié.
+   Écart de mesure assumé sur 2 valeurs cibles données dans la demande
+   ("logos ~65px→40px", "scores ~48px→30-32px") : la taille RÉELLE actuelle
+   de ces éléments est 44px (logos, carte étroite <400px — la largeur par
+   défaut de ce module, 340px, tombe justement dans ce cas) et 26px
+   (scores), pas 65px/48px — visiblement une estimation approximative plutôt
+   qu'une mesure exacte (même écart déjà rencontré sur d'autres demandes de
+   taille cette session). Appliquer LITTÉRALEMENT "30-32px" au score aurait
+   donc AUGMENTÉ sa taille (26→31px), contraire à l'objectif explicite de
+   réduction — les valeurs ci-dessous visent l'INTENTION réelle (nettement
+   plus compact, ~40-50% de hauteur en moins), pas les chiffres absolus
+   donnés. À ajuster si le résultat réel ne correspond pas une fois vu dans
+   l'app (aucun accès visuel à l'app en cours pour vérifier). */
+.me-result-body { display: flex; align-items: center; gap: 5px; padding: 6px 14px; }
+.me-result-date { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: 0 0 auto; }
+.me-date-mid { font-size: 11px; font-weight: 800; color: var(--text-primary); }
+/* Même principe : (logo + nom) / score, 2 lignes partagées — 69 et 51 restent
+   alignés même si un nom passe sur 2 lignes. Logo À GAUCHE du nom (retouche
+   du 2026-09-21, maquette mise à jour), score centré dessous. */
+.me-result-teams {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 4px;
+  row-gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.me-result-team {
+  display: grid;
+  grid-row: 1 / span 2;
+  grid-template-rows: subgrid;
+  justify-items: center;
+  align-items: start;
+  min-width: 0;
+}
+.me-result-id { display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0; }
+.me-result-id .me-team-name { text-align: left; font-size: 11px; }
+/* Carte étroite (< 400px, cas courant : largeur par défaut 340px) : pas la
+   place de mettre logo ET nom côte à côte — retour au logo AU-DESSUS du nom
+   (le nom passerait sinon à la ligne au milieu d'un mot). Container query sur
+   la largeur de la CARTE MODULE, pas de la fenêtre. 44px → 32px (2026-09-23) :
+   c'est CETTE valeur (pas `.me-logo-md` de base, 28px, quasiment jamais
+   rendue vu la largeur par défaut du module) qui correspond au "~65px perçu"
+   de la demande — voir le commentaire au-dessus de `.me-result-body`. */
+@container (max-width: 400px) {
+  .me-result-id { flex-direction: column; gap: 2px; }
+  .me-result-id .me-team-name { text-align: center; }
+  .me-result-id .me-logo-md { width: 28px; height: 28px; font-size: 14px; border-width: 1.5px; }
+}
+.me-result-teams > .me-result-v,
+.me-result-teams > .me-score-raw { grid-row: 1 / span 2; }
+.me-result-date .me-badge { font-size: 8px; padding: 1px 5px; }
+.me-score {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.me-score-win  { color: #22c55e; }
+.me-score-loss { color: #ef4444; }
+.me-score-dim  { color: var(--text-secondary); }
+.me-result-v   { align-self: center; flex: 0 0 auto; font-size: 10px; color: var(--text-muted); }
+.me-score-raw  { align-self: center; flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--text-primary); }
 
-/* 1. En-tête — bandeau orange clair, icône sport (posée dynamiquement par
-   mon-equipe.js monEquipeUpdateHeader) + nom d'équipe à gauche. `margin`
-   négatif = padding de `.module-card` (14px 16px, voir sa règle plus haut
-   dans ce fichier) : étire le bandeau jusqu'aux bords de la carte,
-   `border-radius` ne visant que les 2 coins du haut pour rester raccord avec
-   les coins arrondis de la carte elle-même (var(--radius-lg), même valeur).
-   Badge/logo du club à droite (`.module-badge`) RETIRÉ le 2026-09-12 (2e
-   demande explicite, "supprimer tous les logos... aucun placeholder") — ce
-   bloc ne touche plus `.module-badge`, qui reprend son apparence par défaut
-   (voir sa règle générique plus haut dans ce fichier). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-header {
+/* Lignes (Prochains matchs / résultats dépliés) — barre gauche verte = match
+   à domicile (notre équipe en premier), rouge = à l'extérieur. */
+.me-rows { display: flex; flex-direction: column; }
+.me-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 12px 9px 10px;
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+}
+.me-row-home { border-left-color: #22c55e; }
+.me-row-away { border-left-color: #ef4444; }
+.me-row-date { display: flex; flex-direction: column; flex: 0 0 auto; min-width: 42px; }
+.me-row-day  { font-size: 13px; font-weight: 800; color: var(--text-primary); }
+.me-row-time { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+.me-row .me-badge { font-size: 9px; padding: 2px 6px; }
+.me-row-teams { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.me-row-team  { display: flex; align-items: center; gap: 5px; flex: 1 1 0; min-width: 0; }
+.me-row-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.me-vs-pill {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: 99px;
+  padding: 3px 6px;
+}
+.me-row-score {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.me-row-score.me-score-win  { color: #22c55e; }
+.me-row-score.me-score-loss { color: #ef4444; }
+.me-row-chev { flex: 0 0 auto; font-size: 16px; line-height: 1; color: var(--text-muted); }
+/* Résultat déplié : date + équipes + score sur UNE ligne (retouche du
+   2026-09-21) — noms de part et d'autre du score, tronqués si besoin. */
+.me-row-compact { padding-top: 7px; padding-bottom: 7px; }
+.me-row-compact .me-row-day { flex: 0 0 auto; min-width: 42px; }
+.me-row-compact .me-row-name { flex: 1 1 0; min-width: 0; font-weight: 600; }
+.me-row-compact .me-row-name-left  { text-align: right; }
+.me-row-compact .me-row-name-right { text-align: left; }
+
+/* Repli animé (grid 0fr → 1fr) — voir monEquipeRowsHtml/monEquipeBindToggles. */
+.me-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 300ms ease; }
+.me-collapse.expanded { grid-template-rows: 1fr; }
+.me-collapse-inner { overflow: hidden; min-height: 0; }
+
+/* Pied de carte : légende + slogan */
+.me-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 2px 4px 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.me-legend { display: inline-flex; align-items: center; gap: 6px; }
+.me-dot { width: 8px; height: 8px; border-radius: 50%; }
+.me-dot-us  { background: #22c55e; }
+.me-dot-opp { background: #ef4444; }
+.me-slogan {
+  margin-left: auto;
+  font-family: 'Segoe Script', 'Segoe UI', cursive;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* Mode clair — en-tête en bandeau orange clair (comme avant la refonte,
+   2026-09-12), cartes blanches à ombre légère ; contrastes des accents
+   (verts/rouge/lavande) assombris pour rester lisibles sur fond clair. */
+:root[data-color-scheme="light"] [id^="module-monEquipe"].module-card .module-header {
   background: #FFE0C0;
   margin: -14px -16px 0;
   padding: 10px 16px;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-icon { font-size: 16px; }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-title { font-weight: 700; }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .module-subtitle { color: #92400e; }
-
-/* 2. Sections en cartes blanches arrondies + ombre légère — "Prochain
-   match"/"Dernier résultat" (.sports-next, fond plein par défaut) ET
-   "Prochains matchs"/"Matchs passés" (.monequipe-section, le conteneur
-   ENTIER — pas juste sa barre de titre — pour un vrai effet de carte,
-   .monequipe-section-toggle repasse donc en fond transparent ici pour ne pas
-   dessiner une 2e boîte imbriquée dans la 1re). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .sports-next,
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section {
+:root[data-color-scheme="light"] .me-card {
   background: #ffffff;
-  border-radius: var(--radius-md);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section {
-  padding: 6px;
+:root[data-color-scheme="light"] .me-card-next {
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, #22c55e, #f59e0b) border-box;
 }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-section-toggle {
-  background: none;
-}
-/* "Prochain match" gardait un dégradé bleu/vert (voir .monequipe-next-card
-   plus haut, mode sombre inchangé) — remplacé par le même blanc uni que les
-   3 autres sections en mode clair. */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-card {
-  background: #ffffff;
-  border: none;
-}
-
-/* 3. "Prochain match" — badge CHAMPIONNAT en pilule orange, date/heure en
-   orange gras (remplace le bleu/jaune de la version mode sombre). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-badge {
-  background: #f97316;
-  color: #ffffff;
-}
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-datetime {
-  color: #f97316;
-  font-weight: 700;
-}
-
-/* 4. Équipe suivie TOUJOURS en orange (remplace le vert foncé mode sombre),
-   adversaire déjà en rouge (#ef4444, règle de base non scopée plus haut —
-   inchangée, donc pas redéclarée ici) — partagé par "Prochain match" ET
-   "Prochains matchs" (mêmes classes .monequipe-team-us/-opponent). Gras en
-   plus de la couleur (le mode sombre reste à son poids hérité, 600 ou normal
-   selon le contexte). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-team-us { color: #f97316; font-weight: 700; }
-
-/* Adversaire du bloc "PROCHAIN MATCH" — noir gras en MODE CLAIR UNIQUEMENT
-   (2026-09-12, 2e demande explicite) : `.monequipe-next-teams` n'entoure QUE
-   le bloc "Prochain match" (voir monEquipeNextMatchHtml, mon-equipe.js),
-   contrairement à `.monequipe-team-opponent` seule qui est PARTAGÉE avec la
-   liste "Prochains matchs" juste en dessous (voir monEquipeMatchLineHtml) —
-   ce scope évite de aussi noircir l'adversaire de cette liste, qui doit
-   rester rouge (voir la règle non scopée .monequipe-team-opponent plus haut,
-   #ef4444, INCHANGÉE). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-next-teams .monequipe-team-opponent {
-  color: #111827;
-  font-weight: 700;
-}
-
-/* Adversaire de la liste "Prochains matchs" — gras SEULEMENT, couleur rouge
-   INCHANGÉE, dans LES 2 THÈMES (2026-09-12, 2e demande explicite — pas de
-   scope `:root[data-color-scheme]` ici, contrairement à toutes les autres
-   règles de ce bloc). `.monequipe-list-row-line` isole la liste (voir
-   monEquipeUpcomingRowHtml) du bloc "Prochain match" ci-dessus, qui n'a pas
-   cette classe. */
-[id^="module-monEquipe"] .monequipe-list-row-line .monequipe-team-opponent {
-  font-weight: 700;
-}
-
-/* "Dernier résultat"/"Matchs passés" — classes DÉDIÉES, PAS .monequipe-team-
-   us/-opponent (voir mon-equipe.js monEquipeLastResultHtml/
-   monEquipeResultRowHtml pour l'explication : ces 2 classes ont une couleur
-   non scopée pour le mode sombre, les réutiliser ici l'aurait aussi coloré). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-result-team-us { color: #f97316; }
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-result-team-opponent { color: #ef4444; }
-
-/* 5. Listes ("Prochains matchs") — date + type de compétition en gris petit
-   (remplace le blanc/jaune de la version mode sombre, illisibles sur fond
-   blanc). */
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-type,
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-datetime,
-:root[data-color-scheme="light"] [id^="module-monEquipe"] .monequipe-info-date {
-  color: var(--text-muted);
-}
+:root[data-color-scheme="light"] .me-link { color: #4f46e5; }
+:root[data-color-scheme="light"] .me-badge,
+:root[data-color-scheme="light"] .me-tag-us { color: #15803d; }
+:root[data-color-scheme="light"] .me-tag-opp { color: #dc2626; }
+:root[data-color-scheme="light"] .me-score-win,
+:root[data-color-scheme="light"] .me-row-score.me-score-win { color: #15803d; }
+:root[data-color-scheme="light"] .me-score-loss,
+:root[data-color-scheme="light"] .me-row-score.me-score-loss { color: #dc2626; }
 
 /* Ticker vertical défilant en boucle — partagé avec les modules France/Tech/
    Bourse/Sciences/Gaming/Santé (tous via rss-feed.js), portée générique
@@ -1937,13 +2341,105 @@ body.ultrawide .module-card { max-width: 500px; }
    (voir renderSourcesRssModule dans rss-feed.js) ; Sciences/Santé réutilisent
    la même classe pour une heure relative ("il y a 2h") — colorée elle aussi,
    sur demande explicite (2026-09-09), faute d'afficher un nom de source. */
-#module-france .sports-ticker-source { color: #3b82f6; }
+/* France RETIRÉE d'ici (2026-09-23, refonte visuelle, sur demande explicite)
+   — n'émet plus `.sports-ticker-source` du tout, remplacée par
+   `.france-news-source` (couleur par média, voir plus bas dans ce fichier) ;
+   règle devenue sans effet, supprimée plutôt que laissée morte. */
 #module-tech .sports-ticker-source   { color: #f97316; }
 #module-bourse .sports-ticker-source { color: #eab308; }
 #module-gaming .sports-ticker-source { color: #ec4899; }
-#module-science .sports-ticker-source { color: #22c55e; }
+/* Sciences RETIRÉE d'ici (2026-09-23, refonte visuelle, sur demande
+   explicite) — une seule couleur verte pour TOUS les articles ne convient
+   plus, chaque item a maintenant sa propre couleur de catégorie (voir plus
+   bas dans ce fichier, .science-cat-ia/-espace/-astro/-sante). */
 #module-sante .sports-ticker-source   { color: #67e8f9; }
-#module-sportNews .sports-ticker-source { color: #f43f5e; }
+/* Actus Sportives (sportNews) RETIRÉE d'ici (2026-09-24, refonte visuelle,
+   sur demande explicite) — une seule couleur pour TOUS les articles ne
+   convient plus, chaque item a maintenant la couleur de SA source (RMC
+   Sport/L'Équipe/...), posée en `style` inline (voir rss-feed.js
+   sportNewsSourceColor) : une règle CSS ne peut pas varier par source. */
+/* ─── Module : Actus Sportives (sportNews) — habillage (2026-09-24, sur
+   demande explicite) ──────────────────────────────────────────────────────
+   PÉRIMÈTRE : CSS + HTML du rendu uniquement (voir rss-feed.js
+   window.MatinModules.sportNews) — le fetch RSS/sources/filtre 12h ne sont
+   pas touchés. */
+/* HEADER fixe 66px, quelle que soit la taille de la carte. */
+/* 66px → 40px (2026-09-24, sur demande explicite, "prend trop de place en
+   hauteur") — le titre tient sur une seule ligne (17px, voir plus bas),
+   66px laissait beaucoup de vide autour ; 40px reste fixe (`flex-shrink:0`
+   inchangé) mais au plus proche du contenu réel. */
+#module-sportNews.module-card .module-header { height: 40px; flex-shrink: 0; }
+/* Zone de contenu flexible — déjà le comportement PAR DÉFAUT hérité de la
+   règle générique `.sports-ticker-vwrap` (voir plus bas dans ce fichier),
+   reposé ici en toutes lettres pour ce module par robustesse/clarté. Aucune
+   hauteur fixe à retirer, il n'y en avait pas. */
+#module-sportNews .sports-ticker-vwrap { flex: 1; min-height: 0; overflow: hidden; }
+/* Titre du module. */
+#module-sportNews.module-card .module-title {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 17px;
+  text-transform: uppercase;
+}
+/* Items — pas d'extrait/thumbnail (contenu déjà limité à source + titre,
+   voir sportNewsItemHtml) : "2 lignes max" imposé par `-webkit-line-clamp`,
+   réduit de 3 (générique) à 2. */
+/* font-size 10px → 13px (2026-09-24, sur demande explicite, "trop petite,
+   même taille que Gaming/Sciences/France") — 13px est déjà la taille de
+   `.france-news-title`/`.science-news-title`, et la taille générique
+   héritée par Gaming (qui ne surcharge pas `font-size` sur
+   `.sports-ticker-vitem`, voir plus haut) : les 3 utilisent donc la MÊME
+   valeur, 13px devient la taille commune ici aussi. */
+/* `display:-webkit-box`/`-webkit-line-clamp` RETIRÉS d'ici (2026-09-24, sur
+   demande explicite — "la 3e ligne d'un titre peut être coupée") : posés
+   directement sur `.sports-ticker-vitem`, ils comptaient le libellé de
+   source (`.sports-ticker-source`, `display:block`, sur sa propre ligne
+   juste au-dessus, voir plus bas) comme 1re "ligne" du clamp — comptage de
+   lignes peu fiable dès qu'un enfant `display:block` précède du texte dans
+   une boîte `-webkit-line-clamp`, un titre long pouvait déborder sur une 3e
+   ligne, coupée en aval par le débordement caché du ticker plutôt que
+   proprement tronquée. `display:block` (simple, pas de -webkit-box) : le
+   clamp vit maintenant sur `.sportnews-title` UNIQUEMENT (voir plus bas),
+   qui ne contient que le texte du titre — comptage fiable quelle que soit
+   la présence de la source. */
+#module-sportNews .sports-ticker-vitem {
+  display: block;
+  font-family: 'Inter', var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 0;
+  margin-bottom: 1em; /* 2026-09-24, sur demande explicite — espace entre articles */
+}
+.sportnews-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Retire l'espace en trop sous le dernier article (2026-09-24, sur demande
+   explicite) — la liste est dupliquée ×2 dans le DOM pour la boucle de
+   défilement sans à-coup (voir rss-feed.js, track.innerHTML = itemsHtml +
+   itemsHtml) : `:last-child` cible donc le dernier item de la 2e copie, le
+   seul qui referme réellement `.sports-ticker-vtrack` — la jointure entre
+   les 2 copies (fin de la 1re copie) garde son margin-bottom normalement,
+   la boucle doit paraître continue à cet endroit. */
+#module-sportNews .sports-ticker-vitem:last-child { margin-bottom: 0; }
+/* `display:block` (au lieu de `inline-block` générique) : le libellé de
+   source passe sur sa propre ligne, au-dessus du titre. Couleur PAS
+   déclarée ici : posée par item, en `style` inline (voir rss-feed.js),
+   varie par source. */
+/* font-size 7px → 9px (2026-09-24, sur demande explicite, "même chose que
+   France") — 9px est la taille de `.france-news-source` (elle-même relevée
+   de 7px le 2026-09-23), même valeur reprise ici pour cohérence entre les 2
+   modules. */
+#module-sportNews .sports-ticker-source {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  margin-right: 0;
+  margin-bottom: 3px;
+}
+
 /* Modules Actualités (France/Tech/Bourse/Gaming/Sciences/Santé) —
    1 ligne de plus entre chaque titre (2026-09-09, sur demande explicite) */
 .module-card[data-theme="actualites"] .sports-ticker-vitem { padding-bottom: 26px; }
@@ -1959,6 +2455,1098 @@ body.ultrawide .module-card { max-width: 500px; }
   from { transform: translateY(0); }
   to   { transform: translateY(-50%); }
 }
+
+/* ─── Module : France — refonte visuelle "tricolore" (2026-09-23, sur
+   demande explicite, valeurs précises fournies) ─────────────────────────────
+   PÉRIMÈTRE : `.sports-ticker-vwrap`/`.sports-ticker-vtrack` (défilement +
+   hauteur flexible) INCHANGÉES, demandé littéralement — seuls l'en-tête et
+   le gabarit d'item (`.france-news-*`, nouveau, voir rss-feed.js) sont
+   propres à ce module. Aucun arrière-plan/dégradé d'en-tête élaboré façon
+   Gaming/Tech : pas demandé pour France, seuls l'icône/le trait bas/le badge
+   le sont explicitement — en-tête gardé sobre. */
+#module-france.module-card .module-header {
+  position: relative;
+  overflow: hidden;
+  min-height: 60px;
+  padding: 10px 14px;
+}
+/* Trait de séparation bas — dégradé bleu → blanc → rouge, demandé
+   explicitement (élément réel, voir rss-feed.js franceUpdateHeader). */
+#module-france .france-header-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #002654 0%, #ffffff 50%, #ed2939 100%);
+}
+
+/* Icône — mini drapeau tricolore SVG dans un carré arrondi 38×38 (demandé
+   explicitement) — remplace la couleur générique du thème "actualites"
+   (`.module-icon { color: #eab308 }`, jaune, sans rapport). */
+#module-france.module-card .module-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #eab308; /* neutralisé ci-dessous, gardé pour ne pas casser un éventuel héritage */
+}
+#module-france.module-card .module-icon svg {
+  width: 22px;
+  height: 16px;
+  border-radius: 2px;
+  overflow: hidden;
+  display: block;
+}
+
+#module-france.module-card .module-title {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+}
+/* Mode clair (2026-09-24, sur demande explicite) — "FRANCE" en bleu plutôt
+   qu'en blanc (illisible sur fond clair, voir :root[data-color-scheme=
+   "light"] .module-card, fond clair générique). `text-shadow:none` posé par
+   robustesse même si cette règle n'en déclare aucun en mode sombre (aucun
+   glow néon ici, voir le commentaire de section plus haut — "en-tête gardé
+   sobre" pour France, contrairement à Gaming/Tech). */
+:root[data-color-scheme="light"] #module-france.module-card .module-title {
+  color: #1d4ed8;
+  text-shadow: none;
+}
+
+/* Badge "NEWS" — point rouge pulsé (demandé explicitement, remplace le point
+   statique générique) ; CONTENU du badge ("news", posé par setBadge)
+   inchangé, seul le point est ajouté par franceUpdateHeader. */
+#module-france.module-card .module-badge.france-news-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(237, 41, 57, 0.10);
+  border: 1px solid rgba(237, 41, 57, 0.32);
+  color: #ed2939;
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+#module-france .france-badge-dot {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ed2939;
+  box-shadow: 0 0 6px rgba(237, 41, 57, 0.8);
+  animation: france-badge-pulse 1.6s ease-in-out infinite;
+}
+@keyframes france-badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ─── Items — source colorée / titre 2 lignes sans extrait / date+chevron
+   (demandé explicitement, remplace le gabarit générique .sports-ticker-vitem
+   à une seule ligne de texte). Réutilise `.sports-ticker-vwrap`/-vtrack telles
+   quelles pour le défilement (voir plus haut dans ce fichier) — seul le
+   CONTENU d'un item change ici. */
+#module-france .france-news-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+}
+#module-france .france-news-main { flex: 1 1 auto; min-width: 0; }
+#module-france .france-news-source {
+  display: block;
+  font-size: 9px; /* 7px → 9px, 2026-09-23, sur demande explicite */
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+}
+#module-france .france-news-title {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#module-france .france-news-item:hover .france-news-title { color: var(--accent); }
+#module-france .france-news-side {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+#module-france .france-news-time { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+#module-france .france-news-chevron { font-size: 14px; color: var(--text-muted); line-height: 1; }
+
+
+/* ─── Module : Gaming — refonte visuelle "néon" (2026-09-23, sur demande
+   explicite, palette de tokens fournie) ─────────────────────────────────────
+   PÉRIMÈTRE STRICT : CSS + HTML du rendu uniquement (voir rss-feed.js
+   gamingUpdateHeader) — `renderSourcesRssModule` (fetch/cache/interleave/
+   config) N'EST PAS TOUCHÉE, PARTAGÉE avec France/Tech/Bourse qui gardent
+   leur apparence actuelle. Tout ici est scopé `#module-gaming`.
+   Design DARK FIXE à l'origine (2026-09-23) — RÉVISÉ le 2026-09-24, sur
+   demande explicite : ce module a désormais bien un rendu clair dédié (voir
+   les règles `:root[data-color-scheme="light"]` juste en dessous, patron
+   "France" — fond clair hérité, header teinté, titre accent, texte sombre). */
+#module-gaming.module-card { border-color: var(--neon-blue, #00c8ff); }
+:root[data-color-scheme="light"] #module-gaming.module-card { border-color: rgba(0, 200, 255, 0.7); background: var(--bg-panel); }
+/* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
+   atténué" d'une version précédente, retiré) — patron "France" : fond clair
+   hérité (aucune règle `background` sur `.module-card` ici), header
+   légèrement teinté, titre en accent bleu, texte des items sombre/lisible. */
+:root[data-color-scheme="light"] #module-gaming.module-card .module-header {
+  background: rgba(0, 200, 255, 0.06);
+}
+:root[data-color-scheme="light"] #module-gaming.module-card .module-title {
+  color: #0284c7;
+  text-shadow: none;
+}
+:root[data-color-scheme="light"] #module-gaming .sports-ticker-vitem {
+  color: var(--text-primary);
+}
+:root[data-color-scheme="light"] #module-gaming .header-glow-line {
+  box-shadow: none;
+  opacity: 0.4;
+}
+
+#module-gaming {
+  --neon-blue: #00c8ff;
+  --neon-blue-dim: rgba(0, 200, 255, 0.06);
+  --neon-blue-border: rgba(0, 200, 255, 0.20);
+  --neon-pink: #e040fb;
+  --neon-pink-dim: rgba(224, 64, 251, 0.08);
+  --neon-pink-border: rgba(224, 64, 251, 0.32);
+  --gaming-text: #c0d8f0;
+  --gaming-text-muted: #5a7898;
+}
+#module-gaming.module-card { background: #0a0f1e; }
+
+/* En-tête, hauteur fixe ~82px — dégradé diagonal 4 arrêts + grille
+   hexagonale (`::before`, repeating-linear-gradient croisé ±60°) + glow rose
+   en haut à droite (`::after`, radial-gradient). `overflow:hidden` : les 2
+   pseudo-éléments et `.header-glow-line` ne doivent jamais déborder des
+   coins arrondis de la carte. */
+#module-gaming.module-card .module-header {
+  position: relative;
+  overflow: hidden;
+  height: 82px;
+  min-height: 82px;
+  /* flex-shrink:0 (2026-09-23, sur demande explicite, "le bandeau s'agrandit
+     au redimensionnement") — déjà posé par la règle générique .module-header
+     (style.css, non scopée), reposé ICI explicitement pour que la carte
+     Gaming reste correcte même si cette règle générique venait à changer,
+     et pour ne plus dépendre d'un héritage à retrouver ailleurs dans ce
+     fichier. `height`/`min-height` déjà identiques ci-dessus (82px) : c'est
+     bien ce qui fixe la hauteur, `flex-shrink:0` empêche seulement le flex
+     de la rétrécir/l'agrandir en fonction de l'espace disponible. */
+  flex-shrink: 0;
+  padding: 0 14px;
+  gap: 12px;
+  background: linear-gradient(110deg, #04091a 0%, #0a0e28 40%, #10062a 70%, #1a042e 100%);
+}
+#module-gaming.module-card .module-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(60deg, rgba(0, 200, 255, 0.025) 0 1px, transparent 1px 19px),
+    repeating-linear-gradient(-60deg, rgba(0, 200, 255, 0.025) 0 1px, transparent 1px 19px);
+}
+#module-gaming.module-card .module-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 220px 120px at 88% -10%, rgba(224, 64, 251, 0.28), transparent 70%);
+}
+/* Trait néon bas — élément réel (voir rss-feed.js gamingUpdateHeader), pas
+   un pseudo-élément : demandé explicitement comme tel. */
+#module-gaming .header-glow-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent 0%, rgba(0, 200, 255, 0.5) 20%, rgba(0, 200, 255, 0.9) 50%, rgba(224, 64, 251, 0.6) 75%, transparent 100%);
+  box-shadow: 0 0 8px rgba(0, 200, 255, 0.5);
+}
+
+/* Icône manette — carré 48×48, sortie de `.module-title` par JS (voir
+   rss-feed.js). Remplace la couleur générique du thème "actualites"
+   (`.module-icon { color: #eab308 }`, jaune — pas de rapport avec ce
+   design). */
+#module-gaming.module-card .module-icon {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(0, 200, 255, 0.06);
+  border: 1px solid rgba(0, 200, 255, 0.2);
+  box-shadow: 0 0 12px rgba(0, 200, 255, 0.18);
+  color: #eab308; /* neutralisé ci-dessous, gardé pour ne pas casser un éventuel héritage */
+}
+#module-gaming.module-card .module-icon svg {
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 0 5px rgba(0, 200, 255, 0.7)) drop-shadow(0 0 12px rgba(0, 200, 255, 0.35));
+}
+
+#module-gaming.module-card .module-title-group { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0; }
+/* font-size 32px → 13px (2026-09-24, v3) → 17px (2026-09-24, v4, sur
+   demande explicite) — glow réduit en proportion (17/32 ≈ 0.53× les rayons
+   de flou d'origine), même raison que Tech juste après (voir #module-tech
+   .module-title). */
+#module-gaming.module-card .module-title {
+  display: block;
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 5px rgba(0, 200, 255, 0.8), 0 0 13px rgba(0, 200, 255, 0.4), 0 0 26px rgba(0, 200, 255, 0.15);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* .gaming-subtitle ("Actus & infos") RETIRÉE (2026-09-24, sur demande
+   explicite, v3) — gamingUpdateHeader (rss-feed.js) ne l'insère plus, règle
+   CSS supprimée avec elle. */
+
+/* Badge "NEWS" — remplace l'apparence générique de `.module-badge` (fond
+   `--bg-panel-alt` neutre) pour CE module uniquement ; le CONTENU du badge
+   ("news", posé par setBadge — voir rss-feed.js render()) est inchangé,
+   seule l'étoile est ajoutée en plus par gamingUpdateHeader. */
+#module-gaming.module-card .module-badge.gaming-news-badge {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 7px;
+  background: rgba(224, 64, 251, 0.08);
+  border: 1px solid rgba(224, 64, 251, 0.32);
+  border-radius: 20px;
+  box-shadow: 0 0 10px rgba(224, 64, 251, 0.12);
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #e040fb;
+  text-shadow: 0 0 8px rgba(224, 64, 251, 0.6);
+}
+#module-gaming .gaming-badge-star { display: inline-flex; width: 11px; height: 11px; flex-shrink: 0; }
+#module-gaming .gaming-badge-star svg { width: 100%; height: 100%; }
+
+/* ─── Items — thumbnails/couleurs (fonctionnellement inchangés, voir
+   rss-feed.js : même `.sports-ticker-vitem`, même clic, mêmes données). */
+#module-gaming .sports-ticker-vwrap { border-top-color: rgba(255, 255, 255, 0.06); }
+#module-gaming .sports-ticker-vitem {
+  position: relative;
+  color: var(--gaming-text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+#module-gaming .sports-ticker-vitem:hover { color: #ffffff; background: rgba(0, 200, 255, 0.03); }
+/* .gaming-thumb (pastille décorative 52×36) RETIRÉE (2026-09-24, sur
+   demande explicite, v3 — "les 4 cadres vides retirés des articles") :
+   rss-feed.js window.MatinModules.gaming ne l'insère plus, règle CSS
+   supprimée avec elle. */
+/* Libellé de source — bleu néon ici (remplace le rose #ec4899 générique
+   posé pour Gaming avant cette refonte, voir la règle `#module-gaming
+   .sports-ticker-source` plus haut dans ce fichier — celle-ci, placée après,
+   l'emporte par ordre de cascade à spécificité égale). */
+#module-gaming .sports-ticker-source { color: rgba(0, 200, 255, 0.65); }
+
+/* ─── Module : Tech — refonte visuelle "circuit board" (2026-09-22, sur
+   demande explicite, palette de tokens + maquette photo fournies) ──────────
+   PÉRIMÈTRE STRICT : CSS + HTML du rendu uniquement (voir rss-feed.js
+   techUpdateHeader/techNewsItemHtml) — le fetch RSS/sources/cache ne sont
+   pas touchés (sourcesRssFetchInterleaved, simple extraction de
+   renderSourcesRssModule, comportement identique). Tout ici est scopé
+   `#module-tech`. Design DARK FIXE à l'origine (2026-09-22) — RÉVISÉ le
+   2026-09-24, sur demande explicite : rendu clair dédié désormais (voir les
+   règles `:root[data-color-scheme="light"]` juste en dessous, patron
+   "France"), même mise à jour que Gaming juste au-dessus. */
+#module-tech.module-card { border-color: var(--tech-neon, #00aaff); }
+:root[data-color-scheme="light"] #module-tech { --tech-card: var(--bg-panel); }
+:root[data-color-scheme="light"] #module-tech.module-card { border-color: rgba(0, 170, 255, 0.7); background: var(--bg-panel); }
+/* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
+   atténué" d'une version précédente, retiré) — patron "France" : fond clair
+   hérité (aucune règle `background` sur `.module-card` ici), header
+   légèrement teinté, titre en accent bleu, texte des items sombre/lisible.
+   `--tech-text` redéfini en plus des sélecteurs littéraux demandés : c'est
+   la vraie source de la couleur de `.tech-news-title` (voir sa règle plus
+   bas, `color: var(--tech-text)`) — sans cette redéfinition, `.tech-news-
+   item { color: ... }` seul resterait sans effet visible (le titre a SA
+   PROPRE couleur explicite, elle ne s'hérite pas du conteneur parent). */
+:root[data-color-scheme="light"] #module-tech.module-card .module-header {
+  background: rgba(0, 170, 255, 0.06);
+}
+:root[data-color-scheme="light"] #module-tech.module-card .module-title {
+  color: #0369a1;
+  text-shadow: none;
+}
+:root[data-color-scheme="light"] #module-tech { --tech-text: var(--text-primary); }
+:root[data-color-scheme="light"] #module-tech .tech-news-item,
+:root[data-color-scheme="light"] #module-tech .sports-ticker-vitem {
+  color: var(--text-primary);
+}
+:root[data-color-scheme="light"] #module-tech .tech-header-line {
+  box-shadow: none;
+  opacity: 0.4;
+}
+
+#module-tech {
+  --tech-bg: #07090f;
+  --tech-card: #0b0e18;
+  --tech-neon: #00aaff;
+  --tech-neon-dim: rgba(0, 170, 255, 0.08);
+  --tech-neon-border: rgba(0, 170, 255, 0.22);
+  --tech-teal: #00e5c8;
+  --tech-text: #c8d8ec;
+  --tech-text-muted: #435870;
+  --tech-text-dim: #1e2e40;
+  --tech-divider: rgba(0, 170, 255, 0.07);
+}
+#module-tech.module-card { background: var(--tech-card); }
+
+/* En-tête, hauteur fixe ~78px — dégradé diagonal 4 arrêts + grille circuit
+   board (`::before`, repeating-linear-gradient horizontaux/verticaux) + glow
+   bleu à gauche + teal à droite (`::after`, 2 radial-gradient).
+   `overflow:hidden` : les 2 pseudo-éléments, le trait bas et les coins ne
+   doivent jamais déborder des coins arrondis de la carte. */
+#module-tech.module-card .module-header {
+  position: relative;
+  overflow: hidden;
+  height: 78px;
+  min-height: 78px;
+  /* flex-shrink:0 (2026-09-23, sur demande explicite, "le bandeau s'agrandit
+     au redimensionnement") — même ajout que #module-gaming ci-dessus, voir
+     son commentaire pour le détail (déjà hérité de la règle générique
+     .module-header, reposé ici explicitement pour ne plus en dépendre). */
+  flex-shrink: 0;
+  padding: 0 16px;
+  gap: 14px;
+  background: linear-gradient(115deg, #060a16 0%, #080d1e 35%, #060c1a 65%, #05091a 100%);
+}
+#module-tech.module-card .module-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0, 170, 255, 0.03) 0 1px, transparent 1px 20px),
+    repeating-linear-gradient(to right, rgba(0, 170, 255, 0.022) 0 1px, transparent 1px 30px);
+}
+#module-tech.module-card .module-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 100% at -5% 50%, rgba(0, 170, 255, 0.18), transparent 70%),
+    radial-gradient(ellipse 40% 80% at 105% 50%, rgba(0, 229, 200, 0.08), transparent 70%);
+}
+/* Trait néon bas — élément réel (voir rss-feed.js techUpdateHeader), pas un
+   pseudo-élément : ::before/::after du header sont déjà pris par la
+   grille/le glow ci-dessus. */
+#module-tech .tech-header-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(0, 170, 255, 0.6) 15%, rgba(0, 229, 200, 1) 50%, rgba(0, 170, 255, 0.6) 85%, transparent 100%);
+  box-shadow: 0 0 10px rgba(0, 229, 200, 0.6), 0 -1px 8px rgba(0, 170, 255, 0.3);
+}
+/* Coins décoratifs — 4 éléments réels 10×10px, cadrent le header (voir
+   rss-feed.js techUpdateHeader). */
+#module-tech .tech-corner { position: absolute; width: 10px; height: 10px; pointer-events: none; }
+#module-tech .tech-corner-tl { top: 8px; left: 8px; border-top: 1.5px solid rgba(0, 170, 255, 0.5); border-left: 1.5px solid rgba(0, 170, 255, 0.5); }
+#module-tech .tech-corner-tr { top: 8px; right: 8px; border-top: 1.5px solid rgba(0, 170, 255, 0.5); border-right: 1.5px solid rgba(0, 170, 255, 0.5); }
+#module-tech .tech-corner-bl { bottom: 8px; left: 8px; border-bottom: 1.5px solid rgba(0, 170, 255, 0.5); border-left: 1.5px solid rgba(0, 170, 255, 0.5); }
+#module-tech .tech-corner-br { bottom: 8px; right: 8px; border-bottom: 1.5px solid rgba(0, 170, 255, 0.5); border-right: 1.5px solid rgba(0, 170, 255, 0.5); }
+
+/* Icône moniteur — carré 44×44, sortie de `.module-title` par JS (voir
+   rss-feed.js). Remplace la couleur générique du thème "actualites"
+   (`.module-icon { color: #eab308 }`, jaune — pas de rapport avec ce
+   design). */
+#module-tech.module-card .module-icon {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(0, 170, 255, 0.06);
+  border: 1px solid rgba(0, 170, 255, 0.22);
+  box-shadow: 0 0 14px rgba(0, 170, 255, 0.12);
+  color: #eab308; /* neutralisé ci-dessous, gardé pour ne pas casser un éventuel héritage */
+}
+#module-tech.module-card .module-icon svg {
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 0 6px rgba(0, 170, 255, 0.8)) drop-shadow(0 0 16px rgba(0, 170, 255, 0.3));
+}
+
+/* Séparateur vertical icône ↔ bloc titre — élément réel (voir
+   rss-feed.js techUpdateHeader). */
+#module-tech .tech-header-divider {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  width: 1px;
+  height: 36px;
+  background: linear-gradient(to bottom, transparent, rgba(0, 170, 255, 0.3) 30%, rgba(0, 170, 255, 0.3) 70%, transparent);
+}
+
+#module-tech.module-card .module-title-group { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0; }
+/* font-size 30px → 12px (2026-09-24, v3) → 16px (2026-09-24, v4, sur
+   demande explicite) — glow réduit en proportion (16/30 ≈ 0.53× les rayons
+   de flou d'origine), sinon le `text-shadow` conçu pour un titre 2.5× plus
+   grand écraserait visuellement un texte à cette taille. */
+#module-tech.module-card .module-title {
+  display: block;
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(0, 170, 255, 0.7), 0 0 16px rgba(0, 170, 255, 0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* .tech-subtitle ("Actus & infos") RETIRÉE (2026-09-24, sur demande
+   explicite, v3) — techUpdateHeader (rss-feed.js) ne l'insère plus, règle
+   CSS supprimée avec elle. */
+
+/* Badge "NEWS" — remplace l'apparence générique de `.module-badge` (fond
+   `--bg-panel-alt` neutre) pour CE module uniquement ; le CONTENU du badge
+   ("news", posé par setBadge — voir rss-feed.js render()) est inchangé,
+   seul le point animé est ajouté en plus par techUpdateHeader. */
+#module-tech.module-card .module-badge.tech-news-badge {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  background: rgba(0, 170, 255, 0.08);
+  border: 1px solid rgba(0, 170, 255, 0.22);
+  border-radius: 6px;
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #00aaff;
+}
+#module-tech .tech-badge-dot {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #00aaff;
+  box-shadow: 0 0 5px rgba(0, 170, 255, 1);
+  animation: tech-badge-pulse 2s ease-in-out infinite;
+}
+@keyframes tech-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* ─── Items — défilement automatique en boucle, pause au survol (2026-09-24,
+   sur demande explicite, v3 — REMPLACE la liste statique/scrollable de la
+   v2) : même technique que .sports-ticker-vwrap/.sports-ticker-vtrack
+   (contenu dupliqué ×2 côté JS, translateY(-50%) en boucle) mais avec des
+   classes dédiées — cette structure riche (meta/extrait/chevron) n'existe
+   pas dans .sports-ticker-v*. */
+/* Hauteur ÉTIRÉE avec la carte (2026-09-23, sur demande explicite — REMPLACE
+   la hauteur FIXE ~228px précédente, qui plafonnait l'affichage à ~2 articles
+   quelle que soit la taille de la carte) : même principe que Gaming
+   (`.sports-ticker-vwrap { flex:1; min-height:0 }`) — le ticker occupe tout
+   l'espace vertical restant dans la carte, agrandir la carte affiche donc
+   plus d'articles. Nécessite que le PARENT DIRECT (`.module-content`,
+   générique et PARTAGÉ par tous les modules — voir sa règle de base plus
+   haut, `flex:1` mais PAS `display:flex`) soit lui-même un flex-column POUR
+   CETTE CARTE UNIQUEMENT (voir `#module-tech .module-content` plus bas) :
+   sans ça, `flex:1` ici n'aurait aucun effet (le parent n'est pas un
+   conteneur flex). Durée d'animation calculée côté JS via
+   RSS_TICKER_SEC_PER_ITEM (même formule que Gaming) — la durée CSS ci-dessous
+   reste un fallback initial, remplacé dès que le JS pose
+   track.style.animationDuration. */
+#module-tech .tech-news-wrap {
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+/* Parent direct de `.tech-news-wrap` — voir le commentaire ci-dessus. Scopé
+   à CE module uniquement (`#module-tech`, pas la règle générique
+   `.module-content` qui resterait en bloc/scroll classique pour les ~30
+   autres modules de l'app). */
+#module-tech .module-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#module-tech .tech-news-track {
+  display: flex;
+  flex-direction: column;
+  animation-name: tech-news-scroll;
+  animation-duration: 48s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+#module-tech .tech-news-wrap:hover .tech-news-track { animation-play-state: paused; }
+@keyframes tech-news-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+#module-tech .tech-news-item {
+  display: flex;
+  flex-direction: column;
+  padding: 11px 18px 11px 16px;
+  border-bottom: 1px solid var(--tech-divider);
+  position: relative;
+  cursor: pointer;
+}
+/* Barre accentuée gauche */
+#module-tech .tech-news-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  background: linear-gradient(to bottom, #00aaff, #00e5c8);
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+#module-tech .tech-news-item:hover::before { opacity: 0.9; }
+
+#module-tech .tech-news-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+#module-tech .tech-news-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'JetBrains Mono', var(--font-ui);
+  font-weight: 500;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(0, 170, 255, 0.75);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#module-tech .tech-news-source svg { width: 16px; height: 16px; flex-shrink: 0; }
+#module-tech .tech-news-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 9.5px;
+  color: var(--tech-text-muted);
+}
+#module-tech .tech-news-time svg { width: 9px; height: 9px; flex-shrink: 0; }
+
+#module-tech .tech-news-title {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tech-text);
+  padding-right: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#module-tech .tech-news-excerpt {
+  margin-top: 3px;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--tech-text-muted);
+  padding-right: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Chevron — pseudo-élément (pas de SVG par item, cadence de rendu ~4 items
+   par flux × 4 sources max) : positionné en absolu à droite, centré
+   verticalement. */
+#module-tech .tech-news-item::after {
+  content: '›';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-ui);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--tech-text-dim);
+  transition: color 0.15s, transform 0.15s;
+}
+#module-tech .tech-news-item:hover::after {
+  color: #00aaff;
+  transform: translateY(-50%) translateX(2px);
+}
+
+/* ─── Module : Bourse — habillage visuel dédié "vert forêt" (2026-09-23, sur
+   demande explicite) ────────────────────────────────────────────────────
+   PÉRIMÈTRE STRICT : CSS + HTML/JS du rendu uniquement (voir rss-feed.js
+   bourseNewsItemHtml/window.MatinModules.bourse) — le fetch RSS/sources/
+   cache ne sont pas touchés. Tout ici est scopé `#module-bourse`. Design
+   DARK FIXE, comme Tech/Gaming juste au-dessus, même parti pris. */
+/* Vert éclairci (2026-09-23, sur demande explicite — le blanc en gras du
+   titre manquait de confort de lecture sur l'ancien fond quasi noir
+   #030f07) : #0a2413, toujours "vert forêt" mais nettement moins sombre. */
+#module-bourse.module-card { background: #0a2413; border-color: rgba(34, 197, 94, 0.35); }
+:root[data-color-scheme="light"] #module-bourse.module-card { border-color: rgba(34, 197, 94, 0.6); background: var(--bg-panel); }
+/* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
+   atténué" d'une version précédente, retiré) — patron "France" : fond clair
+   hérité (aucune règle `background` sur `.module-card` ici), header
+   légèrement teinté, titre en accent vert, texte des items sombre/lisible.
+   Pas de `.header-glow-line`/équivalent ici (déjà signalé : le header de ce
+   module est un dégradé plein, pas un trait bas séparé façon Gaming/Tech) —
+   rien à ajouter pour ce point, cohérent avec le bloc demandé (qui n'en
+   mentionne pas non plus pour Bourse). */
+:root[data-color-scheme="light"] #module-bourse.module-card .module-header {
+  background: rgba(22, 163, 74, 0.06);
+}
+:root[data-color-scheme="light"] #module-bourse.module-card .module-title {
+  color: #15803d;
+  text-shadow: none;
+}
+:root[data-color-scheme="light"] #module-bourse .bourse-news-title {
+  color: var(--text-primary);
+}
+
+/* 1) HEADER — hauteur FIXE 40px (2026-09-23, révisé — était 66px), ne
+   rétrécit jamais (`flex-shrink:0`, déjà hérité de la règle générique
+   `.module-header` mais reposé ici explicitement pour ne plus en dépendre,
+   même précaution que Tech/Gaming) ; reste fixe aussi si la carte s'agrandit
+   (voir point 2, la zone de contenu ci-dessous absorbe seule l'espace
+   supplémentaire). */
+#module-bourse.module-card .module-header {
+  height: 40px;
+  min-height: 40px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  /* Éclairci en cohérence avec le fond de carte ci-dessus. */
+  background: linear-gradient(135deg, #0c2814 0%, #0a2413 60%, #081f10 100%);
+}
+#module-bourse.module-card .module-icon { color: #22c55e; }
+/* 3) Titre "BOURSE" — Barlow Condensed 900/17px/uppercase, glow vert. */
+#module-bourse.module-card .module-title {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.65), 0 0 18px rgba(34, 197, 94, 0.25);
+}
+#module-bourse.module-card .module-badge {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+/* 2) ZONE DE CONTENU flexible — s'agrandit avec la carte (REMPLACE toute
+   hauteur fixe façon ancien `.sports-ticker-vwrap`/228px) : `.module-content`
+   (générique, PARTAGÉ, `flex:1` mais PAS `display:flex` par défaut) devient
+   flex-column POUR CETTE CARTE UNIQUEMENT, sans quoi `flex:1` sur
+   `.bourse-news-wrap` n'aurait aucun effet (le parent ne serait pas un
+   conteneur flex) — même technique que Tech/Gaming. */
+#module-bourse .module-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#module-bourse .bourse-news-wrap { flex: 1; min-height: 0; overflow: hidden; }
+
+/* 5) Vitesse d'animation — calculée côté JS via RSS_TICKER_SEC_PER_ITEM/
+   RSS_TICKER_MIN_SEC (voir rss-feed.js) ; `animation-duration` ci-dessous
+   n'est qu'un repli initial avant que le JS ne pose
+   track.style.animationDuration. */
+#module-bourse .bourse-news-track {
+  display: flex;
+  flex-direction: column;
+  animation-name: bourse-news-scroll;
+  animation-duration: 48s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+#module-bourse .bourse-news-wrap:hover .bourse-news-track { animation-play-state: paused; }
+@keyframes bourse-news-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+#module-bourse .bourse-news-item {
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(34, 197, 94, 0.1);
+  cursor: pointer;
+}
+#module-bourse .bourse-news-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 4) Labels de source — Inter/9px/bold(700)/display:block (2026-09-23,
+   révisé — était 7px). Couleur PAR MÉDIA posée EN INLINE directement dans le
+   HTML (voir rss-feed.js bourseSourceColor(), style="color:..."), plus une
+   classe CSS par source — sur demande explicite. `text-transform`/
+   `letter-spacing` restent ici (propriétés génériques, pas de couleur).
+   ÉCART déjà signalé (voir rss-feed.js) : les couleurs par média
+   correspondent aux VRAIES sources du catalogue (Challenges Économie/BFM
+   Business/Capital), pas "Les Echos/BFM Bourse/Reuters/Investir/Capitalcom"
+   qui n'existent pas dans ce catalogue. */
+#module-bourse .bourse-news-source {
+  display: block;
+  margin-bottom: 3px;
+  font-family: 'Inter', var(--font-ui);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#module-bourse .bourse-news-time {
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(212, 226, 244, 0.4);
+}
+/* 6) Titre — Inter 13px/500 (2026-09-23, révisé — était 10px), 2 lignes max
+   (`-webkit-line-clamp:2`, nécessite `display:-webkit-box` + `overflow:
+   hidden` pour fonctionner, même technique que .tech-news-title/
+   .tech-news-excerpt plus haut). Pas d'extrait ni de vignette. Les
+   variations de cours détectées dans le texte sont entourées d'un span
+   coloré par bourseHighlightVariation() (rss-feed.js). */
+#module-bourse .bourse-news-title {
+  font-family: 'Inter', var(--font-ui);
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #d4e2f4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#module-bourse .bourse-variation-up   { color: #22c55e; font-weight: 700; }
+#module-bourse .bourse-variation-down { color: #ef4444; font-weight: 700; }
+
+/* ─── Module : Santé — habillage visuel dédié "rosé" (2026-09-24, sur
+   demande explicite) ─────────────────────────────────────────────────────
+   PÉRIMÈTRE STRICT : CSS + HTML/JS du rendu uniquement (voir rss-feed.js
+   santeNewsItemHtml/window.MatinModules.sante) — le fetch RSS/filtre 12h ne
+   sont pas touchés. Tout ici est scopé `#module-sante`. Design DARK FIXE,
+   comme Bourse/Tech/Gaming juste au-dessus, même parti pris — fond choisi
+   modérément sombre (pas quasi-noir) d'emblée, PAS #030f07-like : retour
+   direct sur Bourse (2026-09-23, même conversation) signalant un titre blanc
+   gras peu lisible sur un fond trop sombre, évité ici dès le départ. */
+#module-sante.module-card { background: #1a0f16; border-color: rgba(236, 72, 153, 0.35); }
+:root[data-color-scheme="light"] #module-sante.module-card { border-color: rgba(236, 72, 153, 0.6); background: var(--bg-panel); }
+/* Mode clair (2026-09-24, sur demande explicite — REMPLACE le fond sombre
+   rosé atténué d'une version précédente, qui ciblait par erreur
+   `.sports-ticker-vitem`/`.header-glow-line`, jamais utilisées par CE
+   module : les vraies classes sont `.sante-news-title`/`.sante-header-line`,
+   voir la section juste en dessous) — patron "France" : fond clair hérité
+   (aucune règle `background` sur `.module-card` ici), header légèrement
+   teinté, titre en accent rose, texte des items sombre/lisible. */
+:root[data-color-scheme="light"] #module-sante.module-card .module-header {
+  background: rgba(236, 72, 153, 0.06);
+}
+:root[data-color-scheme="light"] #module-sante.module-card .module-title {
+  color: #be185d;
+  text-shadow: none;
+}
+:root[data-color-scheme="light"] #module-sante .sante-news-title {
+  color: var(--text-primary);
+}
+:root[data-color-scheme="light"] #module-sante .sante-header-line {
+  box-shadow: none;
+  opacity: 0.4;
+}
+
+/* 1) HEADER — hauteur FIXE 40px, ne rétrécit jamais (`flex-shrink:0`, déjà
+   hérité de la règle générique `.module-header` mais reposé ici
+   explicitement pour ne plus en dépendre, même précaution que Bourse/Tech).
+   Aucune hauteur variable/flex-grow ajoutée. */
+#module-sante.module-card .module-header {
+  height: 40px;
+  min-height: 40px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  padding: 0 14px;
+  background: linear-gradient(135deg, #24101c 0%, #1a0f16 60%, #150c12 100%);
+}
+#module-sante.module-card .module-icon { color: #ec4899; }
+/* 4) Titre "SANTÉ" — rose #f472b6 + glow rose (accent principal #ec4899
+   utilisé pour le glow, comme demandé — "accent principal : #ec4899"). */
+#module-sante.module-card .module-title {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 900;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f472b6;
+  text-shadow: 0 0 8px rgba(236, 72, 153, 0.6), 0 0 18px rgba(236, 72, 153, 0.25);
+}
+#module-sante.module-card .module-badge {
+  background: rgba(236, 72, 153, 0.1);
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  color: #ec4899;
+}
+/* Glow line — élément réel plutôt qu'un pseudo-élément (le header n'en a pas
+   d'autre ici, mais garde la même convention que Tech/Gaming pour rester
+   cohérent) : dégradé/ombre EXACTS demandés. Nécessite que rss-feed.js
+   l'insère dans le DOM (voir santeUpdateHeader) — voir plus bas. */
+#module-sante .sante-header-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(236, 72, 153, 0.45) 20%, rgba(244, 114, 182, 0.90) 50%, rgba(236, 72, 153, 0.40) 80%, transparent 100%);
+  box-shadow: 0 0 7px rgba(236, 72, 153, 0.50);
+}
+
+/* 2) ZONE DE CONTENU flexible — s'agrandit avec la carte (REMPLACE toute
+   hauteur fixe façon ancien `.sports-ticker-vwrap`/228px) : `.module-content`
+   (générique, PARTAGÉ, `flex:1` mais PAS `display:flex` par défaut) devient
+   flex-column POUR CETTE CARTE UNIQUEMENT — même technique que Bourse/Tech. */
+#module-sante .module-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#module-sante .sante-news-wrap { flex: 1; min-height: 0; overflow: hidden; }
+
+/* 6) Vitesse d'animation — calculée côté JS via RSS_TICKER_SEC_PER_ITEM/
+   RSS_TICKER_MIN_SEC (voir rss-feed.js) ; `animation-duration` ci-dessous
+   n'est qu'un repli initial avant que le JS ne pose
+   track.style.animationDuration. */
+#module-sante .sante-news-track {
+  display: flex;
+  flex-direction: column;
+  animation-name: sante-news-scroll;
+  animation-duration: 48s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+#module-sante .sante-news-wrap:hover .sante-news-track { animation-play-state: paused; }
+@keyframes sante-news-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+#module-sante .sante-news-item {
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(236, 72, 153, 0.1);
+  cursor: pointer;
+}
+#module-sante .sante-news-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 5) Labels de source — 6.5px/uppercase/bold/display:block/margin-bottom:3px
+   (propriétés communes demandées). Couleur PAR SOURCE posée EN INLINE
+   directement dans le HTML (voir rss-feed.js santeSourceColor(), même
+   technique que Bourse), pas de classe CSS par source. ÉCART déjà signalé
+   (voir rss-feed.js) : les couleurs par source correspondent aux 2 VRAIES
+   sources du catalogue (Doctissimo/Le Quotidien du Médecin), pas les 5
+   listées dans la demande ("Pourquoi Docteur"/"Le Monde Santé"/"BFM TV
+   Santé"/"Destination Santé"/"Santé Magazine"), qui n'existent pas dans ce
+   catalogue. */
+/* font-size 6.5px → 9px (2026-09-24, sur demande explicite, "même chose que
+   Bourse") — 9px est la taille de `.bourse-news-source`, reprise ici pour
+   cohérence entre les 2 modules. */
+#module-sante .sante-news-source {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#module-sante .sante-news-time {
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: rgba(240, 240, 240, 0.4);
+}
+/* 3) Titre d'article — propriétés EXACTES demandées (Inter/13px/500/
+   #f0f0f0/line-height 1.35/2 lignes max via -webkit-line-clamp). */
+/* font-weight 500 → 400 (2026-09-24, sur demande explicite, "enlever le
+   gras") — mode sombre uniquement, la règle mode clair juste au-dessus
+   (`.sante-news-title { color: var(--text-primary); }`) n'en déclare pas et
+   n'est pas concernée. */
+#module-sante .sante-news-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: #f0f0f0;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── Module : Sciences — refonte visuelle (2026-09-23, sur demande
+   explicite, capture fournie) ─────────────────────────────────────────────
+   PÉRIMÈTRE STRICT : CSS + HTML du rendu uniquement (voir rss-feed.js
+   scienceUpdateHeader/scienceNewsItemHtml) — le fetch RSS/filtre 12h ne sont
+   pas touchés. Réutilise `.sports-ticker-vwrap/-vtrack/-vitem` (partagées
+   avec France/Tech/Bourse/Gaming/Santé/SportNews) — seul l'INTÉRIEUR de
+   `.sports-ticker-vitem` est restructuré ici, scopé `#module-science`
+   (n'affecte aucun autre module). Pas de bloc dédié dark-fixe : ce module
+   suit le thème clair/sombre normal de l'app (rien demandé de contraire). */
+/* Taille FIXE sur le conteneur, pas seulement sur le SVG (2026-09-23, sur
+   demande explicite — "le bandeau et le titre grandissent quand j'agrandis
+   la fenêtre") — BUG RÉEL : `.module-icon` de base n'a qu'un `font-size`
+   (aucune largeur/hauteur, une span inline ordinaire), donc un enfant SVG en
+   `width:100%;height:100%` n'avait aucune base fiable pour résoudre ce
+   pourcentage — le SVG (sans width/height propres, voir SCIENCE_ATOM_ICON_SVG
+   dans rss-feed.js) retombait sur un comportement de taille intrinsèque
+   dépendant de la largeur de ligne disponible, qui grandissait avec la
+   fenêtre et entraînait avec lui la hauteur de `.module-title`/`.module-
+   header` (auto, tous les deux). Corrigé en fixant le conteneur à 14px
+   (taille du `font-size` d'origine, avant remplacement de l'emoji 🔬 par ce
+   SVG) : le `width:100%` de l'enfant a désormais une base stable, quelle
+   que soit la largeur de la carte. */
+#module-science .module-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: rgba(0, 212, 184, 0.85);
+}
+#module-science .module-icon svg { width: 100%; height: 100%; display: block; }
+
+/* Badge NEWS — pastille + couleur, même mécanisme que .gaming-badge-star. */
+#module-science.module-card .module-badge.science-news-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(91, 79, 255, 0.9);
+  background: rgba(91, 79, 255, 0.12);
+  border: 1px solid rgba(91, 79, 255, 0.3);
+}
+.science-badge-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(91, 79, 255, 0.9);
+  flex-shrink: 0;
+}
+
+/* Items — remplace le bloc titre seul (line-clamp 3 générique) par une ligne
+   [catégorie + titre 2 lignes] à gauche / [date + chevron] à droite. `flex`
+   sur `display` prime sur le `display:-webkit-box` générique de
+   `.sports-ticker-vitem` (spécificité ID+classe > classe seule) — le
+   line-clamp générique n'a alors plus d'effet (il ne s'applique qu'en
+   display:-webkit-box), remplacé par un line-clamp DÉDIÉ sur
+   `.science-news-title` seule (pas sur toute la ligne, qui doit garder la
+   date/chevron alignés à droite quelle que soit la hauteur du titre). */
+#module-science .sports-ticker-vitem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 4px;
+  padding-bottom: 10px; /* écrase le +26px générique .module-card[data-theme="actualites"], pensé pour l'ancien bloc texte seul */
+  border-bottom: 1px solid var(--border-light);
+}
+#module-science .sports-ticker-vtrack .sports-ticker-vitem:last-child { border-bottom: none; }
+.science-news-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.science-news-category {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.science-news-title {
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#module-science .sports-ticker-vitem:hover .science-news-title { color: var(--accent); }
+.science-news-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  padding-top: 1px;
+}
+.science-news-date {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.science-news-chev { width: 6px; height: 11px; color: var(--text-muted); display: inline-flex; }
+.science-news-chev svg { width: 100%; height: 100%; }
+
+/* Couleurs par catégorie (2026-09-23, valeurs demandées explicitement) —
+   `#module-science` + classe (spécificité ID+classe) l'emporte sur la
+   couleur --text-muted générique de .sports-ticker-source posée plus haut
+   dans ce fichier. "Physique"/défaut partage science-cat-ia (teal),
+   demandé explicitement. */
+#module-science .science-cat-ia     { color: rgba(0, 212, 184, 0.6); }
+#module-science .science-cat-espace { color: rgba(91, 79, 255, 0.75); }
+#module-science .science-cat-astro  { color: rgba(180, 120, 255, 0.75); }
+#module-science .science-cat-sante  { color: rgba(255, 100, 150, 0.7); }
 
 /* ─── Modules : Loto / EuroMillions / EuroDreams (FDJ, scindés en 3 modules
    indépendants le 2026-08-04 — voir fdj-common.js) ───────────────────────
@@ -3465,10 +5053,16 @@ body.ultrawide .module-card { max-width: 500px; }
    d'où la perte de couleur/relief signalée. ────────────────────────────
    Réutilise .kasa-device/.kasa-device-name/.kasa-devices/.kasa-module tels
    quels (même besoin visuel que Kasa/Trådfri), mais empilé en COLONNE (pas
-   la ligne unique de Kasa/Trådfri) : nom au-dessus, contrôles (▲ slider %▼)
-   en dessous — le slider a besoin de plus de largeur qu'une simple rangée
-   de boutons n'en laisserait à côté du nom. */
+   la ligne unique de Kasa/Trådfri) : nom (+ %, voir .tahoma-device-head
+   ci-dessous) au-dessus, contrôles (▲ slider ▼) en dessous — le slider a
+   besoin de plus de largeur qu'une simple rangée de boutons n'en laisserait
+   à côté du nom. */
 .tahoma-device { flex-direction: column; align-items: stretch; }
+/* `.somfy-percent` déplacé ici, à côté du nom (2026-09-24, sur demande
+   explicite — il prenait de la place sur la rangée de contrôles et
+   repoussait ▼ trop loin du slider) : nom à gauche (`flex:1`, tronqué si
+   besoin), % à droite. */
+.tahoma-device-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 /* "Tout ouvrir"/"Tout fermer" — au-dessus de la liste, mêmes couleurs
    vert/rouge que les flèches individuelles pour que l'association d'action
    soit immédiate. */
@@ -3486,20 +5080,20 @@ body.ultrawide .module-card { max-width: 500px; }
   color: #ffffff;
   background: linear-gradient(180deg, #22c55e, #16a34a);
   border: 1px solid #15803d;
-  box-shadow: 0 2px 0 #15803d, 0 2px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 .somfy-bulk-close {
   color: #ffffff;
   background: linear-gradient(180deg, #ef4444, #dc2626);
   border: 1px solid #b91c1c;
-  box-shadow: 0 2px 0 #b91c1c, 0 2px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 .somfy-bulk-btn:hover { filter: brightness(1.08); }
-.somfy-bulk-btn:active { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
+.somfy-bulk-btn:active { transform: none; box-shadow: none; }
 
-/* Relief — fond dégradé + ombre portée pour un effet de bouton physique
-   légèrement en saillie ; `:active` inverse l'ombre (translateY + ombre
-   réduite) pour simuler un enfoncement au clic. */
+/* Relief réduit (2026-09-24, sur demande explicite) : box-shadow/transform
+   de saillie retirés sur .somfy-bulk-*/.somfy-btn-* — dégradé + bordure
+   conservés pour la couleur, mais boutons visuellement plats. */
 .somfy-shutter-controls { display: flex; align-items: center; gap: 8px; }
 .somfy-btn-open,
 .somfy-btn-close {
@@ -3517,23 +5111,27 @@ body.ultrawide .module-card { max-width: 500px; }
   color: #ffffff;
   background: linear-gradient(180deg, #22c55e, #16a34a);
   border: 1px solid #15803d;
-  box-shadow: 0 2px 0 #15803d, 0 2px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 .somfy-btn-close {
   color: #ffffff;
   background: linear-gradient(180deg, #ef4444, #dc2626);
   border: 1px solid #b91c1c;
-  box-shadow: 0 2px 0 #b91c1c, 0 2px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 .somfy-btn-open:hover,
 .somfy-btn-close:hover { filter: brightness(1.08); }
 .somfy-btn-open:active,
-.somfy-btn-close:active { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
+.somfy-btn-close:active { transform: none; box-shadow: none; }
 .somfy-btn-open:disabled,
 .somfy-btn-close:disabled { opacity: 0.5; cursor: not-allowed; filter: none; transform: none; }
 .somfy-slider {
   flex: 1;
   min-width: 0;
+  /* Largeur héritée via `flex: 1` (pas de `width` littérale) — -10%
+     (2026-09-24, sur demande explicite) appliqué via `max-width: 90%`,
+     seule propriété ajoutée ici. */
+  max-width: 90%;
   margin: 0 8px;
   accent-color: #f97316;
 }
@@ -5168,12 +6766,14 @@ body.ultrawide .module-card { max-width: 500px; }
   border: 1px dashed var(--text-secondary);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 12px;
+  /* ×0.8 (2026-09-23, sur demande explicite, réduction de 20% du module) —
+     12px→10px, padding 3px 5px→2px 4px. */
+  font-size: 10px;
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
   line-height: 1;
-  padding: 3px 5px;
+  padding: 2px 4px;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
@@ -5191,10 +6791,13 @@ body.ultrawide .module-card { max-width: 500px; }
    le VRAI défilement/clipping vertical de la carte). */
 .youtube-module-avatars {
   display: grid;
-  grid-template-columns: repeat(2, 76px);
+  /* ×0.8 (2026-09-23, sur demande explicite, réduction de 20% du module) —
+     76px→61px (avatar, voir .youtube-avatar/-img plus bas), gap
+     14px 16px→11px 13px, padding 4px 2px→3px 2px. */
+  grid-template-columns: repeat(2, 61px);
   justify-content: center;
-  gap: 14px 16px;
-  padding: 4px 2px;
+  gap: 11px 13px;
+  padding: 3px 2px;
   overflow: hidden;
 }
 /* `.module-content` retombe sur son `overflow-x: hidden`/`overflow-y: auto`
@@ -5215,15 +6818,17 @@ body.ultrawide .module-card { max-width: 500px; }
    cas d'un en-tête qui déborderait légèrement à 200px de large (icône +
    "YOUTUBE" + bouton 🔄). */
 #module-youtube { overflow-x: hidden; }
+/* ×0.8 (2026-09-23, sur demande explicite, réduction de 20% du module) —
+   76px→61px. border-radius:50% inchangé (proportion, pas une valeur px). */
 .youtube-avatar {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 61px;
+  height: 61px;
 }
 .youtube-avatar-clickable { cursor: pointer; }
 .youtube-avatar-img {
-  width: 76px;
-  height: 76px;
+  width: 61px;
+  height: 61px;
   border-radius: 50%;
   object-fit: cover;
   display: block;
@@ -5234,7 +6839,8 @@ body.ultrawide .module-card { max-width: 500px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  /* ×0.8 : 28px→22px. */
+  font-size: 22px;
 }
 .youtube-avatar-clickable:hover .youtube-avatar-img { box-shadow: 0 0 0 3px var(--accent); }
 /* Anneau rouge discret en plus du badge quand il y a du nouveau — reste
@@ -5251,17 +6857,21 @@ body.ultrawide .module-card { max-width: 500px; }
    réduit le badge à un simple point (sans chiffre, contenu HTML vide côté
    JS) quand il n'y a qu'UNE seule nouvelle vidéo — la distinction chiffrée
    ne devient utile qu'à partir de 2. */
+/* ×0.8 (2026-09-23, sur demande explicite) — top/right -4px→-3px, 22px→18px,
+   padding 0 5px→0 4px, border-radius 11px→9px, font-size 11px→9px. Bordure
+   (2px) laissée telle quelle — seul border-radius est demandé, pas
+   border-width. */
 .youtube-avatar-badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 5px;
-  border-radius: 11px;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
   background: #ef4444;
   color: #fff;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -5270,10 +6880,11 @@ body.ultrawide .module-card { max-width: 500px; }
   border: 2px solid var(--bg-panel);
   box-sizing: border-box;
 }
+/* ×0.8 : 13px→10px. */
 .youtube-avatar-badge-dot {
-  min-width: 13px;
-  width: 13px;
-  height: 13px;
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
   padding: 0;
   top: 0;
   right: 0;
@@ -5295,21 +6906,24 @@ body.ultrawide .module-card { max-width: 500px; }
    `pointer-events: none` pour ne jamais intercepter le clic destiné à
    l'avatar (ouverture de la vidéo) si la souris passe sur la bulle
    elle-même. */
+/* ×0.8 (2026-09-23, sur demande explicite) — bottom 4px→3px (reste ancrée à
+   l'avatar réduit), font-size 11px→9px, padding 3px 6px→2px 5px.
+   border-radius var(--radius-sm) laissé tel quel — pas une valeur px. */
 .youtube-avatar[data-name]::after {
   content: attr(data-name);
   position: absolute;
   left: 50%;
-  bottom: 4px;
+  bottom: 3px;
   transform: translateX(-50%);
   max-width: calc(100% - 8px);
   background: rgba(0, 0, 0, 0.8);
   color: #fff;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 3px 6px;
+  padding: 2px 5px;
   border-radius: var(--radius-sm);
   opacity: 0;
   visibility: hidden;
@@ -5639,6 +7253,136 @@ body.ultrawide .module-card { max-width: 500px; }
 
 .prets-privacy-on .etf-money { filter: blur(6px); user-select: none; }
 
+/* ─── Module : Assistant vocal — orbe circulaire (2026-09-25, reconstruit) ───
+   `.module-card` de base est en position:absolute (left/top posés en JS pour
+   le glisser-déposer) : `position` volontairement NON écrasé. En-tête et
+   poignée masqués, taille fixe 200×200. Classes d'état orb-* posées par
+   assistant.js sur la carte elle-même. Idle bleu, écoute orange, réflexion
+   violet, réponse vert. */
+#module-assistant.module-card {
+  border-radius: 50% !important;
+  overflow: hidden;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  width: 200px !important;
+  height: 200px !important;
+  min-width: unset !important;
+  min-height: unset !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color 0.2s ease;
+}
+#module-assistant.module-card:hover { outline-color: rgba(148, 163, 184, 0.35); }
+#module-assistant.module-card.dragging { outline-color: var(--accent); outline-style: dashed; }
+#module-assistant .module-header,
+#module-assistant .resize-handle { display: none; }
+#module-assistant .module-content { position: absolute; inset: 0; padding: 0; overflow: visible; }
+#module-assistant .orb-bg {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #1e5fc8 0%, #0f3a96 35%, #071e5a 65%, #040e2e 100%);
+  box-shadow: 0 0 0 2px rgba(56,184,248,0.25), 0 0 40px rgba(29,110,212,0.55), 0 0 80px rgba(29,110,212,0.20), inset 0 1px 0 rgba(255,255,255,0.10);
+  transition: box-shadow 0.4s ease, background 0.4s ease;
+}
+#module-assistant .orb-ring {
+  position: absolute; inset: -6px; border-radius: 50%; z-index: 20;
+  border: 2px solid transparent;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  pointer-events: none;
+}
+#module-assistant .orb-waves { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; }
+#module-assistant .orb-waves svg { position: absolute; width: 100%; height: 100%; opacity: 0.55; }
+#module-assistant .orb-mic-icon {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.3s;
+}
+#module-assistant .orb-mic-icon svg { filter: drop-shadow(0 0 10px rgba(255,255,255,0.6)) drop-shadow(0 0 24px rgba(56,184,248,0.8)); }
+#module-assistant .orb-think-dots {
+  position: absolute; inset: 0; z-index: 15;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  opacity: 0; pointer-events: none; transition: opacity 0.3s;
+}
+#module-assistant .orb-think-dots span {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(200,160,255,0.9);
+  animation: orb-dot-bounce 1.2s ease-in-out infinite;
+}
+#module-assistant .orb-think-dots span:nth-child(2) { animation-delay: 0.18s; }
+#module-assistant .orb-think-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+#module-assistant.orb-idle .wave-idle { animation: orb-wave-flow 5s ease-in-out infinite; }
+#module-assistant.orb-idle .w2 { animation: orb-wave-flow 7s ease-in-out infinite reverse; }
+
+#module-assistant.orb-listening .orb-bg {
+  background: radial-gradient(circle at 50% 45%, #f97316 0%, #c2410c 35%, #7c2d12 65%, #2e0f02 100%);
+  box-shadow: 0 0 0 3px rgba(251,146,60,0.80), 0 0 28px rgba(251,146,60,0.70), 0 0 60px rgba(251,146,60,0.35), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+#module-assistant.orb-listening .orb-ring {
+  border-color: rgba(251,146,60,0.70);
+  box-shadow: 0 0 0 8px rgba(251,146,60,0.12);
+  animation: orb-ring-orange 1.4s ease-in-out infinite;
+}
+#module-assistant.orb-listening .wave-listen { animation: orb-wave-listen 1.8s ease-in-out infinite; }
+#module-assistant.orb-listening .wl2 { animation: orb-wave-listen 2.1s ease-in-out infinite 0.3s; }
+#module-assistant.orb-listening .wl3 { animation: orb-wave-listen 1.5s ease-in-out infinite 0.6s; }
+
+#module-assistant.orb-thinking .orb-bg {
+  background: radial-gradient(circle at 50% 45%, #5b3bd4 0%, #3a22a8 35%, #1a0d6a 65%, #080420 100%);
+  box-shadow: 0 0 0 2px rgba(150,100,255,0.45), 0 0 50px rgba(124,77,255,0.60), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+#module-assistant.orb-thinking .orb-ring {
+  border-color: rgba(150,100,255,0.4);
+  border-top-color: rgba(200,160,255,0.9);
+  animation: orb-ring-spin 2s linear infinite;
+}
+#module-assistant.orb-thinking .orb-mic-icon { opacity: 0; }
+#module-assistant.orb-thinking .orb-think-dots { opacity: 1; }
+
+#module-assistant.orb-speaking .orb-bg {
+  background: radial-gradient(circle at 50% 45%, #22c55e 0%, #15803d 35%, #14532d 65%, #052e13 100%);
+  box-shadow: 0 0 0 3px rgba(74,222,128,0.90), 0 0 30px rgba(34,197,94,0.85), 0 0 70px rgba(34,197,94,0.50), 0 0 130px rgba(34,197,94,0.20), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+#module-assistant.orb-speaking .orb-ring {
+  border-color: rgba(74,222,128,0.80);
+  box-shadow: 0 0 0 10px rgba(34,197,94,0.12);
+  animation: orb-ring-green 0.9s ease-in-out infinite;
+}
+#module-assistant.orb-speaking .wave-speak { animation: orb-wave-speak 0.9s ease-in-out infinite; }
+#module-assistant.orb-speaking .ws2 { animation: orb-wave-speak 1.1s ease-in-out infinite 0.2s; }
+#module-assistant.orb-speaking .ws3 { animation: orb-wave-speak 0.7s ease-in-out infinite 0.4s; }
+
+@keyframes orb-wave-flow   { 0%,100%{transform:translateX(0) scaleY(1)} 50%{transform:translateX(-12px) scaleY(1.15)} }
+@keyframes orb-wave-listen { 0%,100%{transform:scaleY(1);opacity:.55} 50%{transform:scaleY(1.55);opacity:.80} }
+@keyframes orb-wave-speak  { 0%,100%{transform:scaleY(1) translateX(0);opacity:.6} 25%{transform:scaleY(1.7) translateX(-4px);opacity:.9} 75%{transform:scaleY(.7) translateX(4px);opacity:.5} }
+@keyframes orb-ring-orange { 0%,100%{box-shadow:0 0 0 0px rgba(251,146,60,.35)} 50%{box-shadow:0 0 0 14px rgba(251,146,60,0)} }
+@keyframes orb-ring-green  { 0%,100%{box-shadow:0 0 0 0px rgba(74,222,128,.45)} 50%{box-shadow:0 0 0 16px rgba(74,222,128,0)} }
+@keyframes orb-ring-spin   { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+@keyframes orb-dot-bounce  { 0%,80%,100%{transform:translateY(0);opacity:.6} 40%{transform:translateY(-10px);opacity:1} }
+
+/* Assistant vocal — réglages : alignement bouton Tester + lien, et bouton
+   raccourci habillé comme un champ `.hue-config-row input`. */
+.assistant-gemini-actions { display: flex; align-items: center; gap: 10px; }
+.assistant-gemini-link { font-size: 11px; color: var(--accent); text-decoration: none; }
+.assistant-gemini-link:hover { text-decoration: underline; }
+.assistant-shortcut-input {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1.5px solid var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.assistant-shortcut-input:hover { border-color: var(--accent); }
+.assistant-shortcut-input.recording { border-color: var(--accent); background: var(--bg-hover); color: var(--accent); }
+
 /* ─── Scrollbar ──────────────────────────────────────────────── */
 /* Piste resserrée (2026-08-16, sur demande explicite) — largeur totale
    ramenée de 6px à 4px (plus fine, se lit comme une piste plus précise dans
@@ -5652,3 +7396,25 @@ body.ultrawide .module-card { max-width: 500px; }
 ::-webkit-scrollbar-track { background: transparent; margin: 0; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; margin: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Sélection de texte désactivée sur le dashboard (2026-09-24, sur demande
+   explicite). Scopé `.dashboard-window` (classe posée sur <html> de
+   index.html) : style.css est AUSSI chargé par config.html (Paramètres), où
+   la sélection/copie de texte doit rester possible. Champs de saisie exclus
+   (recherche titlebar, montants Change...) : `user-select:none` y gênerait
+   la sélection du texte saisi. */
+.dashboard-window body,
+.dashboard-window .module-card,
+.dashboard-window .module-card * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dashboard-window input,
+.dashboard-window textarea,
+.dashboard-window select,
+.dashboard-window .module-card input,
+.dashboard-window .module-card textarea,
+.dashboard-window .module-card select {
+  user-select: text;
+  -webkit-user-select: text;
+}

@@ -4,6 +4,7 @@ const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
 const { TradfriClient: TradfriGwClient, AccessoryTypes: TradfriAccessoryTypes } = require('node-tradfri-client'); // IKEA Trådfri (CoAP/DTLS local, voir ipcMain.handle('tradfri:...'))
 const https = require('https'); // Somfy TaHoma Switch — API locale HTTPS/certificat auto-signé (voir ipcMain.handle('tahoma:...'))
+const { execFile } = require('child_process'); // Lien YouTube topbar — vérifie l'enregistrement du protocole youtube:// (voir ipcMain.handle('youtube:openApp'))
 const Store = require('electron-store');
 const { runGoogleAuthFlow, refreshAccessToken } = require('./auth/google-oauth');
 const { runSpotifyAuthFlow, refreshAccessToken: refreshSpotifyAccessToken } = require('./auth/spotify-oauth');
@@ -324,6 +325,10 @@ const DEFAULT_MODULES = {
     position: 24,
     config: { teamName: '', sport: 'football', upcoming: [], results: [] },
   },
+  // Assistant vocal (2026-09-25) — désactivé par défaut (opt-in, micro).
+  // Clé Gemini/raccourci/langue = réglages GLOBAUX du store (`gemini_api_key`/
+  // `assistant_shortcut`/`assistant_lang`), rien à stocker ici.
+  assistant: { enabled: false, position: 28, config: {} },
 };
 
 const store = new Store({
@@ -1376,6 +1381,12 @@ function createMainWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
+  // Micro (assistant vocal) — sans handler, Electron refuse silencieusement
+  // getUserMedia. N'autorise QUE 'media'.
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media');
+  });
+
   // Mode d'affichage restauré tout de suite, AVANT le premier `show()`
   // (2026-08-23) — masque déjà le dashboard (mode "floating") avant que
   // showOnce ci-dessous ne rende quoi que ce soit visible, pour éviter un
@@ -2355,6 +2366,61 @@ ipcMain.on('window:ensure-width', (_e, minW) => {
   if (w < minW) mainWindow.setSize(minW, h);
 });
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
+
+// Clic sur le titre de la carte YouTube (2026-09-22, sur demande explicite,
+// "lien YouTube") — tente d'ouvrir l'appli YouTube native (Store/PWA) via son
+// protocole `youtube://`, replie sur le navigateur si aucune appli n'est
+// installée, JAMAIS de popup d'erreur dans les 2 cas. `exec('start
+// youtube://', ...)` (proposé dans la demande) écarté délibérément : sur
+// Windows, `start` retourne généralement un code de sortie 0 même sans
+// gestionnaire enregistré pour le protocole — c'est Windows lui-même qui
+// affiche alors SA PROPRE popup ("Comment voulez-vous ouvrir ceci ?"/
+// recherche dans le Store), exactement le dialogue que la demande veut
+// éviter ; le callback `error` d'`exec` ne se déclenche pas dans ce cas, donc
+// le repli navigateur ne se produirait jamais. Vérifie plutôt l'existence
+// d'un gestionnaire dans le registre AVANT toute tentative de lancement
+// (silencieux, ne montre jamais rien à l'utilisateur) : seul un protocole
+// RÉELLEMENT enregistré est tenté, sinon on va directement au navigateur.
+function isProtocolRegistered(scheme) {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', `HKCR\\${scheme}`], (error) => resolve(!error));
+  });
+}
+ipcMain.handle('youtube:openApp', async () => {
+  const hasApp = await isProtocolRegistered('youtube').catch(() => false);
+  if (hasApp) {
+    try {
+      await shell.openExternal('youtube://');
+      return true;
+    } catch (err) {
+      console.warn('[YouTube] Ouverture via youtube:// échouée malgré une entrée registre, repli navigateur', err);
+    }
+  }
+  await shell.openExternal('https://www.youtube.com/feed/subscriptions');
+  return true;
+});
+
+// Assistant vocal — raccourci clavier global (2026-09-25). Retient SON
+// raccourci (pas de unregisterAll : ça libérerait aussi Ctrl+Shift+R dev).
+let assistantShortcutAccelerator = null;
+
+function registerAssistantShortcut(accelerator) {
+  if (assistantShortcutAccelerator) {
+    globalShortcut.unregister(assistantShortcutAccelerator);
+    assistantShortcutAccelerator = null;
+  }
+  if (!accelerator) return true;
+  const registered = globalShortcut.register(accelerator, () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('trigger-assistant');
+  });
+  if (registered) assistantShortcutAccelerator = accelerator;
+  else console.warn(`[Assistant] Échec de l'enregistrement du raccourci "${accelerator}" (déjà pris ?)`);
+  return registered;
+}
+
+ipcMain.on('update-assistant-shortcut', (_e, shortcut) => {
+  registerAssistantShortcut(shortcut || null);
+});
 
 // Flux RSS nécessitant un fetch sans restriction CORS (le process main n'est
 // pas un contexte navigateur — contrairement au renderer, aucun proxy tiers
@@ -5355,6 +5421,9 @@ app.whenReady().then(() => {
     const registered = globalShortcut.register('CommandOrControl+Shift+R', cycleDevWindowSizeTest);
     if (!registered) console.warn('[DevTools] Échec de l\'enregistrement du raccourci Ctrl+Shift+R (test responsive)');
   }
+
+  // Assistant vocal — restaure le raccourci sauvegardé (vide → rien).
+  registerAssistantShortcut(store.get('assistant_shortcut') || null);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

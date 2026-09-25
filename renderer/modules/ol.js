@@ -327,9 +327,11 @@ async function fetchStandingsRaw(slug) {
 // La réponse ESPN standings a 2 formes possibles selon la compétition : table
 // unique (`data.standings.entries`, championnats nationaux) ou plusieurs
 // groupes (`data.children[].standings.entries`, ex. phase de groupes) — les 2
-// sont collectées ici, `groupName` restant `null` pour une table unique
-// (voir fetchTeamStandingLine, qui décide du format d'affichage selon sa
-// présence).
+// sont collectées ici, `groupName` restant `null` pour une table unique.
+// `groupName` n'influence plus le format d'affichage depuis le 2026-09-22
+// (voir fetchTeamStandingLine, "Classement : Nème" pour les 2 cas), mais
+// reste nécessaire pour retrouver l'équipe DANS le bon groupe (voir
+// findTeamStandingsEntry plus bas).
 function collectStandingsGroups(data) {
   const groups = [];
   if (data?.standings?.entries?.length) {
@@ -350,13 +352,33 @@ function collectStandingsGroups(data) {
 // présents dans la réponse standings, sans appel réseau supplémentaire pour
 // résoudre un id ESPN (les 9 championnats/coupes demandés n'ont pas tous un
 // endpoint "liste des équipes" déjà utilisé dans ce fichier).
+// BUG RÉEL diagnostiqué le 2026-09-24 (classement PSG toujours faux,
+// affichait "3ème" au lieu de "6ème") : le `|| kw.includes(n)` ci-dessous
+// (retiré) comparait aussi dans le sens INVERSE — "le mot-clé contient le
+// nom/l'abréviation de CETTE ligne du tableau". Avec un mot-clé assez long
+// (ex. "parisiens", pour PSG — voir TEAM_ALIAS_GROUPS), ce sens inversé
+// matche N'IMPORTE QUELLE équipe dont l'abréviation est une sous-chaîne du
+// mot-clé, même sans rapport : "parisiens" contient la sous-chaîne "par",
+// qui EST l'abréviation ESPN de... "Paris FC" (un club DIFFÉRENT, promu en
+// Ligue 1, classé 3e au moment du diagnostic) — confirmé en direct via
+// l'API ESPN réelle (`fra.1/standings`, 2026-09-24) : Paris FC 3e, Paris
+// Saint-Germain 6e. `.find()` s'arrête à la PREMIÈRE entrée qui matche,
+// Paris FC étant mieux classé (donc listé avant PSG dans le tableau), le
+// classement de Paris FC était donc affiché à la place de celui de PSG à
+// chaque fois. Seul le sens `n.includes(kw)` (l'équipe CONTIENT le mot-clé)
+// est fiable ici : PSG matche déjà correctement par ce seul sens, via son
+// abréviation/nom court ESPN exact ("psg" == "psg"). Portée volontairement
+// limitée à CETTE fonction (classement) — `containsWholeWord`/le filtrage
+// des actualités par équipe, ailleurs dans ce fichier, utilise une
+// correspondance différente (mot entier, bornée par la ponctuation/les
+// espaces) et n'est pas concerné par ce bug précis.
 function findTeamStandingsEntry(groups, ctx) {
   for (const group of groups) {
     const entry = group.entries.find((e) => {
       const names = [e.team?.displayName, e.team?.shortDisplayName, e.team?.name, e.team?.abbreviation]
         .filter(Boolean)
         .map((n) => n.toLowerCase());
-      return ctx.keywords.some((kw) => names.some((n) => n.includes(kw) || kw.includes(n)));
+      return ctx.keywords.some((kw) => names.some((n) => n.includes(kw)));
     });
     if (entry) return { entry, groupName: group.name };
   }
@@ -380,13 +402,19 @@ function frOrdinal(rank) {
   return n === 1 ? '1er' : `${n}ème`;
 }
 
-// Ligne compacte "🏆 Ligue 1 — 3ème · 45 pts" (table unique) ou "⭐ Ligue des
-// Champions — Groupe B · 2ème" (groupes — pas de points affichés dans ce cas,
-// format EXACT demandé) — `null` si la compétition n'est pas dans la liste
-// demandée, si l'équipe n'apparaît dans aucun groupe du classement récupéré,
-// ou si le rang n'est pas exploitable : le seul contrat de cette fonction est
-// "une ligne à afficher, ou rien" (voir render(), qui laisse alors le
-// placeholder vide plutôt que d'afficher une erreur).
+// Ligne compacte "Classement : 2ème" (2026-09-22, sur demande explicite,
+// remplace l'ancien format "🏆 Ligue 1 — French Ligue 1 2026-27 · 2ème" —
+// trophée/nom de compétition/saison/points retirés, seule la position
+// reste) — SEUL le format d'affichage change ici, aucune touche aux appels
+// ESPN/TheSportsDB ni à la résolution du classement ci-dessus
+// (fetchStandingsRaw/collectStandingsGroups/findTeamStandingsEntry
+// inchangées). Générique par construction (pas de branche par sport : la
+// même position de classement existe pour football/rugby/basketball...).
+// `null` si la compétition n'est pas dans la liste demandée, si l'équipe
+// n'apparaît dans aucun groupe du classement récupéré, ou si le rang n'est
+// pas exploitable : le seul contrat de cette fonction est "une ligne à
+// afficher, ou rien" (voir render(), qui laisse alors le placeholder vide
+// plutôt que d'afficher un texte de remplacement).
 async function fetchTeamStandingLine(league, ctx) {
   const data = await fetchStandingsRaw(league.slug);
   const groups = collectStandingsGroups(data);
@@ -395,13 +423,7 @@ async function fetchTeamStandingLine(league, ctx) {
 
   const rank = findStandingsStat(found.entry.stats, 'rank');
   if (rank == null) return null;
-  const points = findStandingsStat(found.entry.stats, 'points');
-  const ordinal = frOrdinal(rank);
-
-  if (found.groupName) {
-    return `${league.icon} ${league.label} — ${found.groupName} · ${ordinal}`;
-  }
-  return `${league.icon} ${league.label} — ${ordinal}${points != null ? ` · ${points} pts` : ''}`;
+  return `Classement : ${frOrdinal(rank)}`;
 }
 
 // TheSportsDB renvoie dateEvent + strTime en UTC (vérifié : un match à 16:00
@@ -481,7 +503,7 @@ async function fetchTeamId(team, expectedCategory) {
   if (idOverride) {
     console.log(`[Sports] idTeam forcé (override connu) pour "${team}" : ${idOverride.idTeam} (${idOverride.strLeague}) — recherche TheSportsDB par nom ignorée`);
     const overrideUrl = resolveWebsiteOverride(team);
-    return { idTeam: idOverride.idTeam, strSport: idOverride.strSport, website: overrideUrl || null };
+    return { idTeam: idOverride.idTeam, strSport: idOverride.strSport, website: overrideUrl || null, logoUrl: null };
   }
 
   const res = await fetch(`${SPORTSDB_BASE}/searchteams.php?t=${encodeURIComponent(team)}`);
@@ -518,8 +540,17 @@ async function fetchTeamId(team, expectedCategory) {
   // sources RSS (sports-sources.js) plutôt que d'en dupliquer un ici. `website`
   // (strWebsite, même réponse, aucun appel réseau de plus, sauf override
   // ci-dessus) sert au titre de carte cliquable (2026-08-10, sur demande
-  // explicite — voir render ci-dessous).
-  return { idTeam: found.idTeam, strSport: found.strSport, website: overrideUrl || normalizeWebsiteUrl(found.strWebsite) };
+  // explicite — voir render ci-dessous). `logoUrl` (strTeamBadge, 2026-09-22,
+  // sur demande explicite, refonte visuelle Header/Prochain match — voir
+  // olUpdateHeader) : même principe, un champ de plus lu sur cette MÊME
+  // réponse déjà obtenue, aucun appel réseau supplémentaire — `null` si
+  // absent (repli sur les initiales du club, voir olClubInitials).
+  return {
+    idTeam: found.idTeam,
+    strSport: found.strSport,
+    website: overrideUrl || normalizeWebsiteUrl(found.strWebsite),
+    logoUrl: found.strTeamBadge || null,
+  };
 }
 
 // football/basketball → couleur dédiée ; tout le reste (rugby, F1, cyclisme,
@@ -1053,6 +1084,133 @@ async function fetchNewsItems(team, config) {
   return balanced;
 }
 
+// ─── Refonte visuelle Header/Prochain match (2026-09-22, sur demande
+// explicite, maquette fournie) ──────────────────────────────────────────
+// Fonctions de PRÉSENTATION uniquement — aucune ne fait de fetch ni ne
+// touche au filtrage/à la résolution de données ci-dessus, même esprit que
+// formatMatchDateTime/frOrdinal déjà dans ce fichier. PÉRIMÈTRE STRICT :
+// n'affectent que le Header (via olUpdateHeader/olUpdateRoundBadge) et le
+// Prochain match (via renderNextMatchHtml ci-dessous) — la section
+// Actualités n'est touchée par AUCUNE de ces fonctions.
+
+// Initiales/sigle du club pour les badges circulaires (Header + carte match)
+// — 2 lettres : 1re lettre des 2 premiers mots significatifs ("Olympique
+// Lyonnais" → "OL"), ou les 2 premières lettres du seul mot s'il n'y en a
+// qu'un ("Lens" → "LE"). Mots d'1 lettre ignorés.
+function olClubInitials(name) {
+  const words = (name || '').trim().split(/\s+/).filter(w => w.length > 1);
+  if (!words.length) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// Libellé sport (Header, sous le nom du club) — `category` déjà résolue par
+// resolveSportCategory (voir render()) ; repli sur `rawSport` (strSport brut
+// TheSportsDB, ex. "Rugby") pour tout sport hors football/basketball/rugby,
+// seuls les 3 à avoir un libellé FR dédié dans ce fichier (`rugby` ajouté le
+// 2026-09-22, sur demande explicite — bug "Soccer" affiché pour une équipe
+// de Rugby, voir le vrai correctif plus bas, render() branche `config.idTeam`
+// numérique).
+const OL_SPORT_LABELS = { football: 'Football', basketball: 'Basketball', rugby: 'Rugby' };
+function olSportLabel(category, rawSport) {
+  return OL_SPORT_LABELS[category] || rawSport || 'Sport';
+}
+
+// "TeamA vs TeamB" → { home, away } — `strEvent` a TOUJOURS cette forme
+// (TheSportsDB natif ET espnEventToNextMatch, voir plus haut, le
+// construisent tous les 2 ainsi) ; repli sur la chaîne entière côté "home"
+// si le séparateur n'est pas trouvé, pour ne perdre aucune information.
+function olSplitMatchTeams(strEvent) {
+  const parts = (strEvent || '').split(/\s+vs\.?\s+/i);
+  if (parts.length === 2) return { home: parts[0].trim(), away: parts[1].trim() };
+  return { home: strEvent || '', away: '' };
+}
+
+// Icônes SVG minimales, `currentColor` (suivent la couleur CSS du parent) —
+// demandées explicitement à la place d'emojis pour ce gabarit.
+function olTrophyIconSvg() {
+  return '<svg class="ol-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v4a4 4 0 0 1-8 0V3Z"/><path d="M8 5H5a2 2 0 0 0 0 4h1.5M16 5h3a2 2 0 0 1 0 4h-1.5"/><path d="M9 15h6M12 11v4M8 20h8l-1-5H9l-1 5Z"/></svg>';
+}
+function olCalendarIconSvg() {
+  return '<svg class="ol-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+}
+function olClockIconSvg() {
+  return '<svg class="ol-icon" viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>';
+}
+
+// Couleur du libellé de source, Actualités du module Sports (2026-09-24, sur
+// demande explicite, "sur le modèle du module Bourse") — même mécanisme
+// qu'utilisé PAR Bourse (voir rss-feed.js BOURSE_SOURCE_COLORS/
+// bourseSourceColor) : couleur posée en `style` inline sur
+// `.sports-ticker-source`, PAS de classes CSS dédiées façon `.src-lequipe`
+// (l'exemple donné dans la demande) — Bourse a explicitement abandonné ce
+// mécanisme (voir son commentaire, "3 classes CSS .bourse-source-*
+// utilisées jusqu'ici" → remplacées par du style inline) au profit de
+// celui-ci ; suivre "le modèle du module Bourse" à la lettre, c'est
+// reprendre CE mécanisme, pas des classes. Clé = LIBELLÉ exact tel
+// qu'affiché (voir sports-sources.js CATALOG.football).
+// ÉCARTS signalés : "France Football"/"Canal+ Sport"/"Mafoot" ne
+// correspondent à AUCUNE des 3 sources football RÉELLES du catalogue
+// (L'Équipe/RMC Sport/Foot Mercato) — gardées telles quelles (entrées
+// inoffensives), même parti pris que pour Bourse/sportNews plus haut. Foot
+// Mercato (source RÉELLE, absente de la liste donnée) reçoit une couleur en
+// plus (vert), pour que les 3 vraies sources aient chacune la leur.
+const SPORTS_TICKER_SOURCE_COLORS = {
+  "L'Équipe": 'rgba(239, 68, 68, 0.85)',
+  'RMC Sport': 'rgba(249, 115, 22, 0.85)',
+  'Foot Mercato': 'rgba(34, 197, 94, 0.85)',
+  'France Football': 'rgba(250, 204, 21, 0.85)',
+  'Canal+ Sport': 'rgba(59, 130, 246, 0.85)',
+  'Mafoot': 'rgba(167, 139, 250, 0.85)',
+};
+function sportsTickerSourceColor(label) {
+  return SPORTS_TICKER_SOURCE_COLORS[label] || null;
+}
+
+// Restructure l'en-tête générique (.module-header/.module-icon, posés par
+// dashboard.js createModuleCard) EN PLACE — même technique déjà utilisée par
+// mon-equipe.js (monEquipeUpdateHeader) pour un autre module : les nœuds
+// `.module-icon`/`.module-title` restent les MÊMES éléments (le clic sur le
+// titre — ouverture du site officiel, dashboard.js resolveModuleClickUrl —
+// et le glisser-déposer sur `.module-header` sont posés sur ces éléments,
+// jamais sur leur contenu), seul ce qu'ils affichent change.
+function olUpdateHeader(card, team, sportLabel, logoUrl) {
+  if (!card) return;
+  const iconEl = card.querySelector('.module-icon');
+  if (iconEl) {
+    iconEl.innerHTML = logoUrl
+      ? `<img src="${logoUrl}" alt="${team}" class="ol-badge-logo">`
+      : olClubInitials(team);
+  }
+  const titleEl = card.querySelector('.module-title');
+  if (!titleEl) return;
+  const textWrap = document.createElement('span');
+  textWrap.className = 'ol-header-text';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'ol-club-name';
+  nameEl.textContent = team;
+  const ruleEl = document.createElement('span');
+  ruleEl.className = 'ol-header-rule';
+  const sportEl = document.createElement('span');
+  sportEl.className = 'ol-sport-label';
+  sportEl.textContent = sportLabel.toUpperCase();
+  textWrap.append(nameEl, ruleEl, sportEl);
+
+  titleEl.innerHTML = '';
+  if (iconEl) titleEl.appendChild(iconEl);
+  titleEl.appendChild(textWrap);
+}
+
+// Badge "journée" (.module-badge, générique) — `round` = `nextMatch.intRound`
+// (voir appelant, render()) ou `null` s'il est indisponible (repli ESPN,
+// aucun match). `innerHTML` direct (pas `setBadge`, qui ne pose que du texte
+// brut) : la maquette demande une icône SVG à côté du chiffre.
+function olUpdateRoundBadge(card, round) {
+  const badgeEl = card?.querySelector('.module-badge');
+  if (!badgeEl) return;
+  badgeEl.innerHTML = round ? `${olCalendarIconSvg()}<span class="ol-round-num">${round}</span>` : '';
+}
+
 // Nom RÉEL de la compétition (2026-09-07, sur demande explicite, BUG
 // "prochain match" ASVEL) — affiche `match.strLeague` TEL QUEL (ex. "LNB
 // Super Coupe", "Euroleague Basketball"), directement depuis l'événement
@@ -1063,13 +1221,33 @@ async function fetchNewsItems(team, config) {
 // l'utilisateur a besoin de savoir laquelle est concernée par CE match.
 // `classifyCompetition` gardée en tout dernier repli, seulement si
 // `strLeague` est vide (cas limite, source sans nom de championnat exploitable).
+// Carte "bandelette compacte, une seule ligne" (2026-09-22, sur demande
+// explicite, maquette fournie) — REMPLACE l'ancien gabarit 2 lignes
+// (compétition/date/heure puis adversaire en texte) par domicile/centre/
+// extérieur sur une seule rangée, voir olSplitMatchTeams ci-dessus pour
+// l'extraction des 2 équipes depuis `strEvent`.
+// Encadré 2 lignes (2026-09-24, sur demande explicite — REMPLACE la
+// bandelette 3 colonnes du 2026-09-22, "Équipe A | date | Équipe B", qui
+// forçait la troncature des noms complets faute de place) : ligne 1 en haut
+// à gauche = compétition + date + heure ; ligne 2, centrée pleine largeur =
+// "Équipe A vs Équipe B", NOMS COMPLETS (aucun `white-space:nowrap`/
+// `text-overflow:ellipsis` sur `.ol-match-teams`, voir style.css — passe à
+// la ligne plutôt que de tronquer si les 2 noms complets ne tiennent pas sur
+// une seule ligne à cette largeur de carte).
 function renderNextMatchHtml(match) {
-  if (!match) return '<span class="sports-no-data">Aucun match prévu</span>';
+  if (!match) return '<div class="ol-next-empty">Aucun match prévu</div>';
   const { date, time } = formatMatchDateTime(match.dateEvent, match.strTime);
-  const competition = match.strLeague || classifyCompetition(match.strLeague);
+  const competition = (match.strLeague || classifyCompetition(match.strLeague) || '').toUpperCase();
+  const { home, away } = olSplitMatchTeams(match.strEvent);
   return `
-    <div class="sports-next-detail">${competition ? competition + ' — ' : ''}${date} · ${time}</div>
-    <div class="sports-next-opp">${match.strEvent || ''}</div>
+    <div class="ol-match-card">
+      <div class="ol-match-info">
+        ${competition ? `<span class="ol-match-competition">${competition}</span>` : ''}
+        <span class="ol-match-date">${date}</span>
+        ${time ? `<span class="ol-match-time">${olClockIconSvg()}${time}</span>` : ''}
+      </div>
+      <div class="ol-match-teams">${(home || '').toUpperCase()} <span class="ol-match-vs">vs</span> ${(away || '').toUpperCase()}</div>
+    </div>
     <div class="sports-standings-line" id="sports-standings-slot"></div>
   `;
 }
@@ -1230,7 +1408,13 @@ async function fetchTeamMeta(idTeam, team) {
   if (overrideUrl) {
     console.log(`[Sports] Site officiel forcé (override connu) pour "${team}" : ${overrideUrl} (TheSportsDB renvoyait : ${found.strWebsite || '—'})`);
   }
-  return { strSport: found.strSport, website: overrideUrl || normalizeWebsiteUrl(found.strWebsite) };
+  // `logoUrl` (2026-09-22, sur demande explicite, refonte visuelle Header/
+  // Prochain match) — même principe que fetchTeamId ci-dessus.
+  return {
+    strSport: found.strSport,
+    website: overrideUrl || normalizeWebsiteUrl(found.strWebsite),
+    logoUrl: found.strTeamBadge || null,
+  };
 }
 
 window.MatinModules.ol = {
@@ -1242,13 +1426,28 @@ window.MatinModules.ol = {
     // résultats/calendrier (pas seulement les actualités) en tiennent
     // compte — voir `expectedCategoryHint`/`sportCategory` plus bas.
     const manualSport = config?.sport || undefined;
-    setBadge(''); // le titre de la carte affiche déjà l'équipe
+    // Badge d'en-tête = journée, posé plus tard via olUpdateRoundBadge (voir
+    // plus bas) une fois le prochain match connu — vide le temps du 1er
+    // chargement.
+    setBadge('');
 
+    // Refonte visuelle Header/Prochain match (2026-09-22, sur demande
+    // explicite, maquette fournie, PÉRIMÈTRE STRICT) — Bloc HEADER posé via
+    // olUpdateHeader sur .module-header/.module-icon existants (voir plus
+    // haut dans render()) : ce gabarit ne couvre donc que le Bloc PROCHAIN
+    // MATCH ci-dessous. `.sports-ticker-vwrap`/`#sports-ticker-slot`
+    // (Actualités) repris à l'IDENTIQUE, caractère pour caractère — section
+    // explicitement hors périmètre de cette demande, aucune touche.
     container.innerHTML = `
-      <div class="sports-module">
-        <div class="sports-next" id="sports-next-slot">
-          <span class="sports-next-label">Prochain match</span>
-          <div class="loading-spinner" style="width:14px;height:14px;margin-top:4px"></div>
+      <div class="ol-module">
+        <div class="ol-next-section">
+          <div class="ol-next-head">
+            <span class="ol-next-head-title">${olTrophyIconSvg()}Prochain match</span>
+            <span class="ol-soon-badge">À venir</span>
+          </div>
+          <div class="ol-next-body" id="sports-next-slot">
+            <div class="loading-spinner" style="width:14px;height:14px;margin:14px auto"></div>
+          </div>
         </div>
         <div class="sports-ticker-vwrap" id="sports-ticker-slot">
           <div class="sports-ticker-vtrack">
@@ -1269,7 +1468,7 @@ window.MatinModules.ol = {
       const expectedCategoryHint = manualSport
         ? (manualSport === 'autre' ? null : manualSport)
         : window.SportsSources.detectCategoryFromTeamName(team);
-      let idTeam, strSport, website;
+      let idTeam, strSport, website, logoUrl = null;
       if (config?.idTeam) {
         // idTeam déjà connu (menu déroulant ligue/équipe, voir KNOWN_LEAGUES
         // plus haut) — searchteams.php (recherche approximative par nom, voir
@@ -1295,15 +1494,25 @@ window.MatinModules.ol = {
           // aucun site officiel disponible pour ces équipes tant qu'aucun
           // CLUB_WEBSITE_OVERRIDES dédié n'existe pour elles.
           console.log(`[Sports] idTeam TheSportsDB hardcodé utilisé : ${idTeam} (${team})`);
-          strSport = config.sport === 'basketball' ? 'Basketball' : 'Soccer';
+          // BUG CORRIGÉ (2026-09-22, sur demande explicite) — une équipe de
+          // Rugby (ex. Top 14, voir config.js TOP14_TEAMS) affichait "Soccer"
+          // au lieu de "Rugby" : ce ternaire ne distinguait QUE basketball
+          // vs "tout le reste", `config.sport` (fiable ici — posé par
+          // applyTeamSelection/KNOWN_LEAGUES en même temps que `idTeam`,
+          // AUCUN besoin d'appeler l'API pour le connaître) n'était jamais
+          // consulté pour rugby. Valeurs alignées sur MANUAL_SPORT_OPTIONS
+          // (sports-sources.js) — seules options possibles dans cette
+          // branche "idTeam déjà connu".
+          const OL_MANUAL_SPORT_RAW = { football: 'Soccer', basketball: 'Basketball', rugby: 'Rugby' };
+          strSport = OL_MANUAL_SPORT_RAW[config.sport] || 'Soccer';
           website = null;
         } else {
-          ({ strSport, website } = await fetchTeamMeta(idTeam, team));
+          ({ strSport, website, logoUrl } = await fetchTeamMeta(idTeam, team));
         }
       } else {
         // Config historique, ou "Autre équipe" (texte libre) — comportement
         // d'origine inchangé : recherche approximative par nom.
-        ({ idTeam, strSport, website } = await fetchTeamId(team, expectedCategoryHint));
+        ({ idTeam, strSport, website, logoUrl } = await fetchTeamId(team, expectedCategoryHint));
       }
       // Catégorie FINALE (2026-09-01, sur demande explicite — bug
       // "Basketball vs Football cross-contamination") : même résolution que
@@ -1315,6 +1524,15 @@ window.MatinModules.ol = {
       const sportCategory = window.SportsSources.resolveSportCategory(team, strSport, manualSport).category;
       const card = container.closest('.module-card');
       card?.setAttribute('data-theme', olThemeForCategory(sportCategory));
+      // Refonte visuelle Header/Prochain match (2026-09-22, sur demande
+      // explicite, maquette fournie, PÉRIMÈTRE STRICT — ne touche pas à la
+      // section Actualités) — restructure `.module-icon`/`.module-title`
+      // (posés par dashboard.js createModuleCard) EN PLACE, même technique
+      // déjà utilisée par mon-equipe.js (monEquipeUpdateHeader) : le nœud
+      // `.module-title` reste le même (clic → site officiel, drag-handle du
+      // glisser-déposer, tous les deux posés sur l'ÉLÉMENT par dashboard.js,
+      // jamais sur son contenu), seul ce qu'il affiche change.
+      olUpdateHeader(card, team, olSportLabel(sportCategory, strSport), logoUrl);
       // Titre de carte cliquable → site officiel du club (2026-08-10, sur
       // demande explicite) : posé sur la carte immédiatement pour un clic dès
       // maintenant (voir dashboard.js, resolveModuleClickUrl — lu au moment du
@@ -1371,7 +1589,17 @@ window.MatinModules.ol = {
       }
       console.log('[Sports] Prochain match retenu :', nextMatch, nextMatchSource ? `(source: ${nextMatchSource})` : '(aucune source)');
 
-      nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span>${renderNextMatchHtml(nextMatch)}`;
+      nextSlot.innerHTML = renderNextMatchHtml(nextMatch);
+      // Badge d'en-tête = journée (2026-09-22, sur demande explicite,
+      // maquette fournie, "brancher sur... journée") — `intRound` fait
+      // partie de la réponse BRUTE TheSportsDB déjà renvoyée par
+      // fetchNextMatch (spread `{...e}`, voir plus haut), jamais posée par
+      // la reconstruction ESPN (espnEventToNextMatch) : absente pour un
+      // match retrouvé par ce repli, le badge reste alors simplement vide
+      // (voir olUpdateRoundBadge) plutôt qu'un chiffre inventé. `innerHTML`
+      // direct sur `.module-badge` (pas `setBadge`, texte seul) : la
+      // maquette demande une icône SVG à côté du chiffre.
+      olUpdateRoundBadge(card, nextMatch?.intRound || null);
 
       // Classement — jamais attendu avant d'afficher le prochain match
       // ci-dessus (réseau ESPN + éventuel cache expiré, pas de raison de
@@ -1390,7 +1618,7 @@ window.MatinModules.ol = {
           .catch((err) => console.warn(`[Sports] Classement ${league.slug} indisponible`, err));
       }
     } catch (err) {
-      nextSlot.innerHTML = `<span class="sports-next-label">Prochain match</span><span class="sports-no-data">Indisponible</span>`;
+      nextSlot.innerHTML = `<span class="sports-no-data">Indisponible</span>`;
       console.error('[Sports] TheSportsDB', err);
     }
 
@@ -1410,8 +1638,9 @@ window.MatinModules.ol = {
       // libellé), ce qui n'est pas le format demandé.
       const itemsHtml = items.map((item) => {
         const timeLabel = formatArticleTime(item.pubDate);
+        const colorStyle = sportsTickerSourceColor(item.sourceLabel);
         const sourceHtml = item.sourceLabel
-          ? `<span class="sports-ticker-source">${item.sourceLabel}${timeLabel ? ` · <span class="sports-ticker-time">${timeLabel}</span>` : ''}</span>`
+          ? `<span class="sports-ticker-source"${colorStyle ? ` style="color:${colorStyle}"` : ''}>${item.sourceLabel}${timeLabel ? ` · <span class="sports-ticker-time">${timeLabel}</span>` : ''}</span>`
           : '';
         return `<div class="sports-ticker-vitem" data-link="${item.link}">${sourceHtml}${item.title}</div>`;
       }).join('');

@@ -112,6 +112,10 @@ const MODULE_META = {
   // réutilisé tel quel pour le nom du groupe (même mécanisme que le nom
   // d'équipe Sport), `pretsLoansField` déclenche la section imbriquée listant
   // les prêts DE CE groupe (jusqu'à 5, voir renderPretsLoansSection).
+  // Assistant vocal (2026-09-25, reconstruit) : `assistantField` déclenche
+  // renderAssistantConfigSection (clé Gemini/raccourci/langue = clés store
+  // GLOBALES, seule leur visibilité suit ce toggle).
+  assistant: { label: 'Assistant vocal', icon: '🎙️', requiresGoogle: false, assistantField: true },
   prets: { label: 'Mon Prêt',   icon: '🏠', requiresGoogle: false,
            configField: { key: 'name', label: 'Nom du groupe', placeholder: 'Résidence principale' },
            pretsLoansField: true },
@@ -155,6 +159,11 @@ let startOnBootEnabled = false;
 // 1er renderTabPanels pour que le <select> reflète la valeur réelle dès
 // l'ouverture (voir createSearchEngineRow plus bas).
 let searchEngineValue = window.SearchEngines.DEFAULT;
+
+// Assistant vocal (2026-09-25) — 3 réglages globaux, chargés dans initConfig.
+let assistantGeminiKey = '';
+let assistantShortcutValue = '';
+let assistantLangValue = 'fr-FR';
 
 // ─── Onglets (2026-08-06, sur demande explicite) ───────────────────────────
 // Réorganisation complète de Paramètres : Profil reste hors onglets (voir
@@ -203,7 +212,7 @@ const TAB_MODULE_ORDER = {
   // — retirés d'Utile, qui garde Rappels/Météo/Qualité de l'air/Tâches
   // Google/Anniversaires/Alertes/Maps.
   services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'gmail', 'shortcuts'],
-  utile:      ['reminders', 'weather', 'airQuality', 'googleTasks', 'birthdays', 'alerts', 'maps'],
+  utile:      ['reminders', 'weather', 'airQuality', 'googleTasks', 'birthdays', 'alerts', 'maps', 'assistant'],
 };
 
 let tabOrder = DEFAULT_TAB_ORDER.slice();
@@ -634,6 +643,9 @@ async function initConfig() {
   // Lu AVANT le 1er renderTabPanels (voir createSearchEngineRow) pour la même
   // raison que startOnBootEnabled ci-dessus.
   searchEngineValue = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
+  assistantGeminiKey = (await window.matin.store.get('gemini_api_key')) || '';
+  assistantShortcutValue = (await window.matin.store.get('assistant_shortcut')) || '';
+  assistantLangValue = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
 
   // Ordre des onglets persisté indépendamment de modulesState (pas un
   // module, pas soumis au bouton "Enregistrer" — sauvegarde immédiate au
@@ -1155,6 +1167,126 @@ function createStartOnBootRow() {
 
   wrapper.appendChild(row);
   return wrapper;
+}
+
+// ─── Assistant vocal — sous-section (2026-09-25, reconstruit) ───────────────
+// Même mécanisme que hueField/fglairField : visibilité gérée par la règle CSS
+// générique `.module-row-wrap.module-disabled`. `mod` inutilisé : les réglages
+// sont des clés store globales (voir MODULE_META.assistant).
+function renderAssistantConfigSection(mod) {
+  const wrap = document.createElement('div');
+  wrap.className = 'module-config-field hue-config-field';
+  wrap.innerHTML = `
+      <div class="hue-config-row">
+        <label>Clé API Gemini</label>
+        <input type="password" class="assistant-gemini-key-input" placeholder="Clé API Gemini" value="${assistantGeminiKey}" autocomplete="off">
+        <button type="button" class="fglair-password-toggle assistant-gemini-toggle" title="Afficher/masquer la clé">👁</button>
+      </div>
+      <div class="assistant-gemini-actions">
+        <button type="button" class="assistant-gemini-test-btn etf-add-line-btn">Tester</button>
+        <a href="#" class="assistant-gemini-link">Obtenir une clé →</a>
+      </div>
+      <p class="hue-config-status" data-status="gemini"></p>
+      <p class="hue-config-hint">Pour rester 100 % gratuit : créez la clé avec un compte Google AI Studio SANS compte de facturation associé. Dès qu'un compte de facturation est renseigné sur le projet, le niveau gratuit est perdu et l'API devient payante (erreur « prepayment credits are depleted » une fois le crédit épuisé).</p>
+
+      <div class="hue-config-row">
+        <label>Raccourci</label>
+        <button type="button" class="assistant-shortcut-input">${assistantShortcutValue || 'Cliquez puis appuyez sur une touche…'}</button>
+        <button type="button" class="assistant-shortcut-clear etf-add-line-btn">Effacer</button>
+      </div>
+
+      <div class="hue-config-row">
+        <label>Langue</label>
+        <select class="assistant-lang-select">
+          <option value="fr-FR" ${assistantLangValue === 'fr-FR' ? 'selected' : ''}>Français</option>
+          <option value="en-US" ${assistantLangValue === 'en-US' ? 'selected' : ''}>English</option>
+          <option value="es-ES" ${assistantLangValue === 'es-ES' ? 'selected' : ''}>Español</option>
+        </select>
+      </div>
+  `;
+
+  const keyInput = wrap.querySelector('.assistant-gemini-key-input');
+  const keyToggle = wrap.querySelector('.assistant-gemini-toggle');
+  const testBtn = wrap.querySelector('.assistant-gemini-test-btn');
+  const status = wrap.querySelector('[data-status="gemini"]');
+
+  wrap.querySelector('.assistant-gemini-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.matin.shell.openExternal('https://aistudio.google.com/app/apikey');
+  });
+  keyInput.addEventListener('input', (e) => {
+    assistantGeminiKey = e.target.value.trim();
+    window.matin.store.set('gemini_api_key', assistantGeminiKey);
+    status.textContent = '';
+  });
+  keyToggle.addEventListener('click', () => {
+    const revealed = keyInput.type === 'text';
+    keyInput.type = revealed ? 'password' : 'text';
+    keyToggle.classList.toggle('active', !revealed);
+  });
+
+  // Ping minimal GET /models : vérifie seulement que la clé est acceptée
+  // (n'atteste pas que l'API Live est utilisable — facturation possible).
+  testBtn.addEventListener('click', async () => {
+    const key = keyInput.value.trim();
+    if (!key) { status.textContent = 'Renseignez une clé avant de tester.'; return; }
+    testBtn.disabled = true;
+    const label = testBtn.textContent;
+    testBtn.textContent = 'Test en cours…';
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+      status.textContent = res.ok ? '✓ Clé valide' : '✗ Clé invalide';
+    } catch (err) {
+      status.textContent = '✗ Clé invalide';
+    } finally {
+      testBtn.disabled = false;
+      testBtn.textContent = label;
+    }
+  });
+
+  // Raccourci global : clic → enregistrement de la prochaine combinaison
+  // (format Accelerator Electron), Échap annule.
+  const shortcutBtn = wrap.querySelector('.assistant-shortcut-input');
+  const applyShortcut = (accelerator) => {
+    assistantShortcutValue = accelerator || '';
+    shortcutBtn.textContent = assistantShortcutValue || 'Cliquez puis appuyez sur une touche…';
+    window.matin.store.set('assistant_shortcut', assistantShortcutValue);
+    window.matin.assistant.updateShortcut(assistantShortcutValue);
+  };
+  shortcutBtn.addEventListener('click', () => {
+    if (shortcutBtn.classList.contains('recording')) return;
+    shortcutBtn.classList.add('recording');
+    shortcutBtn.textContent = 'Appuyez sur une touche…';
+    const onKeyDown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        document.removeEventListener('keydown', onKeyDown, true);
+        shortcutBtn.classList.remove('recording');
+        shortcutBtn.textContent = assistantShortcutValue || 'Cliquez puis appuyez sur une touche…';
+        return;
+      }
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+      const parts = [];
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      if (e.metaKey) parts.push('Super');
+      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      document.removeEventListener('keydown', onKeyDown, true);
+      shortcutBtn.classList.remove('recording');
+      applyShortcut(parts.join('+'));
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+  });
+  wrap.querySelector('.assistant-shortcut-clear').addEventListener('click', () => applyShortcut(''));
+
+  wrap.querySelector('.assistant-lang-select').addEventListener('change', (e) => {
+    assistantLangValue = e.target.value;
+    window.matin.store.set('assistant_lang', assistantLangValue);
+  });
+
+  return wrap;
 }
 
 // ─── Moteur de recherche (2026-09-03, sur demande explicite) ───────────────
@@ -1924,6 +2056,10 @@ function createModuleRow(key, mod, meta) {
     wrapper.appendChild(renderYoutubeConfigSection(modulesState[key]));
   }
 
+  if (meta.assistantField) {
+    wrapper.appendChild(renderAssistantConfigSection(modulesState[key]));
+  }
+
   return wrapper;
 }
 
@@ -2087,6 +2223,16 @@ function attachTimeWheelThrottle(input, throttleMs = 300) {
   }, { passive: false });
 }
 
+// Slogans par défaut de la maquette Mon Équipe (2026-09-21) — dupliqués côté
+// renderer/modules/mon-equipe.js (fenêtres séparées). `undefined` = jamais
+// configuré = texte par défaut affiché (et pré-rempli ici) ; chaîne vide =
+// masqué. La valeur n'est écrite dans la config qu'à la 1re saisie.
+const MON_EQUIPE_DEFAULT_TAGLINE = "Plus qu'une équipe";
+const MON_EQUIPE_DEFAULT_FOOTER = 'Ensemble vers de nouveaux défis';
+function monEquipeEscAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
 function renderMonEquipeConfigSection(mod) {
   if (!mod.config) mod.config = {};
   if (typeof mod.config.teamName !== 'string') mod.config.teamName = '';
@@ -2118,6 +2264,16 @@ function renderMonEquipeConfigSection(mod) {
       <label>Catégorie (sous-titre, optionnel)</label>
       <input type="text" class="monequipe-category-input" placeholder="Ex : Seniors, U18, Régionale 2..." value="${cfg.category}">
     </div>
+    <div class="monequipe-row-split">
+      <div class="monequipe-field-name" style="flex:1 1 0">
+        <label>Slogan d'en-tête (optionnel)</label>
+        <input type="text" class="monequipe-tagline-input" placeholder="Vide = masqué" value="${monEquipeEscAttr(cfg.tagline === undefined ? MON_EQUIPE_DEFAULT_TAGLINE : cfg.tagline)}">
+      </div>
+      <div class="monequipe-field-name" style="flex:1 1 0">
+        <label>Slogan de pied de carte (optionnel)</label>
+        <input type="text" class="monequipe-footer-input" placeholder="Vide = masqué" value="${monEquipeEscAttr(cfg.footerSlogan === undefined ? MON_EQUIPE_DEFAULT_FOOTER : cfg.footerSlogan)}">
+      </div>
+    </div>
 
     <label class="monequipe-list-label">Matchs à venir (max ${MON_EQUIPE_MAX_MATCHES})</label>
     <div class="monequipe-upcoming-header">
@@ -2137,6 +2293,8 @@ function renderMonEquipeConfigSection(mod) {
   wrap.querySelector('.monequipe-name-input').addEventListener('input', (e) => { cfg.teamName = e.target.value; });
   wrap.querySelector('.monequipe-sport-select').addEventListener('change', (e) => { cfg.sport = e.target.value; });
   wrap.querySelector('.monequipe-category-input').addEventListener('input', (e) => { cfg.category = e.target.value; });
+  wrap.querySelector('.monequipe-tagline-input').addEventListener('input', (e) => { cfg.tagline = e.target.value; });
+  wrap.querySelector('.monequipe-footer-input').addEventListener('input', (e) => { cfg.footerSlogan = e.target.value; });
 
   const upcomingList = wrap.querySelector('.monequipe-upcoming-list');
   const addUpcomingBtn = wrap.querySelector('.monequipe-add-upcoming-btn');

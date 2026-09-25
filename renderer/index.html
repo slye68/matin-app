@@ -4,10 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http:; img-src 'self' data: https:;">
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https: http: wss://generativelanguage.googleapis.com; img-src 'self' data: https:;">
   <title>Matin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Barlow Condensed 900 ajoutée le 2026-09-22, sur demande explicite —
+       module LIVE FOOT!, titre "FOOTBALL" (voir style.css [id^="module-live"]
+       .module-title). Poids 700/800 ajoutés le même jour (2e demande, refonte
+       visuelle Header/Prochain match du module Sports/ol.js — voir style.css
+       .ol-*) : 900 seul ne couvrait pas les titres/nombres en 700/800 de
+       cette maquette. Inter 700 ajouté pour la même refonte (300-600 déjà
+       chargés servaient au reste de l'app). DM Mono/Caveat inchangées.
+       JetBrains Mono 400/500 ajoutée le même jour (3e demande, refonte
+       visuelle module Tech/rss-feed.js — voir style.css #module-tech) : les
+       libellés de source ("01NET", "GAMEKULT"...) et le sous-titre demandent
+       CETTE police mono précisément, DM Mono (déjà chargée) ne convient pas
+       (demande explicite nommant JetBrains Mono). -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@600;700&family=Barlow+Condensed:wght@700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
   <!-- Bootstrap thème (2026-08-08) — voir config.html pour l'explication
        complète (même mécanisme dans les 2 documents) : synchrone, pose
@@ -331,6 +343,7 @@
   <script src="modules/mon-equipe.js"></script>
   <script src="modules/youtube.js"></script>
   <script src="modules/search-engines.js"></script>
+  <script src="modules/assistant.js"></script>
   <script src="dashboard.js"></script>
   <!-- Mode démo (2026-09-09, sur demande explicite) — présentation
        automatisée des modules phares, lancée manuellement via `runDemo()`

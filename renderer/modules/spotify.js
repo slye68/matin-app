@@ -22,12 +22,29 @@ window.MatinModules = window.MatinModules || {};
 
 const SPOTIFY_REFRESH_MS = 10 * 1000;
 
+// Pause GLOBALE des appels API après un 429 (2026-09-24, correctif suite à un
+// 429 réel remonté sur /me/player/recently-played) — `Date.now()` à partir
+// duquel les appels reprennent, partagée par TOUTES les requêtes de ce
+// module (pas seulement celle qui a déclenché le 429) : Spotify limite par
+// app/utilisateur, pas par endpoint précis, continuer à interroger un AUTRE
+// endpoint pendant la pause serait tout aussi susceptible de re-déclencher
+// un 429. Respecte l'en-tête `Retry-After` renvoyé par Spotify (secondes) —
+// 30s de repli si l'en-tête est absent/invalide, plutôt que de retenter
+// immédiatement au tick suivant (10s après) et perpétuer le 429.
+let spotifyRateLimitedUntil = 0;
+
 async function spotifyApi(method, path, accessToken, query) {
   const url = `https://api.spotify.com/v1${path}${query ? `?${query}` : ''}`;
   const res = await fetch(url, {
     method,
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (res.status === 429) {
+    const retryAfterSec = parseInt(res.headers.get('Retry-After'), 10);
+    const waitMs = (Number.isFinite(retryAfterSec) ? retryAfterSec : 30) * 1000;
+    spotifyRateLimitedUntil = Date.now() + waitMs;
+    throw new Error(`Spotify API 429 (limite de requêtes atteinte, pause ${Math.round(waitMs / 1000)}s)`);
+  }
   if (res.status === 204) return null; // pas de contenu (rien en lecture, commande acceptée)
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -103,14 +120,33 @@ const SPOTIFY_ICONS = {
   volume: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16.5 12c0-1.6-.8-3-2-3.7v7.5c1.2-.8 2-2.2 2-3.8z"/><path d="M18.5 12c0-2.7-1.5-5-3.5-6.2v1.7c1.5 1 2.5 2.8 2.5 4.5s-1 3.5-2.5 4.5v1.7c2-1.2 3.5-3.5 3.5-6.2z"/></svg>',
 };
 
+// Mis en cache 60s (2026-09-24, correctif suite à un 429 réel sur cet
+// endpoint) : tant que rien n'est en lecture, `tick()` (toutes les 10s,
+// SPOTIFY_REFRESH_MS) appelait CET endpoint à CHAQUE tick pour ré-afficher
+// un contenu qui, en pratique, ne change qu'au moment où l'utilisateur
+// écoute réellement un nouveau morceau — jamais toutes les 10s. Sextuple
+// inutilement le taux de requêtes vers Spotify pendant les longues périodes
+// d'inactivité (le cas le plus fréquent), la cause la plus probable du 429.
+// Même principe que spotifyPlaylistNameCache plus haut (cache mémoire,
+// perdu à la fermeture de l'app — acceptable, pas une donnée persistante).
+let spotifyRecentCache = null;
+let spotifyRecentCacheAt = 0;
+const SPOTIFY_RECENT_TTL_MS = 60 * 1000;
+
 async function spotifyFetchRecentlyPlayed(accessToken) {
+  if (spotifyRecentCache && Date.now() - spotifyRecentCacheAt < SPOTIFY_RECENT_TTL_MS) {
+    return spotifyRecentCache;
+  }
   const data = await spotifyApi('GET', '/me/player/recently-played', accessToken, 'limit=3');
-  return (data?.items || []).map(it => ({
+  const items = (data?.items || []).map(it => ({
     title: it.track?.name || '',
     artist: (it.track?.artists || []).map(a => a.name).join(', '),
     cover: spotifyBestImage(it.track?.album?.images),
     externalUrl: it.track?.external_urls?.spotify || '',
   }));
+  spotifyRecentCache = items;
+  spotifyRecentCacheAt = Date.now();
+  return items;
 }
 
 function spotifyConnectHtml() {
@@ -216,6 +252,12 @@ window.MatinModules.spotify = {
     };
 
     async function tick() {
+      // Pause après un 429 (voir spotifyRateLimitedUntil, tout en haut du
+      // fichier) : aucune requête réseau tant que la pause n'est pas
+      // écoulée — l'UI garde simplement son dernier état affiché, retente
+      // normalement au prochain tick une fois la pause expirée.
+      if (Date.now() < spotifyRateLimitedUntil) return true;
+
       let accessToken;
       try {
         const fresh = await window.matin.spotify.getValidToken();

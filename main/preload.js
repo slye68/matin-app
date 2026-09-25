@@ -143,6 +143,23 @@ contextBridge.exposeInMainWorld('matin', {
     showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
   },
 
+  // ── YouTube (2026-09-22, voir main.js ipcMain.handle('youtube:openApp')) ──
+  // Clic sur le titre de la carte YouTube : tente l'appli native, replie sur
+  // le navigateur, jamais de popup d'erreur.
+  youtube: {
+    openApp: () => ipcRenderer.invoke('youtube:openApp'),
+  },
+
+  // ── Assistant vocal (2026-09-25, voir main.js registerAssistantShortcut) ────
+  // `removeAllListeners` avant `on` : assistant.js peut être ré-exécuté.
+  assistant: {
+    onTrigger: (cb) => {
+      ipcRenderer.removeAllListeners('trigger-assistant');
+      ipcRenderer.on('trigger-assistant', () => cb());
+    },
+    updateShortcut: (shortcut) => ipcRenderer.send('update-assistant-shortcut', shortcut),
+  },
+
   // ── RSS (fetch sans restriction CORS, exécuté dans le process main) ────────
   rss: {
     fetchFeed: (url) => ipcRenderer.invoke('rss:fetchFeed', url),
