@@ -1,0 +1,65 @@
+/* ═══ Matin — Avatar vocal holographique ═══
+   Le composant remplit la largeur de son conteneur (carré). */
+.matin-avatar {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  isolation: isolate;
+  user-select: none;
+  pointer-events: none;           /* les clics restent gérés par le conteneur */
+}
+.matin-avatar .av-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.matin-avatar .av-back  { z-index: 1; }
+.matin-avatar .av-front { z-index: 5; mix-blend-mode: screen; }
+
+.matin-avatar .av-face {
+  position: absolute; inset: 0; z-index: 2;
+  transform-origin: 50.5% 45%;
+  will-change: transform, filter;
+}
+.matin-avatar .av-img,
+.matin-avatar .av-jaw {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  -webkit-user-drag: none;
+}
+/* Fondu doux des bords de l'image (cercle + socle) */
+.matin-avatar .av-img {
+  -webkit-mask-image:
+    radial-gradient(circle at 50.7% 43%, #000 36%, transparent 50%),
+    radial-gradient(ellipse 36% 11% at 50.7% 91%, #000 45%, transparent 100%);
+          mask-image:
+    radial-gradient(circle at 50.7% 43%, #000 36%, transparent 50%),
+    radial-gradient(ellipse 36% 11% at 50.7% 91%, #000 45%, transparent 100%);
+}
+/* Intérieur de bouche révélé quand la mâchoire descend */
+.matin-avatar .av-mouth {
+  position: absolute; z-index: 1;
+  left: 50.5%; top: 55.8%;
+  width: 9.5%; height: 2.2%;
+  transform: translate(-50%, -50%) scaleY(0);
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(120,220,255,.55) 0%, rgba(120,220,255,0) 35%),
+    radial-gradient(ellipse at 50% 50%, rgba(1,6,20,.95) 30%, rgba(1,6,20,0) 72%);
+}
+/* Mâchoire : copie de l'image limitée au menton */
+.matin-avatar .av-jaw {
+  z-index: 2;
+  -webkit-mask-image: radial-gradient(ellipse 10.5% 7.8% at 50.5% 62.6%, #000 62%, transparent 100%);
+          mask-image: radial-gradient(ellipse 10.5% 7.8% at 50.5% 62.6%, #000 62%, transparent 100%);
+}
+/* Lumière additive sur les yeux de l'image */
+.matin-avatar .av-eye {
+  position: absolute; z-index: 3;
+  width: 11%; height: 5%;
+  top: 41.4%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(200,245,255,.95) 0%, rgba(90,210,255,.55) 32%, rgba(0,160,255,0) 70%);
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+.matin-avatar .av-eye-l { left: 44.7%; }
+.matin-avatar .av-eye-r { left: 57.2%; }

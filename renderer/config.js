@@ -164,6 +164,7 @@ let searchEngineValue = window.SearchEngines.DEFAULT;
 let assistantGeminiKey = '';
 let assistantShortcutValue = '';
 let assistantLangValue = 'fr-FR';
+let assistantGainValue = 1; // sensibilité micro (gain logiciel), voir assistant.js
 
 // ─── Onglets (2026-08-06, sur demande explicite) ───────────────────────────
 // Réorganisation complète de Paramètres : Profil reste hors onglets (voir
@@ -646,6 +647,7 @@ async function initConfig() {
   assistantGeminiKey = (await window.matin.store.get('gemini_api_key')) || '';
   assistantShortcutValue = (await window.matin.store.get('assistant_shortcut')) || '';
   assistantLangValue = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
+  assistantGainValue = Number(await window.matin.store.get('assistant_gain')) || 1;
 
   // Ordre des onglets persisté indépendamment de modulesState (pas un
   // module, pas soumis au bouton "Enregistrer" — sauvegarde immédiate au
@@ -1196,6 +1198,16 @@ function renderAssistantConfigSection(mod) {
       </div>
 
       <div class="hue-config-row">
+        <label>Sensibilité micro</label>
+        <select class="assistant-gain-select">
+          <option value="1" ${assistantGainValue === 1 ? 'selected' : ''}>Normale</option>
+          <option value="2" ${assistantGainValue === 2 ? 'selected' : ''}>Élevée (x2)</option>
+          <option value="3" ${assistantGainValue === 3 ? 'selected' : ''}>Très élevée (x3)</option>
+          <option value="4.5" ${assistantGainValue === 4.5 ? 'selected' : ''}>Maximale (x4,5)</option>
+        </select>
+      </div>
+
+      <div class="hue-config-row">
         <label>Langue</label>
         <select class="assistant-lang-select">
           <option value="fr-FR" ${assistantLangValue === 'fr-FR' ? 'selected' : ''}>Français</option>
@@ -1280,6 +1292,11 @@ function renderAssistantConfigSection(mod) {
     document.addEventListener('keydown', onKeyDown, true);
   });
   wrap.querySelector('.assistant-shortcut-clear').addEventListener('click', () => applyShortcut(''));
+
+  wrap.querySelector('.assistant-gain-select').addEventListener('change', (e) => {
+    assistantGainValue = Number(e.target.value);
+    window.matin.store.set('assistant_gain', assistantGainValue);
+  });
 
   wrap.querySelector('.assistant-lang-select').addEventListener('change', (e) => {
     assistantLangValue = e.target.value;

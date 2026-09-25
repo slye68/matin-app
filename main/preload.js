@@ -158,6 +158,7 @@ contextBridge.exposeInMainWorld('matin', {
       ipcRenderer.on('trigger-assistant', () => cb());
     },
     updateShortcut: (shortcut) => ipcRenderer.send('update-assistant-shortcut', shortcut),
+    webSearch: (query) => ipcRenderer.invoke('assistant:webSearch', query),
   },
 
   // ── RSS (fetch sans restriction CORS, exécuté dans le process main) ────────

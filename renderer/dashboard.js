@@ -167,7 +167,7 @@ const MODULE_REGISTRY = {
   // Assistant vocal (2026-09-25, reconstruit) — orbe circulaire 200×200 sans
   // en-tête (voir style.css #module-assistant), pas de refreshMs : état piloté
   // en interne par assistant.js.
-  assistant: { label: 'Assistant vocal', icon: '🎙️', requiresGoogle: false, defaultSize: { w: 200, h: 200 } },
+  assistant: { label: 'Assistant vocal', icon: '🎙️', requiresGoogle: false, defaultSize: { w: 232, h: 232 } },
 };
 
 // Abaissés de 260×160 à 80×40 (2026-08-15, sur demande explicite — "laisser
@@ -2163,9 +2163,12 @@ function makeInteractive(card, key, dashboard, canvas) {
       // voir plus haut `clickable`/`module-title-clickable`).
       // Assistant : aucun en-tête visible → toute la surface de l'orbe sert
       // de zone de glisser (le tap simple reste géré par interact.js `tap`).
+      // (2026-09-25) glisser UNIQUEMENT depuis la couronne de bordure : le
+      // centre (`.module-content`, l'orbe) est ignoré, il reste réservé au clic.
       allowFrom: key === 'assistant'
-        ? '.module-content'
+        ? null
         : (isFixedWidthKey(key) ? '.module-header, .shortcuts-module' : '.module-header'),
+      ignoreFrom: key === 'assistant' ? '.module-content' : null,
       // Accrochage à la grille retiré (2026-08-11, sur demande explicite) —
       // placement libre au pixel près, seule la restriction aux bords du
       // dashboard reste active.

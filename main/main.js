@@ -2422,6 +2422,30 @@ ipcMain.on('update-assistant-shortcut', (_e, shortcut) => {
   registerAssistantShortcut(shortcut || null);
 });
 
+// Assistant vocal — recherche web (2026-09-25) : version HTML non officielle de
+// DuckDuckGo, sans clé ni compte (contrairement à un vrai service de recherche,
+// aucune garantie de stabilité : si la mise en page change, le tableau renvoyé
+// est simplement vide). Exécutée ici (process main) : pas de CORS à espérer
+// côté serveur. Extraction par regex sur `result__a`/`result__snippet` —
+// classes vérifiées en direct sur une vraie page de résultats.
+function assistantStripHtml(html) {
+  return html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+}
+ipcMain.handle('assistant:webSearch', async (_e, query) => {
+  const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) throw new Error(`Erreur recherche web (${res.status})`);
+  const html = await res.text();
+  const results = [];
+  const re = /<a[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) && results.length < 5) {
+    const title = assistantStripHtml(m[1]);
+    const snippet = assistantStripHtml(m[2]);
+    if (title || snippet) results.push({ title, snippet });
+  }
+  return results;
+});
+
 // Flux RSS nécessitant un fetch sans restriction CORS (le process main n'est
 // pas un contexte navigateur — contrairement au renderer, aucun proxy tiers
 // n'est nécessaire pour joindre des flux qui n'envoient pas d'en-têtes CORS).
