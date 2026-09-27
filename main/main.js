@@ -2460,6 +2460,7 @@ function smtcStart(win) {
     ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
     { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
   );
+  smtcProc.stdin.on('error', () => {}); // pipe fermé si le process s'arrête avant l'écriture
   smtcProc.stdout.setEncoding('utf8');
   let buf = '';
   smtcProc.stdout.on('data', (chunk) => {
