@@ -2460,7 +2460,16 @@ function smtcStart(win) {
     ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
     { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
   );
+  smtcProc.on('error', (err) => {
+    console.error('[SMTC] Erreur spawn:', err.message);
+    smtcProc = null;
+    if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', { type: 'none' });
+    if (!smtcStopping && smtcWin && !smtcWin.isDestroyed()) {
+      setTimeout(() => smtcStart(smtcWin), 5000);
+    }
+  });
   smtcProc.stdin.on('error', () => {}); // pipe fermé si le process s'arrête avant l'écriture
+  smtcProc.stdout.on('error', () => {}); // idem pour stdout
   smtcProc.stdout.setEncoding('utf8');
   let buf = '';
   smtcProc.stdout.on('data', (chunk) => {
