@@ -1379,7 +1379,9 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
-  smtcStart(mainWindow);
+  mainWindow.webContents.once('did-finish-load', () => {
+    smtcStart(mainWindow);
+  });
 
   // Micro (assistant vocal) — sans handler, Electron refuse silencieusement
   // getUserMedia. N'autorise QUE 'media'.
