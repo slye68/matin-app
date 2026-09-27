@@ -42,7 +42,11 @@ function smtcEnsureListening() {
     if (msg.data) smtcThumbs.set(msg.key, `data:${msg.mime};base64,${msg.data}`);
     else smtcThumbs.delete(msg.key);
   });
-  window.matin.smtc.start();
+  // start() réveille le pont et rejoue smtcLastState depuis main.js ;
+  // refresh force PowerShell à émettre l'état courant si le replay arrive trop tôt.
+  window.matin.smtc.start().then(() => {
+    window.matin.smtc.send('refresh').catch(() => {});
+  });
 }
 
 function injectSmtcStyle() {
@@ -121,10 +125,15 @@ window.MatinModules.spotify = {
 
     renderCurrent();
 
-    // Polling léger (2 s) — redessine seulement si l'état a changé.
+    // Re-render immédiat à chaque event SMTC (état ou pochette).
+    const onStateUpdate = () => { if (document.body.contains(container)) renderCurrent(); };
+    window.matin.smtc.onState(onStateUpdate);
+    window.matin.smtc.onThumb(onStateUpdate);
+
+    // Polling de sécurité (5 s) pour les cas où les events sont manqués.
     setInterval(() => {
       if (!document.body.contains(container)) return;
       renderCurrent();
-    }, 2000);
+    }, 5000);
   },
 };
