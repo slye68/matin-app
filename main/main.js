@@ -2488,16 +2488,22 @@ function smtcStart(win) {
           const p = smtcPending.get(msg.id);
           if (p) { clearTimeout(p.timer); smtcPending.delete(msg.id); p.resolve(msg.ok); }
         } else if (msg.type === 'state' || msg.type === 'none') {
+          console.log('[SMTC]', msg.type, msg.title || '(aucun titre)', msg.status || '');
           smtcLastState = msg;
           if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg);
         } else if (msg.type === 'thumb') {
+          console.log('[SMTC] thumb reçue, key:', msg.key?.slice(0, 40));
           if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg);
         } else if (msg.type === 'ready') {
           console.log('[SMTC] Pont prêt');
         } else if (msg.type === 'error') {
           console.warn('[SMTC]', msg.message, msg.fatal ? '(fatal)' : '');
+        } else {
+          console.log('[SMTC] type inconnu:', msg.type);
         }
-      } catch { /* ligne non-JSON */ }
+      } catch (e) {
+        console.warn('[SMTC] JSON invalide:', e.message, '| début ligne:', line.slice(0, 120));
+      }
     }
   });
   smtcProc.stderr.on('data', (d) => console.warn('[SMTC stderr]', d.toString().trim()));
