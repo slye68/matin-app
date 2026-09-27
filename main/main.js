@@ -2446,12 +2446,15 @@ let smtcProc      = null;
 let smtcWin       = null;
 let smtcSeq       = 0;
 let smtcLastState = null;
+let smtcStopping  = false;
 const smtcPending = new Map();
 
 function smtcStart(win) {
   if (smtcProc || process.platform !== 'win32') return;
+  smtcStopping = false;
   smtcWin = win;
   const scriptPath = path.join(__dirname, '..', 'scripts', 'media-session.ps1');
+  console.log('[SMTC] Démarrage du pont PowerShell...');
   smtcProc = spawn(
     'powershell.exe',
     ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
@@ -2476,9 +2479,10 @@ function smtcStart(win) {
           if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg);
         } else if (msg.type === 'thumb') {
           if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg);
+        } else if (msg.type === 'ready') {
+          console.log('[SMTC] Pont prêt');
         } else if (msg.type === 'error') {
           console.warn('[SMTC]', msg.message, msg.fatal ? '(fatal)' : '');
-          if (msg.fatal) { smtcProc = null; }
         }
       } catch { /* ligne non-JSON */ }
     }
@@ -2488,10 +2492,15 @@ function smtcStart(win) {
     console.log('[SMTC] Processus terminé (code', code, ')');
     smtcProc = null;
     if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', { type: 'none' });
+    if (!smtcStopping && smtcWin && !smtcWin.isDestroyed()) {
+      console.log('[SMTC] Redémarrage dans 3 s...');
+      setTimeout(() => smtcStart(smtcWin), 3000);
+    }
   });
 }
 
 function smtcStop() {
+  smtcStopping = true;
   if (smtcProc) {
     try { smtcProc.stdin.end(); } catch {}
     try { smtcProc.kill(); } catch {}
