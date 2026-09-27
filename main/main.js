@@ -2442,9 +2442,10 @@ function isProtocolRegistered(scheme) {
 // du système (Spotify, Deezer, Chrome…) via WinRT, sans API ni compte.
 // Protocole : JSON lines sur stdout / commandes texte sur stdin.
 // Windows 10 1809+ uniquement.
-let smtcProc = null;
-let smtcWin  = null;
-let smtcSeq  = 0;
+let smtcProc      = null;
+let smtcWin       = null;
+let smtcSeq       = 0;
+let smtcLastState = null;
 const smtcPending = new Map();
 
 function smtcStart(win) {
@@ -2471,6 +2472,7 @@ function smtcStart(win) {
           const p = smtcPending.get(msg.id);
           if (p) { clearTimeout(p.timer); smtcPending.delete(msg.id); p.resolve(msg.ok); }
         } else if (msg.type === 'state' || msg.type === 'none') {
+          smtcLastState = msg;
           smtcWin?.webContents?.send('smtc:state', msg);
         } else if (msg.type === 'thumb') {
           smtcWin?.webContents?.send('smtc:thumb', msg);
@@ -2501,6 +2503,10 @@ ipcMain.handle('smtc:start', (e) => {
   if (process.platform !== 'win32') return false;
   const win = BrowserWindow.fromWebContents(e.sender);
   smtcStart(win);
+  // Rejoue le dernier état connu si le renderer arrive après le premier emit
+  if (smtcLastState && win && !win.isDestroyed()) {
+    setImmediate(() => win.webContents.send('smtc:state', smtcLastState));
+  }
   return true;
 });
 
