@@ -1385,6 +1385,9 @@ function createMainWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     smtcStart(mainWindow);
   });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[CRASH] Renderer process gone:', details.reason, details.exitCode);
+  });
 
   // Micro (assistant vocal) — sans handler, Electron refuse silencieusement
   // getUserMedia. N'autorise QUE 'media'.
@@ -2490,10 +2493,10 @@ function smtcStart(win) {
         } else if (msg.type === 'state' || msg.type === 'none') {
           console.log('[SMTC]', msg.type, msg.title || '(aucun titre)', msg.status || '');
           smtcLastState = msg;
-          if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg);
+          try { if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg); } catch {}
         } else if (msg.type === 'thumb') {
           console.log('[SMTC] thumb reçue, key:', msg.key?.slice(0, 40));
-          if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg);
+          try { if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg); } catch {}
         } else if (msg.type === 'ready') {
           console.log('[SMTC] Pont prêt');
         } else if (msg.type === 'error') {
@@ -2510,10 +2513,10 @@ function smtcStart(win) {
   smtcProc.on('close', (code) => {
     console.log('[SMTC] Processus terminé (code', code, ')');
     smtcProc = null;
-    if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', { type: 'none' });
+    try { if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', { type: 'none' }); } catch {}
     if (!smtcStopping && smtcWin && !smtcWin.isDestroyed()) {
       console.log('[SMTC] Redémarrage dans 3 s...');
-      setTimeout(() => smtcStart(smtcWin), 3000);
+      setTimeout(() => { try { smtcStart(smtcWin); } catch (e) { console.error('[SMTC] Erreur restart:', e.message); } }, 3000);
     }
   });
 }
@@ -2533,7 +2536,7 @@ ipcMain.handle('smtc:start', (e) => {
   smtcStart(win);
   // Rejoue le dernier état connu si le renderer arrive après le premier emit
   if (smtcLastState && win && !win.isDestroyed()) {
-    setImmediate(() => win.webContents.send('smtc:state', smtcLastState));
+    setImmediate(() => { try { if (!win.isDestroyed()) win.webContents.send('smtc:state', smtcLastState); } catch {} });
   }
   return true;
 });
