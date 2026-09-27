@@ -2473,9 +2473,9 @@ function smtcStart(win) {
           if (p) { clearTimeout(p.timer); smtcPending.delete(msg.id); p.resolve(msg.ok); }
         } else if (msg.type === 'state' || msg.type === 'none') {
           smtcLastState = msg;
-          smtcWin?.webContents?.send('smtc:state', msg);
+          if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg);
         } else if (msg.type === 'thumb') {
-          smtcWin?.webContents?.send('smtc:thumb', msg);
+          if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg);
         } else if (msg.type === 'error') {
           console.warn('[SMTC]', msg.message, msg.fatal ? '(fatal)' : '');
           if (msg.fatal) { smtcProc = null; }
@@ -2487,7 +2487,7 @@ function smtcStart(win) {
   smtcProc.on('close', (code) => {
     console.log('[SMTC] Processus terminé (code', code, ')');
     smtcProc = null;
-    smtcWin?.webContents?.send('smtc:state', { type: 'none' });
+    if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', { type: 'none' });
   });
 }
 
