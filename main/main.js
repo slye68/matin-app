@@ -4,10 +4,9 @@ const fs = require('fs');
 const { Client: TplinkClient } = require('tplink-smarthome-api'); // TP-Link Kasa (broadcast UDP/TCP local, voir ipcMain.handle('kasa:...'))
 const { TradfriClient: TradfriGwClient, AccessoryTypes: TradfriAccessoryTypes } = require('node-tradfri-client'); // IKEA Trådfri (CoAP/DTLS local, voir ipcMain.handle('tradfri:...'))
 const https = require('https'); // Somfy TaHoma Switch — API locale HTTPS/certificat auto-signé (voir ipcMain.handle('tahoma:...'))
-const { execFile } = require('child_process'); // Lien YouTube topbar — vérifie l'enregistrement du protocole youtube:// (voir ipcMain.handle('youtube:openApp'))
+const { execFile, spawn } = require('child_process'); // Lien YouTube topbar — vérifie l'enregistrement du protocole youtube:// (voir ipcMain.handle('youtube:openApp'))
 const Store = require('electron-store');
 const { runGoogleAuthFlow, refreshAccessToken } = require('./auth/google-oauth');
-const { runSpotifyAuthFlow, refreshAccessToken: refreshSpotifyAccessToken } = require('./auth/spotify-oauth');
 const { runHueAuthFlow, refreshHueAccessToken } = require('./auth/hue-oauth');
 const { autoUpdater } = require('electron-updater');
 
@@ -1380,6 +1379,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  smtcStart(mainWindow);
 
   // Micro (assistant vocal) — sans handler, Electron refuse silencieusement
   // getUserMedia. N'autorise QUE 'media'.
@@ -2367,6 +2367,55 @@ ipcMain.on('window:ensure-width', (_e, minW) => {
 });
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 
+// Ouverture d'une URL dans Google Chrome (2026-09-25, sur demande explicite —
+// recherche lancée par l'assistant vocal, voir dashboard.js runTitlebarSearch).
+// chrome.exe cherché dans le registre (App Paths, HKLM puis HKCU) puis aux
+// emplacements d'installation habituels, résultat mis en cache. L'URL est
+// passée en ARGUMENT à spawn (jamais concaténée dans une commande shell).
+// Chrome déjà ouvert : l'URL s'ouvre dans un nouvel onglet de la fenêtre
+// existante. Repli sur le navigateur par défaut si Chrome est introuvable.
+let chromePathCache; // undefined = pas encore cherché, null = introuvable
+function regDefaultValue(key) {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', key, '/ve'], { windowsHide: true }, (error, stdout) => {
+      if (error) return resolve(null);
+      const m = /REG_SZ\s+(.+?)\s*$/m.exec(String(stdout));
+      resolve(m ? m[1].replace(/^"|"$/g, '') : null);
+    });
+  });
+}
+async function findChromePath() {
+  if (chromePathCache !== undefined) return chromePathCache;
+  const candidates = [];
+  for (const root of ['HKLM', 'HKCU']) {
+    const p = await regDefaultValue(`${root}\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe`);
+    if (p) candidates.push(p);
+  }
+  const rel = 'Google\\Chrome\\Application\\chrome.exe';
+  for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA]) {
+    if (base) candidates.push(path.join(base, rel));
+  }
+  chromePathCache = candidates.find((c) => { try { return fs.existsSync(c); } catch { return false; } }) || null;
+  return chromePathCache;
+}
+ipcMain.handle('shell:openInChrome', async (_e, url) => {
+  if (!/^https?:\/\//i.test(String(url || ''))) return { ok: false, reason: 'url' };
+  const chrome = await findChromePath();
+  if (chrome) {
+    try {
+      const child = spawn(chrome, [String(url)], { detached: true, stdio: 'ignore' });
+      child.on('error', (err) => console.warn('[Chrome] échec du lancement', err.message));
+      child.unref();
+      return { ok: true, browser: 'chrome' };
+    } catch (err) {
+      console.warn('[Chrome] spawn impossible', err.message);
+    }
+  }
+  console.warn('[Chrome] introuvable, navigateur par défaut');
+  await shell.openExternal(String(url));
+  return { ok: true, browser: 'default' };
+});
+
 // Clic sur le titre de la carte YouTube (2026-09-22, sur demande explicite,
 // "lien YouTube") — tente d'ouvrir l'appli YouTube native (Store/PWA) via son
 // protocole `youtube://`, replie sur le navigateur si aucune appli n'est
@@ -2386,6 +2435,87 @@ function isProtocolRegistered(scheme) {
     execFile('reg', ['query', `HKCR\\${scheme}`], (error) => resolve(!error));
   });
 }
+// ── Pont SMTC (System Media Transport Controls Windows) ──────────────────────
+// Spawn d'un processus PowerShell persistant qui lit et pilote le lecteur actif
+// du système (Spotify, Deezer, Chrome…) via WinRT, sans API ni compte.
+// Protocole : JSON lines sur stdout / commandes texte sur stdin.
+// Windows 10 1809+ uniquement.
+let smtcProc = null;
+let smtcWin  = null;
+let smtcSeq  = 0;
+const smtcPending = new Map();
+
+function smtcStart(win) {
+  if (smtcProc || process.platform !== 'win32') return;
+  smtcWin = win;
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'media-session.ps1');
+  smtcProc = spawn(
+    'powershell.exe',
+    ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+    { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+  );
+  smtcProc.stdout.setEncoding('utf8');
+  let buf = '';
+  smtcProc.stdout.on('data', (chunk) => {
+    buf += chunk;
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type === 'ack') {
+          const p = smtcPending.get(msg.id);
+          if (p) { clearTimeout(p.timer); smtcPending.delete(msg.id); p.resolve(msg.ok); }
+        } else if (msg.type === 'state' || msg.type === 'none') {
+          smtcWin?.webContents?.send('smtc:state', msg);
+        } else if (msg.type === 'thumb') {
+          smtcWin?.webContents?.send('smtc:thumb', msg);
+        } else if (msg.type === 'error') {
+          console.warn('[SMTC]', msg.message, msg.fatal ? '(fatal)' : '');
+          if (msg.fatal) { smtcProc = null; }
+        }
+      } catch { /* ligne non-JSON */ }
+    }
+  });
+  smtcProc.stderr.on('data', (d) => console.warn('[SMTC stderr]', d.toString().trim()));
+  smtcProc.on('close', (code) => {
+    console.log('[SMTC] Processus terminé (code', code, ')');
+    smtcProc = null;
+    smtcWin?.webContents?.send('smtc:state', { type: 'none' });
+  });
+}
+
+function smtcStop() {
+  if (smtcProc) {
+    try { smtcProc.stdin.end(); } catch {}
+    try { smtcProc.kill(); } catch {}
+    smtcProc = null;
+  }
+}
+
+ipcMain.handle('smtc:start', (e) => {
+  if (process.platform !== 'win32') return false;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  smtcStart(win);
+  return true;
+});
+
+ipcMain.handle('smtc:send', async (_e, cmd) => {
+  if (!smtcProc) return false;
+  return new Promise((resolve) => {
+    const id = ++smtcSeq;
+    const timer = setTimeout(() => { smtcPending.delete(id); resolve(false); }, 5000);
+    smtcPending.set(id, { resolve, timer });
+    try { smtcProc.stdin.write(`${id} ${cmd}\n`); }
+    catch (err) { clearTimeout(timer); smtcPending.delete(id); resolve(false); }
+  });
+});
+
+ipcMain.on('smtc:stop', () => smtcStop());
+// ── Fin pont SMTC ─────────────────────────────────────────────────────────────
+
 ipcMain.handle('youtube:openApp', async () => {
   const hasApp = await isProtocolRegistered('youtube').catch(() => false);
   if (hasApp) {
@@ -4744,52 +4874,6 @@ async function getValidGoogleToken() {
 }
 ipcMain.handle('google:getValidToken', getValidGoogleToken);
 
-// Spotify OAuth — store séparé de Google (voir spotify-oauth.js), même schéma
-// de rafraîchissement automatique du token.
-ipcMain.handle('spotify:getToken', () => store.get('spotify'));
-ipcMain.handle('spotify:setToken', (_e, tokenData) => {
-  safeStoreSet('spotify', tokenData);
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
-  return true;
-});
-ipcMain.handle('spotify:login', async () => {
-  const tokenData = await runSpotifyAuthFlow();
-  safeStoreSet('spotify', tokenData);
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', tokenData);
-  return tokenData;
-});
-ipcMain.handle('spotify:logout', () => {
-  safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
-  return true;
-});
-ipcMain.handle('spotify:getValidToken', async () => {
-  const current = store.get('spotify');
-  if (!current?.accessToken) return current;
-
-  if (current.expiresAt && current.expiresAt > Date.now() + TOKEN_EXPIRY_BUFFER_MS) {
-    return current;
-  }
-
-  if (!current.refreshToken) {
-    safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
-    return null;
-  }
-
-  try {
-    const refreshed = await refreshSpotifyAccessToken(current.refreshToken);
-    const updated = { ...current, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken, expiresAt: refreshed.expiresAt };
-    safeStoreSet('spotify', updated);
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', updated);
-    return updated;
-  } catch (err) {
-    console.error('[Spotify OAuth] Échec du rafraîchissement du token', err);
-    safeStoreSet('spotify', { accessToken: null, refreshToken: null, expiresAt: null, email: null, displayName: null });
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('spotify:tokenUpdated', null);
-    return null;
-  }
-});
 
 // ─── Sauvegarde Google Drive — instantanés QUOTIDIENS datés de matin-userdata
 // (2026-08-21, sur demande explicite ; REFONTE COMPLÈTE le 2026-09-11, sur
@@ -5483,6 +5567,7 @@ app.whenReady().then(() => {
 // donné explicitement dans la demande, et se déclenche plus tôt dans la
 // séquence de fermeture, avant que les fenêtres ne commencent à se fermer.
 app.on('before-quit', () => {
+  smtcStop();
   activeIntervals.forEach(clearInterval);
   activeIntervals.length = 0;
 });

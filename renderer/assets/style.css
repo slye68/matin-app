@@ -7255,8 +7255,8 @@ body.ultrawide .module-card { max-width: 500px; }
 
 /* ─── Module : Assistant vocal — avatar holographique (2026-09-25) ──────────
    `.module-card` de base est en position:absolute (left/top posés en JS pour
-   le glisser-déposer) : `position` volontairement NON écrasé. En-tête et
-   poignée masqués, taille fixe. L'orbe (`.module-content`) n'est plus qu'un
+   le glisser-déposer) : `position` volontairement NON écrasé. En-tête
+   masqué, taille libre mais carrée (poignée au survol). L'orbe (`.module-content`) n'est plus qu'un
    conteneur carré de 200px pour l'avatar (voir modules/avatar.js et
    assets/avatar.css) : ni fond, ni arrondi, ni overflow:hidden — le halo
    de l'avatar déborde légèrement. La couronne de 16px autour appartient à la
@@ -7268,8 +7268,8 @@ body.ultrawide .module-card { max-width: 500px; }
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  width: 232px !important;
-  height: 232px !important;
+  /* Taille libre (carrée, 180-640px) : redimensionnable depuis le coin bas
+     droit, voir dashboard.js (aspectRatio 1). */
   min-width: unset !important;
   min-height: unset !important;
   cursor: move;
@@ -7280,8 +7280,11 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 #module-assistant.module-card:hover { outline-color: rgba(148, 163, 184, 0.35); }
 #module-assistant.module-card.dragging { outline-color: var(--accent); outline-style: dashed; }
-#module-assistant .module-header,
-#module-assistant .resize-handle { display: none; }
+#module-assistant .module-header { display: none; }
+/* Poignée visible seulement au survol, pour ne pas encombrer l'avatar. */
+#module-assistant .resize-handle { z-index: 10; opacity: 0; transition: opacity 0.2s; }
+#module-assistant.module-card:hover .resize-handle { opacity: 0.6; }
+#module-assistant.module-card .resize-handle:hover { opacity: 1; }
 #module-assistant .module-content { position: absolute; inset: 16px; padding: 0; overflow: visible; cursor: pointer; }
 
 /* Assistant vocal — réglages : alignement bouton Tester + lien, et bouton
@@ -7338,4 +7341,77 @@ body.ultrawide .module-card { max-width: 500px; }
 .dashboard-window .module-card select {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* ─── Assistant — bloc-notes (2026-09-25, sur demande explicite) ─────────────
+   Panneau déplié sous l'orbe (ou au-dessus, .asst-up), enfant de la carte :
+   il suit le module quand on le déplace. Look "bloc-notes" (papier + lignes),
+   volontairement clair même en thème sombre pour la lisibilité. */
+#module-assistant .asst-panel {
+  position: absolute; z-index: 20;
+  left: 50%; top: calc(100% + 10px);
+  width: max(300px, 135%);
+  transform: translateX(-50%);
+  display: flex; flex-direction: column;
+  background: #fbf3d4;
+  color: #3a3320;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px rgba(0, 0, 0, .15);
+  cursor: default;
+  animation: asst-panel-in .18s ease-out;
+}
+#module-assistant .asst-panel[hidden] { display: none; }
+#module-assistant .asst-panel.asst-up { top: auto; bottom: calc(100% + 10px); }
+@keyframes asst-panel-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; transform: translateX(-50%); } }
+#module-assistant .asst-panel-head {
+  display: flex; align-items: center; gap: 4px;
+  padding: 7px 8px 7px 12px;
+  background: #f0e2a0;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid rgba(0, 0, 0, .12);
+}
+#module-assistant .asst-panel-title { flex: 1; min-width: 0; font: 700 13px/1.2 var(--font-ui, Inter, sans-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#module-assistant .asst-panel-nav { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; opacity: .8; }
+#module-assistant .asst-panel button,
+#module-assistant .asst-notes-btn {
+  border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 3px 5px; border-radius: 5px;
+}
+#module-assistant .asst-panel button:hover:not(:disabled) { background: rgba(0, 0, 0, .12); }
+#module-assistant .asst-panel button:disabled { opacity: .3; cursor: default; }
+#module-assistant .asst-panel-body {
+  max-height: 280px; overflow-y: auto;
+  padding: 8px 14px;
+  white-space: pre-wrap; word-break: break-word;
+  font: 13px/24px var(--font-ui, Inter, sans-serif);
+  background-image: repeating-linear-gradient(transparent 0 23px, rgba(90, 120, 170, .28) 23px 24px);
+  background-attachment: local;
+  user-select: text; -webkit-user-select: text;
+}
+#module-assistant .asst-panel-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 5px 12px 7px; font-size: 10.5px; opacity: .8;
+  border-top: 1px solid rgba(0, 0, 0, .1);
+}
+#module-assistant .asst-panel-foot button { font-size: 11px; background: rgba(0, 0, 0, .07); }
+#module-assistant .asst-notes-btn {
+  /* Hauteur alignée sur la galaxie du socle (pedY = 91 % de l'avatar, qui
+     occupe la carte moins 16px de couronne de chaque côté) ; `right`
+     inchangé = même position horizontale qu'avant. */
+  position: absolute; z-index: 12; right: 4px;
+  top: calc(16px + (100% - 32px) * 0.91);
+  margin-top: -16px;
+  font-size: 16px; padding: 5px 7px;
+  background: rgba(15, 23, 42, .75); border: 1px solid rgba(148, 163, 184, .4); border-radius: 50%;
+  opacity: .85; transition: opacity .15s, transform .15s;
+}
+#module-assistant .asst-notes-btn[hidden] { display: none; }
+#module-assistant .asst-notes-btn:hover { opacity: 1; transform: scale(1.08); }
+#module-assistant .asst-notes-count { font-size: 10px; margin-left: 2px; color: #fbbf24; }
+
+/* Retour visuel quand l'assistant lance une recherche par la barre du
+   dashboard (2026-09-25) : halo cyan 1,2 s, voir dashboard.js runTitlebarSearch. */
+.titlebar-search.is-assistant {
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, .8), 0 0 14px rgba(0, 229, 255, .55);
+  transition: box-shadow .2s ease;
 }

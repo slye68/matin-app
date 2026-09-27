@@ -48,7 +48,7 @@ const MODULE_REGISTRY = {
   fdjEuromillions: { label: 'EuroMillions', icon: '⭐', requiresGoogle: false, defaultSize: { w: 300, h: 320 }, theme: 'fdj' },
   fdjEurodreams:   { label: 'EuroDreams',   icon: '🌟', requiresGoogle: false, defaultSize: { w: 300, h: 260 }, theme: 'fdj' },
   crypto:   { label: 'Crypto',     icon: '₿',   requiresGoogle: false, defaultSize: { w: 700, h: 420 }, theme: 'finance' }, // auto-refresh géré en interne (voir crypto.js)
-  spotify:  { label: 'Spotify',    icon: '🎵',  requiresGoogle: false, defaultSize: { w: 440, h: 320 }, theme: 'musique' }, // auto-refresh géré en interne (voir spotify.js), auth Spotify indépendante de requiresGoogle
+  spotify:  { label: 'Lecteur',    icon: '🎵',  requiresGoogle: false, defaultSize: { w: 440, h: 320 }, theme: 'musique' }, // lecteur média Windows (SMTC) — sans API ni compte
   maps:     { label: 'Maps',       icon: '🗺️',  requiresGoogle: false, defaultSize: { w: 300, h: 130 }, theme: 'services' }, // pas d'auto-refresh : pas de données à rafraîchir, juste un champ de recherche
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   airQuality: { label: 'Qualité air',   icon: '🌡️', requiresGoogle: false, defaultSize: { w: 300, h: 200 }, refreshMs: 30 * 60 * 1000, theme: 'maison' },
@@ -214,7 +214,9 @@ const SIZE_ICON_ONLY_MAX_H = 60;
 // "petite carte générique" par CONCEPTION, pas un cas de rétrécissement
 // accidentel que ces 2 classes sont censées corriger.
 function updateSizeTier(card, width, height, key) {
-  if (isFixedWidthKey(key)) return;
+  // Assistant : l'avatar suit la taille de la carte lui-même, jamais le
+  // `zoom` des paliers compacts (qui fausserait ses canvas).
+  if (isFixedWidthKey(key) || key === 'assistant') return;
   const compact = width <= SIZE_COMPACT_CONTENT_MAX_W || height <= SIZE_COMPACT_CONTENT_MAX_H;
   const iconOnly = width <= SIZE_ICON_ONLY_MAX_W || height <= SIZE_ICON_ONLY_MAX_H;
   card.classList.toggle('size-compact-content', compact);
@@ -473,6 +475,30 @@ async function updateHeaderGreeting() {
 // contrairement à app.background/app.displayMode ce champ n'a pas besoin
 // d'un effet visuel immédiat dans le dashboard — inutile de le pousser par
 // IPC (voir background:updated/displayMode:updated) juste pour ça.
+// Recherche via la barre du dashboard — utilisée par le formulaire ET par
+// l'assistant vocal (outil open_web_search, voir assistant.js). `browser` :
+// 'default' (comportement d'origine du formulaire) ou 'chrome'. `assistant` :
+// halo cyan de 1,2 s sur la barre (classe is-assistant) puis champ vidé.
+async function runTitlebarSearch(query, { browser = 'default', assistant = false } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return { ok: false, reason: 'empty' };
+  const form = document.getElementById('titlebarSearch');
+  const input = document.getElementById('titlebarSearchInput');
+  if (assistant && input) {
+    input.value = q;   // la recherche apparaît un instant dans la barre
+    form?.classList.add('is-assistant');
+    setTimeout(() => { form?.classList.remove('is-assistant'); if (input.value === q) input.value = ''; }, 1200);
+  }
+  const engineId = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
+  const engine = window.SearchEngines.findById(engineId);
+  const url = window.SearchEngines.buildSearchUrl(engine.id, q);
+  const res = browser === 'chrome'
+    ? await window.matin.shell.openInChrome(url)
+    : (await window.matin.shell.openExternal(url), { ok: true, browser: 'default' });
+  return { ...res, engine: engine.label, query: q };
+}
+window.runTitlebarSearch = runTitlebarSearch;
+
 function initTitlebarSearch() {
   const form = document.getElementById('titlebarSearch');
   const input = document.getElementById('titlebarSearchInput');
@@ -482,9 +508,7 @@ function initTitlebarSearch() {
     e.preventDefault();
     const query = input.value.trim();
     if (!query) return;
-    const engineId = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
-    const url = window.SearchEngines.buildSearchUrl(engineId, query);
-    window.matin.shell.openExternal(url);
+    runTitlebarSearch(query);
   });
 }
 
@@ -1894,6 +1918,11 @@ function sortByCategoryOrder(cardsInfo, order) {
 // Prioritaire — ETF/Gmail/Agenda passent en tête de liste (se retrouvent
 // donc naturellement sur la 1re rangée, à leur taille réelle), le reste suit
 // dans l'ordre de catégorie standard.
+// Modules masqués (2026-09-25, sur demande explicite) : jamais rendus sur le
+// dashboard, absents de Paramètres et de l'assistant, même si `enabled` est
+// resté à true dans le store d'une installation existante. Gmail : scope
+// « restreint » Google (audit payant), voir main/auth/google-oauth.js.
+const HIDDEN_MODULE_KEYS = ['gmail'];
 const AUTOARRANGE_PRIORITY_KEYS = ['etf', 'gmail', 'calendar'];
 function autoArrangeOrderPrioritaire(cardsInfo) {
   const priority = AUTOARRANGE_PRIORITY_KEYS
@@ -2168,7 +2197,7 @@ function makeInteractive(card, key, dashboard, canvas) {
       allowFrom: key === 'assistant'
         ? null
         : (isFixedWidthKey(key) ? '.module-header, .shortcuts-module' : '.module-header'),
-      ignoreFrom: key === 'assistant' ? '.module-content' : null,
+      ignoreFrom: key === 'assistant' ? '.module-content, .asst-panel, .asst-notes-btn' : null,
       // Accrochage à la grille retiré (2026-08-11, sur demande explicite) —
       // placement libre au pixel près, seule la restriction aux bords du
       // dashboard reste active.
@@ -2218,6 +2247,11 @@ function makeInteractive(card, key, dashboard, canvas) {
           // si la fenêtre change de mode entre 2 sessions de redimensionnement.
           max: () => ({ width: document.body.classList.contains('ultrawide') ? 500 : Infinity, height: Infinity }),
         }),
+        // Assistant (2026-09-25) : carte toujours carrée, entre 180 et 640px.
+        ...(key === 'assistant' ? [
+          interact.modifiers.aspectRatio({ ratio: 1 }),
+          interact.modifiers.restrictSize({ min: { width: 180, height: 180 }, max: { width: 640, height: 640 } }),
+        ] : []),
         interact.modifiers.restrictEdges({ outer: () => dashboardBounds(dashboard) }),
       ],
       listeners: {
@@ -2631,7 +2665,7 @@ async function initDashboard() {
   // Trier par position (sert uniquement à ordonner la disposition PAR DÉFAUT —
   // une fois une disposition enregistrée, position n'a plus d'effet visuel)
   const sorted = Object.entries(modulesConf)
-    .filter(([, m]) => m.enabled)
+    .filter(([key, m]) => m.enabled && !HIDDEN_MODULE_KEYS.includes(key))
     .sort(([, a], [, b]) => a.position - b.position);
 
   applyScreenModeClass();

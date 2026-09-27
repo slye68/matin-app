@@ -36,9 +36,10 @@ Tu as accès au dashboard de l'utilisateur via des outils :
 - control_lights : allume/éteint/règle la luminosité des lumières (Hue, Kasa, Trådfri), toutes ou par nom.
 - control_shutters : ouvre/ferme ou règle le pourcentage des volets Somfy, tous ou par nom.
 - control_climate : climatisation (marche/arrêt, mode, température).
-- control_music : Spotify (play, pause, suivant, précédent).
+- control_music : contrôle le lecteur audio actif sur le PC (Spotify, Deezer, Chrome…) via Windows : play, pause, suivant, précédent. Aucun compte requis.
 - open_shortcut : ouvre Gmail, Drive, YouTube, Agenda, Photos ou Maps.
 - set_wallpaper : change le fond d'écran du dashboard (Paramètres → Personnaliser). Nom du fond (ex. « aurore boréale », « plage », « neige », « aucun »), ou « aléatoire »/« suivant ». Certains fonds ne vont qu'avec le thème sombre, d'autres qu'avec le thème clair : si le fond demandé ne correspond pas au thème actuel, dis-le et propose de basculer le thème (execute_dashboard_command TOGGLE_THEME).
+- open_web_search : ouvre une recherche dans Google Chrome via la barre de recherche du dashboard. À utiliser dès que l'utilisateur veut VOIR une recherche (« fais une recherche sur… », « cherche … sur Internet/Google », « ouvre Chrome et cherche … »). Après l'appel, dis seulement que c'est ouvert. Pour une question dont tu donnes toi-même la réponse à voix haute (« quel est le cours de l'or ? »), n'utilise pas cet outil (utilise web_search si besoin).
 - show_note : affiche un texte écrit dans un bloc-notes à l'écran (recette, liste, résumé, explication longue…). Dès que l'utilisateur demande quelque chose d'écrit ou de long à consulter, utilise show_note avec le contenu COMPLET en texte simple (une ligne par élément, "- " pour les listes, lignes vides entre sections, jamais de markdown ni de HTML), puis dis seulement à voix haute que c'est affiché. Si le texte vient d'une recherche web, passe source = numéro [source n] du résultat web ; ne recopie jamais d'URL.
 - show_source : ajoute un lien de source (icône internet) au dernier bloc-notes, ou en crée un. À utiliser quand l'utilisateur demande la source ou le lien : passe source = numéro [source n] du résultat web ; ne recopie jamais d'URL, et ne lis jamais de lien à voix haute.
 Confirme brièvement à voix haute ce que tu as fait, ou dis clairement si une action a échoué.
@@ -247,22 +248,19 @@ async function assistantControlClimate({ power, mode, temperature, target }) {
   return done.length ? { result: `Climatisation mise à jour : ${done.join(', ')}`, ...(failed.length ? { errors: failed } : {}) } : { error: failed.join(' ; ') };
 }
 
-// Spotify via l'API Web (scope user-modify-playback-state déjà demandé à la
-// connexion) — nécessite un compte PREMIUM et un appareil Spotify actif.
+/** Commande SMTC + retour formaté pour l'assistant. */
+async function assistantSmtcControl(cmd) {
+  try { return await window.matin.smtc.send(cmd); } catch { return false; }
+}
+
+// Contrôle du lecteur média Windows (SMTC) — sans compte, sans Premium.
+// play/pause/next/previous via les System Media Transport Controls Windows.
 async function assistantControlMusic({ action }) {
-  const tokenData = await window.matin.spotify.getValidToken();
-  if (!tokenData?.accessToken) return { error: 'Spotify non connecté (Paramètres → Compte Spotify).' };
-  const routes = {
-    play: ['PUT', '/me/player/play'], pause: ['PUT', '/me/player/pause'],
-    next: ['POST', '/me/player/next'], previous: ['POST', '/me/player/previous'],
-  };
-  const r = routes[action];
-  if (!r) return { error: 'Action invalide (play, pause, next, previous).' };
-  const res = await fetch(`https://api.spotify.com/v1${r[1]}`, { method: r[0], headers: { Authorization: `Bearer ${tokenData.accessToken}` } });
-  if (res.ok || res.status === 204) return { result: `Spotify : ${action}` };
-  if (res.status === 403) return { error: 'Spotify refuse : compte Premium requis, ou scope à re-consentir (déconnecter/reconnecter Spotify).' };
-  if (res.status === 404) return { error: 'Aucun appareil Spotify actif : lance la lecture une fois sur un appareil.' };
-  return { error: `Spotify a répondu ${res.status}` };
+  if (!['play', 'pause', 'next', 'previous'].includes(action)) return { error: 'Action invalide.' };
+  const ok = await assistantSmtcControl(action);
+  if (!ok) return { error: 'Aucun lecteur actif sur le PC. Lance un lecteur (Spotify, Deezer…) et réessaie.' };
+  const labels = { play: 'Lecture lancée.', pause: 'Lecture en pause.', next: 'Morceau suivant.', previous: 'Morceau précédent.' };
+  return { result: labels[action] };
 }
 
 // Recherche web DuckDuckGo (exécutée côté main, voir main.js assistant:webSearch).
@@ -584,6 +582,17 @@ async function assistantSetWallpaper({ name }) {
   return { result: `Fond « ${chosen.label} » appliqué` };
 }
 
+// Recherche ouverte dans Chrome via la barre de recherche du dashboard
+// (2026-09-25, sur demande explicite) : moteur choisi dans Paramètres →
+// Services (window.SearchEngines), voir dashboard.js runTitlebarSearch.
+// Aucun module à rafraîchir : volontairement absent d'ASSISTANT_TOOL_MODULES.
+async function assistantOpenWebSearch({ query }) {
+  if (typeof window.runTitlebarSearch !== 'function') return { error: 'Barre de recherche indisponible.' };
+  const r = await window.runTitlebarSearch(query, { browser: 'chrome', assistant: true });
+  if (!r.ok) return { error: r.reason === 'empty' ? 'Requête vide.' : "Impossible d'ouvrir la recherche." };
+  return { result: `Recherche « ${r.query} » ouverte sur ${r.engine} dans ${r.browser === 'chrome' ? 'Google Chrome' : 'le navigateur par défaut (Chrome introuvable)'}.` };
+}
+
 // Lance un raccourci du module Raccourcis (services Google) dans le navigateur.
 async function assistantOpenShortcut({ name }) {
   const defs = window.ShortcutsDefs || [];
@@ -601,6 +610,7 @@ const ASSISTANT_TOOL_MODULES = {
   control_climate: ['fglair'],
   control_lights: ['hue', 'kasa', 'tradfri'],
   control_shutters: ['somfyTahoma'],
+  control_music: ['spotify'],
 };
 async function assistantRefreshModulesFor(tool) {
   const keys = ASSISTANT_TOOL_MODULES[tool];
@@ -633,6 +643,7 @@ async function assistantRunToolRaw(name, args) {
       case 'control_music': return await assistantControlMusic(args || {});
       case 'open_shortcut': return await assistantOpenShortcut(args || {});
       case 'set_wallpaper': return await assistantSetWallpaper(args || {});
+      case 'open_web_search': return await assistantOpenWebSearch(args || {});
       case 'show_note': return await assistantShowNote(args || {});
       case 'show_source': return await assistantShowSource(args || {});
       default: return { error: `Outil inconnu : ${name}` };
@@ -983,12 +994,15 @@ function assistantHandleMessage(event) {
 // (2026-09-25) : réglage `assistant_model` s'il existe dans la liste, puis
 // ASSISTANT_MODEL_PREFERENCE, puis un score sans bonus "flash" (qui faisait
 // retenir un aperçu remplacé, sans Google Search, au lieu de gemini-3.8-live).
-const ASSISTANT_MODEL_PREFERENCE = ['gemini-3.8-live', 'gemini-2.5-flash-native-audio-preview-12-2025', 'gemini-3.1-flash-live-preview'];
+// `gemini-2.5-flash-native-audio-latest` : celui qui fonctionnait sur le
+// niveau gratuit avant ce classement ; repli si 3.8-live dépasse son quota.
+const ASSISTANT_MODEL_PREFERENCE = ['gemini-3.8-live', 'gemini-2.5-flash-native-audio-latest', 'gemini-2.5-flash-native-audio-preview-12-2025', 'gemini-3.1-flash-live-preview'];
 // Modèles Live qui refusent l'outil google_search.
 const ASSISTANT_NO_GOOGLE_SEARCH = ['gemini-3.1-flash-live-preview'];
 // Appels d'outils synchrones : le modèle attend la réponse avant de parler.
 const assistantBlocking = (decls) => decls.map((d) => ({ ...d, behavior: 'BLOCKING' }));
 let assistantLiveModel = null;
+let assistantQuotaRetries = 0; // relances auto sur quota épuisé, remis à 0 à chaque clic
 async function assistantPickLiveModel(apiKey) {
   if (assistantLiveModel) return assistantLiveModel;
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`);
@@ -1000,25 +1014,49 @@ async function assistantPickLiveModel(apiKey) {
   const bare = (m) => m.name.replace(/^models\//, '');
   const byBare = (id) => live.find((m) => bare(m) === id);
 
+  const exhausted = await assistantExhaustedModels();
+  const usable = (m) => m && !exhausted.includes(bare(m));
+  if (exhausted.length) console.log('[Assistant] Quota épuisé aujourd\'hui (ignorés) :', exhausted);
+
   const forced = String((await window.matin.store.get('assistant_model')) || '').replace(/^models\//, '');
-  if (forced && byBare(forced)) {
+  if (forced && usable(byBare(forced))) {
     assistantLiveModel = byBare(forced).name;
     console.log('[Assistant] Choix du modèle : réglage assistant_model');
     return assistantLiveModel;
   }
-  if (forced) console.warn(`[Assistant] assistant_model « ${forced} » absent de la liste, choix automatique.`);
+  if (forced) console.warn(`[Assistant] assistant_model « ${forced} » absent de la liste ou quota épuisé, choix automatique.`);
   for (const id of ASSISTANT_MODEL_PREFERENCE) {
-    if (byBare(id)) {
+    if (usable(byBare(id))) {
       assistantLiveModel = byBare(id).name;
       console.log(`[Assistant] Choix du modèle : ordre de préférence (${id})`);
       return assistantLiveModel;
     }
   }
+  // Repli : jamais les modèles Live spécialisés (transcription, traduction,
+  // robotique), qui ne font pas de conversation.
+  const candidates = live.filter((m) => usable(m) && !/transcribe|translate|robotics/i.test(m.name));
+  if (!candidates.length) throw new Error('Quota épuisé sur tous les modèles Live disponibles aujourd\'hui.');
   const score = (n) => (/native-audio|live/i.test(n) ? 2 : 0) - (/preview|exp/i.test(n) ? 0.5 : 0);
-  live.sort((a, b) => score(b.name) - score(a.name));
-  assistantLiveModel = live[0].name;
+  candidates.sort((a, b) => score(b.name) - score(a.name));
+  assistantLiveModel = candidates[0].name;
   console.log('[Assistant] Choix du modèle : repli par score (aucun modèle préféré disponible)');
   return assistantLiveModel;
+}
+
+// Modèles au quota gratuit épuisé (2026-09-25) : mémorisés pour la journée
+// (les quotas gratuits se renouvellent chaque jour), pour ne pas retenter à
+// chaque session un modèle qui échouera. Remis à zéro au changement de date.
+const ASSISTANT_EXHAUSTED_KEY = 'assistant_quota_exhausted';
+const assistantToday = () => new Date().toISOString().slice(0, 10);
+async function assistantExhaustedModels() {
+  const saved = await window.matin.store.get(ASSISTANT_EXHAUSTED_KEY);
+  return saved?.date === assistantToday() && Array.isArray(saved.models) ? saved.models : [];
+}
+async function assistantMarkExhausted(model) {
+  const models = await assistantExhaustedModels();
+  const id = model.replace(/^models\//, '');
+  if (!models.includes(id)) models.push(id);
+  await window.matin.store.set(ASSISTANT_EXHAUSTED_KEY, { date: assistantToday(), models });
 }
 
 async function assistantStartSession() {
@@ -1143,7 +1181,7 @@ async function assistantStartSession() {
               },
               {
                 name: 'control_music',
-                description: 'Contrôle la lecture Spotify : play, pause, morceau suivant ou précédent.',
+                description: 'Contrôle le lecteur audio actif (Spotify, Deezer, Chrome…) via Windows : play, pause, morceau suivant ou précédent.',
                 parameters: { type: 'OBJECT', properties: { action: { type: 'STRING', enum: ['play', 'pause', 'next', 'previous'] } }, required: ['action'] },
               },
               {
@@ -1155,6 +1193,11 @@ async function assistantStartSession() {
                 name: 'set_wallpaper',
                 description: "Change le fond d'écran du dashboard. name = nom du fond (aurore boréale, plage, neige, pluie, matrix, étoilé, nébuleuse, lac et forêt, montagne, particules, papier, dégradé, givre, sapins…), « aucun », « aléatoire » ou « suivant ».",
                 parameters: { type: 'OBJECT', properties: { name: { type: 'STRING' } }, required: ['name'] },
+              },
+              {
+                name: 'open_web_search',
+                description: "Ouvre une recherche Internet dans Google Chrome via la barre de recherche du dashboard (moteur configuré par l'utilisateur). À utiliser quand l'utilisateur demande de faire/lancer/ouvrir une recherche, de chercher quelque chose sur Internet ou sur Google, ou d'ouvrir Chrome pour chercher.",
+                parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'Termes à rechercher, reformulés proprement' } }, required: ['query'] },
               },
               {
                 name: 'show_note',
@@ -1178,15 +1221,28 @@ async function assistantStartSession() {
     else assistantHandleMessage(event);
   };
   ws.onerror = (e) => { console.error('[Assistant] Erreur WebSocket Gemini Live :', e); };
-  ws.onclose = (e) => {
+  ws.onclose = async (e) => {
     console.warn(`[Assistant] Session Gemini Live fermée (code ${e.code}) : ${e.reason || '(aucune raison fournie)'}`);
-    if (assistantWs === ws) { assistantDisconnect(); assistantSetState('idle'); }
+    if (assistantWs !== ws) return;
+    // Quota dépassé : on écarte ce modèle pour la journée et on relance
+    // aussitôt avec le suivant (limité : au plus une relance par modèle).
+    const quota = /quota|exceeded|RESOURCE_EXHAUSTED|rate limit/i.test(e.reason || '');
+    const sessionWasLive = assistantHadModelTurn;
+    assistantDisconnect();
+    assistantSetState('idle');
+    if (quota && !sessionWasLive && assistantQuotaRetries < ASSISTANT_MODEL_PREFERENCE.length + 2) {
+      assistantQuotaRetries++;
+      await assistantMarkExhausted(model);
+      assistantLiveModel = null;
+      console.warn(`[Assistant] Quota épuisé sur ${model} : essai du modèle suivant…`);
+      assistantStartSession();
+    }
   };
 }
 
 function assistantToggle() {
   if (assistantWs) { assistantDisconnect(); assistantSetState('idle'); }
-  else assistantStartSession();
+  else { assistantQuotaRetries = 0; assistantStartSession(); }
 }
 
 window.MatinModules.assistant = {

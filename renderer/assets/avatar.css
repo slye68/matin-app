@@ -8,14 +8,34 @@
   user-select: none;
   pointer-events: none;           /* les clics restent gérés par le conteneur */
 }
+/* Fond NOIR derrière le visage (2026-09-25, sur demande explicite) : disque
+   noir sous le visage + ellipse sous le socle, fondus vers la transparence
+   comme le masque de l'image (mêmes centres/rayons que .av-img). */
+.matin-avatar::before {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(ellipse 25% 37% at 49.8% 46%, #000 0, #000 70%, transparent 100%),
+    radial-gradient(ellipse 40% 12% at 50% 88.3%, #000 55%, transparent 100%);
+}
 .matin-avatar .av-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .matin-avatar .av-back  { z-index: 1; }
 .matin-avatar .av-front { z-index: 5; mix-blend-mode: screen; }
 
 .matin-avatar .av-face {
   position: absolute; inset: 0; z-index: 2;
-  transform-origin: 50.5% 45%;
+  transform-origin: 49.8% 44%;
   will-change: transform, filter;
+}
+/* Le fond bleu nuit de l'image est écrasé vers le noir (contraste) ; le
+   visage cyan, plus lumineux, est conservé. */
+.matin-avatar .av-img,
+.matin-avatar .av-jaw { filter: brightness(1.04) contrast(1.08); }   /* la copie mâchoire doit avoir le même rendu que l'image */
+/* Copie de l'image, niveaux de gris très contrastés, en fusion additive :
+   seuls les pixels les plus lumineux (points, lignes des constellations)
+   ressortent, en blanc. Même masque que .av-img. */
+.matin-avatar .av-img-white {
+  z-index: 1; mix-blend-mode: screen; opacity: .45;
+  filter: grayscale(1) brightness(.75) contrast(3.2);
 }
 .matin-avatar .av-img,
 .matin-avatar .av-jaw {
@@ -25,19 +45,20 @@
   -webkit-user-drag: none;
 }
 /* Fondu doux des bords de l'image (cercle + socle) */
-.matin-avatar .av-img {
+.matin-avatar .av-img,
+.matin-avatar .av-img-white {
   -webkit-mask-image:
-    radial-gradient(circle at 50.7% 43%, #000 36%, transparent 50%),
-    radial-gradient(ellipse 36% 11% at 50.7% 91%, #000 45%, transparent 100%);
+    radial-gradient(ellipse 19.5% 33% at 49.8% 46%, #000 68%, transparent 100%),
+    radial-gradient(ellipse 38% 11% at 50% 88.3%, #000 45%, transparent 100%);
           mask-image:
-    radial-gradient(circle at 50.7% 43%, #000 36%, transparent 50%),
-    radial-gradient(ellipse 36% 11% at 50.7% 91%, #000 45%, transparent 100%);
+    radial-gradient(ellipse 19.5% 33% at 49.8% 46%, #000 68%, transparent 100%),
+    radial-gradient(ellipse 38% 11% at 50% 88.3%, #000 45%, transparent 100%);
 }
 /* Intérieur de bouche révélé quand la mâchoire descend */
 .matin-avatar .av-mouth {
   position: absolute; z-index: 1;
-  left: 50.5%; top: 55.8%;
-  width: 9.5%; height: 2.2%;
+  left: 49.9%; top: 57.3%;
+  width: 10.5%; height: 2.2%;
   transform: translate(-50%, -50%) scaleY(0);
   border-radius: 50%;
   background:
@@ -47,19 +68,88 @@
 /* Mâchoire : copie de l'image limitée au menton */
 .matin-avatar .av-jaw {
   z-index: 2;
-  -webkit-mask-image: radial-gradient(ellipse 10.5% 7.8% at 50.5% 62.6%, #000 62%, transparent 100%);
-          mask-image: radial-gradient(ellipse 10.5% 7.8% at 50.5% 62.6%, #000 62%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 11.5% 7.8% at 49.9% 63%, #000 62%, transparent 100%);
+          mask-image: radial-gradient(ellipse 11.5% 7.8% at 49.9% 63%, #000 62%, transparent 100%);
 }
-/* Lumière additive sur les yeux de l'image */
+/* YEUX SUPPRIMÉS (2026-09-25, sur demande explicite — "on abandonne l'idée, les
+   yeux restent fermés tout le temps") : la lueur colorée est masquée en
+   permanence, quel que soit l'état. Le balisage .av-eye et les réglages
+   ci-dessous sont conservés (avatar.js les pilote toujours, sans effet
+   visible) pour pouvoir les réactiver en retirant simplement cette règle. */
+.matin-avatar .av-eye { display: none !important; }
+/* Yeux ouverts superposés à l'image (dont les yeux sont fermés/étroits).
+   mix-blend-mode NORMAL (plus screen) : l'additif sur ces pixels déjà
+   clairs saturait vers le blanc, la couleur ne ressortait jamais. Deux
+   couches : iris (disque plein, bord adouci) + halo elliptique autour.
+   Ouverture/clignement pilotés par opacity + scaleY (avatar.js). */
 .matin-avatar .av-eye {
   position: absolute; z-index: 3;
-  width: 11%; height: 5%;
-  top: 41.4%;
+  width: 6.5%; height: 2.4%;
+  top: 42.3%;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(ellipse at 50% 50%, rgba(200,245,255,.95) 0%, rgba(90,210,255,.55) 32%, rgba(0,160,255,0) 70%);
-  mix-blend-mode: screen;
+  background:
+    radial-gradient(circle closest-side at 50% 50%, #9A11B8 0%, #9A11B8 35%, rgba(154,17,184,.65) 70%, rgba(154,17,184,0) 100%),
+    radial-gradient(ellipse at 50% 50%, rgba(154,17,184,.35) 0%, rgba(154,17,184,.16) 50%, rgba(154,17,184,0) 74%);
   opacity: 0;
 }
-.matin-avatar .av-eye-l { left: 44.7%; }
-.matin-avatar .av-eye-r { left: 57.2%; }
+/* Positions relevées sur avatar-holo.webp (fentes des yeux à ~42,6 % et
+   ~57,7 % de la largeur, ~41 % de la hauteur) — avant : 44,7 %/57,2 %, trop
+   resserrées, les lueurs tombaient à côté des yeux. */
+/* Centres MESURÉS sur avatar-holo-2k.webp (barycentre de la lueur des paupières,
+   canvas + Electron) : gauche (41,8 %, 42,5 %), droite (58,5 %, 42,0 %) — le
+   visage est très légèrement asymétrique, d'où un top propre à chaque œil. */
+.matin-avatar .av-eye-l { left: 41.8%; top: 42.5%; }
+.matin-avatar .av-eye-r { left: 58.5%; top: 42%; }
+
+/* Idle : yeux revenus au bleu d'origine (lueur additive douce, opacité
+   ~12 % pilotée par avatar.js) — le vert #00ff8c ne s'affiche que dans les
+   autres états (écoute, réflexion, parole). */
+.matin-avatar[data-state="idle"] .av-eye {
+  background: radial-gradient(ellipse at 50% 50%, rgba(200,245,255,.95) 0%, rgba(90,210,255,.55) 32%, rgba(0,160,255,0) 70%);
+  mix-blend-mode: screen;
+}
+
+/* Sourire : arc lumineux au niveau des lèvres (opacité/échelle pilotées par
+   avatar.js, MS.s) — s'ajoute à l'intérieur de bouche et à la mâchoire. */
+.matin-avatar .av-smile {
+  position: absolute; z-index: 3;
+  left: 49.9%; top: 56.7%;
+  width: 10.5%; height: 1.8%;
+  transform: translate(-50%, -50%);
+  border-bottom: 2px solid rgba(170, 240, 255, .9);
+  border-radius: 0 0 50% 50%;
+  box-shadow: 0 2px 6px rgba(90, 210, 255, .55);
+  opacity: 0;
+}
+
+/* Visage éclairci (2026-09-25, sur demande explicite) : le filtre de contraste
+   de .av-img, réglé pour noircir le fond, assombrissait aussi le visage.
+   Copie de l'image, plus claire, en fusion additive et MASQUÉE à la tête
+   (ellipse) : ni le fond ni la galaxie du socle ne sont touchés. */
+.matin-avatar .av-img-face {
+  z-index: 1; mix-blend-mode: screen; opacity: .3;
+  filter: brightness(1.15) saturate(1.05);
+  -webkit-mask-image: radial-gradient(ellipse 17% 27% at 49.8% 42%, #000 55%, transparent 100%);
+          mask-image: radial-gradient(ellipse 17% 27% at 49.8% 42%, #000 55%, transparent 100%);
+}
+
+/* Contours du visage illuminés pendant la PAROLE uniquement (2026-09-25, sur
+   demande explicite) : copie de l'image très éclaircie et désaturée
+   (blanc-cyan), en fusion additive, MASQUÉE aux yeux, au nez et à la bouche
+   (union de 4 ellipses). Le contour éclairé est celui déjà dessiné dans
+   l'image ; l'opacité suit la voix (avatar.js, .av-img-feat), 0 hors parole. */
+.matin-avatar .av-img-feat {
+  z-index: 1; mix-blend-mode: screen; opacity: 0;
+  filter: brightness(1.7) saturate(.35) contrast(1.05);
+  -webkit-mask-image:
+    radial-gradient(ellipse 5.5% 2.4% at 41.8% 42.5%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 5.5% 2.4% at 58.5% 42%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 5.5% 5.5% at 49.9% 49.5%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 6.5% 2.8% at 49.9% 57.3%, #000 35%, transparent 100%);
+          mask-image:
+    radial-gradient(ellipse 5.5% 2.4% at 41.8% 42.5%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 5.5% 2.4% at 58.5% 42%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 5.5% 5.5% at 49.9% 49.5%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 6.5% 2.8% at 49.9% 57.3%, #000 35%, transparent 100%);
+}

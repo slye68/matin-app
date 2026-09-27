@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('matin', {
   // ── Shell ─────────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+    openInChrome: (url) => ipcRenderer.invoke('shell:openInChrome', url),
     // 2026-08-30, voir bouton "📥 Exporter mes données" (Paramètres →
     // Sauvegardes) — révèle le fichier fraîchement exporté dans l'Explorateur.
     showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
@@ -295,14 +296,21 @@ contextBridge.exposeInMainWorld('matin', {
     onTokenUpdated: (cb)       => ipcRenderer.on('google:tokenUpdated', (_e, data) => cb(data)),
   },
 
-  // ── Spotify OAuth ─────────────────────────────────────────────────────────
-  spotify: {
-    getToken:       ()         => ipcRenderer.invoke('spotify:getToken'),
-    getValidToken:  ()         => ipcRenderer.invoke('spotify:getValidToken'),
-    setToken:       (data)     => ipcRenderer.invoke('spotify:setToken', data),
-    login:          ()         => ipcRenderer.invoke('spotify:login'),
-    logout:         ()         => ipcRenderer.invoke('spotify:logout'),
-    onTokenUpdated: (cb)       => ipcRenderer.on('spotify:tokenUpdated', (_e, data) => cb(data)),
+
+  // ── SMTC (System Media Transport Controls Windows) ──────────────────────────
+  smtc: {
+    /** Lance le pont (no-op si déjà démarré ou non-Windows). */
+    start:    ()        => ipcRenderer.invoke('smtc:start'),
+    /** Envoie une commande : 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'refresh'. */
+    send:     (cmd)     => ipcRenderer.invoke('smtc:send', cmd),
+    /** Arrête le pont. */
+    stop:     ()        => ipcRenderer.send('smtc:stop'),
+    /** Abonnement aux changements d'état. */
+    onState:  (cb)      => { ipcRenderer.on('smtc:state', (_e, msg) => cb(msg)); },
+    /** Abonnement aux pochettes. */
+    onThumb:  (cb)      => { ipcRenderer.on('smtc:thumb', (_e, msg) => cb(msg)); },
+    offState: ()        => ipcRenderer.removeAllListeners('smtc:state'),
+    offThumb: ()        => ipcRenderer.removeAllListeners('smtc:thumb'),
   },
 
   // ── Sync Google Drive (dossier appData, voir main.js performDriveLaunchSync/

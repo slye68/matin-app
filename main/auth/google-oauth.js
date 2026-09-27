@@ -98,7 +98,13 @@ const SCOPES = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/gmail.readonly',
+  // gmail.readonly RETIRÉ (2026-09-25, sur demande explicite — masquer Gmail
+  // pour la version Store) : scope « restreint » chez Google, qui impose la
+  // vérification OAuth + un audit de sécurité annuel payant pour une
+  // distribution publique. Module Gmail masqué côté dashboard/Paramètres
+  // (voir HIDDEN_MODULE_KEYS, dashboard.js). Pour le réactiver : remettre
+  // cette ligne 'https://www.googleapis.com/auth/gmail.readonly' ET retirer
+  // 'gmail' de HIDDEN_MODULE_KEYS/le remettre dans TAB_MODULE_ORDER (config.js).
   // Module Tâches Google (2026-08-06) — pas *.readonly : le module coche/
   // ajoute/supprime des tâches, donc écriture nécessaire.
   'https://www.googleapis.com/auth/tasks',

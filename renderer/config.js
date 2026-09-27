@@ -51,7 +51,7 @@ const MODULE_META = {
   // uniquement).
   crypto:   { label: 'Crypto',       icon: '₿',    requiresGoogle: false,
               linesField: { idKey: 'symbol', idLabel: 'Crypto', idPlaceholder: 'BTC', title: 'Lignes du portefeuille (crypto)', datalist: 'crypto-symbols-datalist', investedMode: true } },
-  spotify:  { label: 'Spotify',      icon: '🎵',   requiresGoogle: false },
+  spotify:  { label: 'Lecteur',      icon: '🎵',   requiresGoogle: false },
   // 6 modules ajoutés en autonomie (2026-08-05, voir CONTEXT.md)
   // Champ "Ville" ajouté le 2026-09-01 (sur demande explicite, même
   // `configField` générique que Météo ci-dessus) — vide = réutilise la ville
@@ -165,6 +165,19 @@ let assistantGeminiKey = '';
 let assistantShortcutValue = '';
 let assistantLangValue = 'fr-FR';
 let assistantGainValue = 1; // sensibilité micro (gain logiciel), voir assistant.js
+let assistantVoiceValue = ''; // '' = automatique (voix par langue, voir assistant.js)
+// Voix prédéfinies de Gemini Live (nom exact attendu par l'API + caractère
+// décrit par Google). Toutes sont multilingues.
+const ASSISTANT_VOICES = [
+  ['Aoede', 'légère'], ['Kore', 'ferme'], ['Leda', 'jeune'], ['Zephyr', 'lumineuse'],
+  ['Autonoe', 'lumineuse'], ['Callirrhoe', 'décontractée'], ['Despina', 'douce'], ['Erinome', 'claire'],
+  ['Laomedeia', 'enjouée'], ['Achernar', 'douce'], ['Gacrux', 'mûre'], ['Pulcherrima', 'directe'],
+  ['Vindemiatrix', 'calme'], ['Sulafat', 'chaleureuse'], ['Puck', 'enjouée'], ['Charon', 'informative'],
+  ['Fenrir', 'vive'], ['Orus', 'ferme'], ['Enceladus', 'soufflée'], ['Iapetus', 'claire'],
+  ['Umbriel', 'décontractée'], ['Algieba', 'posée'], ['Algenib', 'rauque'], ['Rasalgethi', 'informative'],
+  ['Alnilam', 'ferme'], ['Schedar', 'égale'], ['Achird', 'amicale'], ['Zubenelgenubi', 'naturelle'],
+  ['Sadachbia', 'vivante'], ['Sadaltager', 'savante'],
+];
 
 // ─── Onglets (2026-08-06, sur demande explicite) ───────────────────────────
 // Réorganisation complète de Paramètres : Profil reste hors onglets (voir
@@ -212,7 +225,7 @@ const TAB_MODULE_ORDER = {
   // Gmail/Agenda → Services (2026-09-01, 2e demande explicite le même jour)
   // — retirés d'Utile, qui garde Rappels/Météo/Qualité de l'air/Tâches
   // Google/Anniversaires/Alertes/Maps.
-  services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'gmail', 'shortcuts'],
+  services:   ['fuelPrices', 'priceTracking', 'nasa', 'calendar', 'shortcuts'],   // 'gmail' masqué (2026-09-25), voir HIDDEN_MODULE_KEYS dans dashboard.js
   utile:      ['reminders', 'weather', 'airQuality', 'googleTasks', 'birthdays', 'alerts', 'maps', 'assistant'],
 };
 
@@ -648,6 +661,7 @@ async function initConfig() {
   assistantShortcutValue = (await window.matin.store.get('assistant_shortcut')) || '';
   assistantLangValue = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
   assistantGainValue = Number(await window.matin.store.get('assistant_gain')) || 1;
+  assistantVoiceValue = (await window.matin.store.get('assistant_voice')) || '';
 
   // Ordre des onglets persisté indépendamment de modulesState (pas un
   // module, pas soumis au bouton "Enregistrer" — sauvegarde immédiate au
@@ -670,7 +684,6 @@ async function initConfig() {
   await initProfileSection();
   await initProfileTabs();
   await initGoogleSection();
-  await initSpotifySection();
   await initBackupsSection();
   // 2026-08-30 — voir bouton "Ouvrir Sauvegardes" du bandeau "⚠️ Données
   // manquantes" (dashboard.js) : ouvre directement la popup Sauvegardes
@@ -1190,6 +1203,7 @@ function renderAssistantConfigSection(mod) {
       </div>
       <p class="hue-config-status" data-status="gemini"></p>
       <p class="hue-config-hint">Pour rester 100 % gratuit : créez la clé avec un compte Google AI Studio SANS compte de facturation associé. Dès qu'un compte de facturation est renseigné sur le projet, le niveau gratuit est perdu et l'API devient payante (erreur « prepayment credits are depleted » une fois le crédit épuisé).</p>
+      <p class="hue-config-hint">Le niveau gratuit est limité par Google : chaque modèle vocal a son propre quota journalier. Pour en tirer le maximum, l'assistant bascule automatiquement sur un autre modèle quand le quota de l'un est atteint, et le réessaie le lendemain.</p>
 
       <div class="hue-config-row">
         <label>Raccourci</label>
@@ -1206,6 +1220,15 @@ function renderAssistantConfigSection(mod) {
           <option value="4.5" ${assistantGainValue === 4.5 ? 'selected' : ''}>Maximale (x4,5)</option>
         </select>
       </div>
+
+      <div class="hue-config-row">
+        <label>Voix</label>
+        <select class="assistant-voice-select">
+          <option value="" ${!assistantVoiceValue ? 'selected' : ''}>Automatique (selon la langue)</option>
+          ${ASSISTANT_VOICES.map(([name, desc]) => `<option value="${name}" ${assistantVoiceValue === name ? 'selected' : ''}>${name} — ${desc}</option>`).join('')}
+        </select>
+      </div>
+      <p class="hue-config-hint">La nouvelle voix s'applique à la prochaine conversation. Toutes parlent français, avec un rendu plus ou moins naturel selon la voix : compare à l'oreille.</p>
 
       <div class="hue-config-row">
         <label>Langue</label>
@@ -1292,6 +1315,11 @@ function renderAssistantConfigSection(mod) {
     document.addEventListener('keydown', onKeyDown, true);
   });
   wrap.querySelector('.assistant-shortcut-clear').addEventListener('click', () => applyShortcut(''));
+
+  wrap.querySelector('.assistant-voice-select').addEventListener('change', (e) => {
+    assistantVoiceValue = e.target.value;
+    window.matin.store.set('assistant_voice', assistantVoiceValue);
+  });
 
   wrap.querySelector('.assistant-gain-select').addEventListener('change', (e) => {
     assistantGainValue = Number(e.target.value);
@@ -4302,35 +4330,6 @@ function updateGoogleUI(googleData, statusOverride) {
   pill?.classList.toggle('profil-info-pending', !googleData?.accessToken && !!statusOverride);
 }
 
-// ─── Spotify Auth ────────────────────────────────────────────────────────────
-async function initSpotifySection() {
-  let spotifyData = await window.matin.spotify.getToken();
-  updateSpotifyUI(spotifyData);
-
-  const btnSpotify = document.getElementById('btnSpotify');
-
-  btnSpotify.addEventListener('click', async () => {
-    if (spotifyData?.accessToken) {
-      await window.matin.spotify.logout();
-      spotifyData = null;
-      updateSpotifyUI(null);
-      return;
-    }
-
-    btnSpotify.disabled = true;
-    updateSpotifyUI(null, 'En attente d\'autorisation dans le navigateur…');
-
-    try {
-      spotifyData = await window.matin.spotify.login();
-      updateSpotifyUI(spotifyData);
-    } catch (err) {
-      console.error('[Spotify OAuth]', err);
-      updateSpotifyUI(null, 'Échec de la connexion Spotify. Réessayez.');
-    } finally {
-      btnSpotify.disabled = false;
-    }
-  });
-}
 
 // ─── Sauvegardes (voir main.js writeLaunchBackup/backups:list/backups:restore,
 // 2026-08-10, sur demande explicite) — un instantané daté par lancement, les
@@ -4693,22 +4692,6 @@ async function renderDisplayModeOptions() {
 // explicite (voir CONTEXT.md) : `renderAutoScrollOptions` et son toggle dans
 // la popup Affichage retirés.
 
-// Action/détail SEUL (2026-09-01, 3e révision, sur demande explicite) — même
-// principe que updateGoogleUI ci-dessus.
-function updateSpotifyUI(spotifyData, statusOverride) {
-  const label = document.getElementById('spotifyLabel');
-  const pill  = document.getElementById('accountPillSpotify');
-
-  if (spotifyData?.accessToken) {
-    label.textContent = `Déconnecter (${spotifyData.email || spotifyData.displayName || 'compte connecté'})`;
-    if (pill) pill.title = 'Module Spotify activé';
-  } else {
-    label.textContent = statusOverride || 'Connecter';
-    if (pill) pill.title = 'Nécessaire pour le module Spotify';
-  }
-  pill?.classList.toggle('profil-info-connected', !!spotifyData?.accessToken);
-  pill?.classList.toggle('profil-info-pending', !spotifyData?.accessToken && !!statusOverride);
-}
 
 // ─── Sauvegarde ──────────────────────────────────────────────────────────────
 async function saveConfig() {

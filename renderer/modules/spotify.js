@@ -1,58 +1,16 @@
 /**
- * Module Spotify — lecture en cours + contrôles (Web API Spotify)
+ * Module Lecteur média — contrôle lecture Windows (SMTC)
  *
- * Auth via window.matin.spotify.* (voir main/auth/spotify-oauth.js) — même
- * schéma que Google OAuth, store électron séparé. L'API Spotify envoie des
- * en-têtes CORS permissifs (vérifié : access-control-allow-origin: *), donc
- * fetch direct depuis le renderer, comme gmail.js/calendar.js pour Google —
- * pas besoin du proxy process main utilisé pour les flux RSS.
+ * Affiche et contrôle le lecteur actif du système (Spotify, Deezer, Chrome…)
+ * via le pont PowerShell SMTC (System Media Transport Controls Windows).
+ * Aucun compte, aucune API tierce, aucun Premium requis.
+ * Windows 10 1809+ uniquement — sur les autres plateformes la carte reste vide.
  *
- * Auto-refresh : géré en interne (setInterval sur 10s), PAS via le
- * planificateur générique de dashboard.js — un re-render() complet toutes les
- * 10s casserait l'interaction avec le curseur de volume et clignoterait les
- * boutons ; ce module ne redessine que sa propre zone d'état, comme
- * etf.js/crypto.js le font pour leurs propres auto-refresh.
- *
- * Les endpoints de contrôle de lecture (play/pause/next/previous/volume)
- * nécessitent un compte Spotify Premium ET un appareil Spotify Connect actif
- * (l'appli Spotify ouverte quelque part) — sans les deux, Spotify répond 403/404,
- * capturé et simplement journalisé (pas de crash de l'UI).
+ * Auto-refresh : événementiel (le script PS1 pousse un JSON par changement +
+ * toutes les 5 s). Un interval de 2 s côté renderer relance le rendu quand
+ * l'état SMTC change (comparaison de signature pour éviter les re-draws inutiles).
  */
 window.MatinModules = window.MatinModules || {};
-
-const SPOTIFY_REFRESH_MS = 10 * 1000;
-
-// Pause GLOBALE des appels API après un 429 (2026-09-24, correctif suite à un
-// 429 réel remonté sur /me/player/recently-played) — `Date.now()` à partir
-// duquel les appels reprennent, partagée par TOUTES les requêtes de ce
-// module (pas seulement celle qui a déclenché le 429) : Spotify limite par
-// app/utilisateur, pas par endpoint précis, continuer à interroger un AUTRE
-// endpoint pendant la pause serait tout aussi susceptible de re-déclencher
-// un 429. Respecte l'en-tête `Retry-After` renvoyé par Spotify (secondes) —
-// 30s de repli si l'en-tête est absent/invalide, plutôt que de retenter
-// immédiatement au tick suivant (10s après) et perpétuer le 429.
-let spotifyRateLimitedUntil = 0;
-
-async function spotifyApi(method, path, accessToken, query) {
-  const url = `https://api.spotify.com/v1${path}${query ? `?${query}` : ''}`;
-  const res = await fetch(url, {
-    method,
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (res.status === 429) {
-    const retryAfterSec = parseInt(res.headers.get('Retry-After'), 10);
-    const waitMs = (Number.isFinite(retryAfterSec) ? retryAfterSec : 30) * 1000;
-    spotifyRateLimitedUntil = Date.now() + waitMs;
-    throw new Error(`Spotify API 429 (limite de requêtes atteinte, pause ${Math.round(waitMs / 1000)}s)`);
-  }
-  if (res.status === 204) return null; // pas de contenu (rien en lecture, commande acceptée)
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Spotify API ${res.status} ${body.slice(0, 200)}`);
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
 
 function spotifyFmtTime(ms) {
   if (ms == null || Number.isNaN(ms)) return '0:00';
@@ -62,332 +20,111 @@ function spotifyFmtTime(ms) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function spotifyBestImage(images) {
-  if (!images?.length) return '';
-  return images[images.length - 1].url || images[0].url || '';
-}
-
-// Nom du contexte de lecture (2026-09-01, sur demande explicite, remplace le
-// nom d'artiste affiché dans .module-badge, en haut à droite de la carte) —
-// playlist ET album se lisent différemment de l'API Spotify :
-// - playlist : `playback.context.uri` (spotify:playlist:ID) seulement, il
-//   faut un 2e appel GET /playlists/{id} pour obtenir le nom ; mis en cache
-//   par ID pour ne pas re-fetcher à chaque tick (10s) tant que la playlist
-//   ne change pas.
-// - album : le nom est DÉJÀ dans `playback.item.album` (même appel que le
-//   morceau en cours), aucun 2e appel nécessaire.
-// - tout le reste (radio par artiste, contexte absent, épisode de podcast
-//   sans album pertinent...) : chaîne vide, rien affiché plutôt qu'une
-//   étiquette trompeuse (cas explicitement demandé : "no context → show
-//   nothing").
-const spotifyPlaylistNameCache = new Map();
-
-async function spotifyResolveContextLabel(playback, accessToken, isEpisode) {
-  const context = playback.context;
-  if (!context) return '';
-
-  if (context.type === 'album') {
-    return isEpisode ? '' : (playback.item.album?.name || '');
-  }
-
-  if (context.type === 'playlist' && context.uri) {
-    const playlistId = context.uri.split(':').pop();
-    if (!playlistId) return '';
-    if (spotifyPlaylistNameCache.has(playlistId)) {
-      return spotifyPlaylistNameCache.get(playlistId);
-    }
-    try {
-      const data = await spotifyApi('GET', `/playlists/${playlistId}`, accessToken, 'fields=name');
-      const name = data?.name || '';
-      spotifyPlaylistNameCache.set(playlistId, name);
-      return name;
-    } catch (err) {
-      console.error('[Spotify] Nom de playlist introuvable', err);
-      return '';
-    }
-  }
-
-  return '';
-}
-
-// Icônes en SVG (traits fins, currentColor) — pas d'emoji, cf. demande de
-// contrôles "clean icon buttons".
+// Icônes SVG (traits fins, currentColor) — même jeu que l'ancien module Spotify
+// pour ne pas casser les règles CSS existantes (.spotify-btn, .spotify-btn-play…).
 const SPOTIFY_ICONS = {
   previous: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 6h2v12H6zM19 6v12L9 12z"/></svg>',
-  next: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 6h2v12h-2zM5 6l10 6-10 6z"/></svg>',
-  play: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 5l13 7-13 7z"/></svg>',
-  pause: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h5v14H6zM13 5h5v14h-5z"/></svg>',
-  volume: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16.5 12c0-1.6-.8-3-2-3.7v7.5c1.2-.8 2-2.2 2-3.8z"/><path d="M18.5 12c0-2.7-1.5-5-3.5-6.2v1.7c1.5 1 2.5 2.8 2.5 4.5s-1 3.5-2.5 4.5v1.7c2-1.2 3.5-3.5 3.5-6.2z"/></svg>',
+  next:     '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 6h2v12h-2zM5 6l10 6-10 6z"/></svg>',
+  play:     '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 5l13 7-13 7z"/></svg>',
+  pause:    '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h5v14H6zM13 5h5v14h-5z"/></svg>',
 };
 
-// Mis en cache 60s (2026-09-24, correctif suite à un 429 réel sur cet
-// endpoint) : tant que rien n'est en lecture, `tick()` (toutes les 10s,
-// SPOTIFY_REFRESH_MS) appelait CET endpoint à CHAQUE tick pour ré-afficher
-// un contenu qui, en pratique, ne change qu'au moment où l'utilisateur
-// écoute réellement un nouveau morceau — jamais toutes les 10s. Sextuple
-// inutilement le taux de requêtes vers Spotify pendant les longues périodes
-// d'inactivité (le cas le plus fréquent), la cause la plus probable du 429.
-// Même principe que spotifyPlaylistNameCache plus haut (cache mémoire,
-// perdu à la fermeture de l'app — acceptable, pas une donnée persistante).
-let spotifyRecentCache = null;
-let spotifyRecentCacheAt = 0;
-const SPOTIFY_RECENT_TTL_MS = 60 * 1000;
+// ── État SMTC partagé (un seul processus PowerShell global) ───────────────────
+let smtcState     = null;   // { type:'state', title, artist, app, status, positionMs, durationMs, thumbKey }
+let smtcThumbs    = new Map(); // thumbKey → data-URL (base64)
+let smtcListening = false;
 
-async function spotifyFetchRecentlyPlayed(accessToken) {
-  if (spotifyRecentCache && Date.now() - spotifyRecentCacheAt < SPOTIFY_RECENT_TTL_MS) {
-    return spotifyRecentCache;
-  }
-  const data = await spotifyApi('GET', '/me/player/recently-played', accessToken, 'limit=3');
-  const items = (data?.items || []).map(it => ({
-    title: it.track?.name || '',
-    artist: (it.track?.artists || []).map(a => a.name).join(', '),
-    cover: spotifyBestImage(it.track?.album?.images),
-    externalUrl: it.track?.external_urls?.spotify || '',
-  }));
-  spotifyRecentCache = items;
-  spotifyRecentCacheAt = Date.now();
-  return items;
+function smtcEnsureListening() {
+  if (smtcListening) return;
+  smtcListening = true;
+  window.matin.smtc.onState((msg) => { smtcState = (msg.type === 'state') ? msg : null; });
+  window.matin.smtc.onThumb((msg) => {
+    if (msg.data) smtcThumbs.set(msg.key, `data:${msg.mime};base64,${msg.data}`);
+    else smtcThumbs.delete(msg.key);
+  });
+  window.matin.smtc.start();
 }
 
-function spotifyConnectHtml() {
-  return `
-    <div class="spotify-connect">
-      <span class="module-empty">Non connecté à Spotify</span>
-      <button class="spotify-connect-btn">Connecter Spotify</button>
-    </div>`;
+function injectSmtcStyle() {
+  if (document.querySelector('#smtc-style')) return;
+  const st = document.createElement('style');
+  st.id = 'smtc-style';
+  st.textContent = `
+    .spotify-smtc-app { font-size: 10px; color: var(--text-muted, #8b95a8);
+                        text-transform: uppercase; letter-spacing: .04em; margin-left: auto; }
+    .spotify-player--smtc .spotify-volume { display: none; }
+  `;
+  document.head.appendChild(st);
 }
 
-function spotifyIdleHtml(recentTracks) {
-  if (!recentTracks.length) {
-    return `<div class="spotify-idle"><span class="module-empty">Rien en cours de lecture</span></div>`;
-  }
+function spotifySmtcHtml(state, thumbDataUrl) {
+  const pct = state.durationMs ? Math.min(100, (state.positionMs / state.durationMs) * 100) : 0;
+  const isPlaying = state.status === 'playing';
   return `
-    <div class="spotify-idle">
-      <div class="spotify-idle-label">Rien en cours — écoutés récemment</div>
-      <div class="spotify-recent-list">
-        ${recentTracks.map(t => `
-          <div class="spotify-recent-item" data-link="${t.externalUrl}">
-            ${t.cover ? `<img class="spotify-recent-cover" src="${t.cover}" alt="">` : '<div class="spotify-recent-cover spotify-cover-empty"></div>'}
-            <div class="spotify-recent-meta">
-              <div class="spotify-recent-title" title="${t.title}">${t.title}</div>
-              <div class="spotify-recent-artist" title="${t.artist}">${t.artist}</div>
-            </div>
-          </div>`).join('')}
-      </div>
-    </div>`;
-}
-
-// Réagencée en 3 rangées (2026-08-10, 2e révision, sur demande explicite —
-// remplace la rangée unique de la révision précédente) :
-// 1) pochette 45px + titre/artiste (1 ligne chacun)
-// 2) contrôles ⏮⏯⏭ à gauche, volume (icône + slider prenant le reste de la
-//    largeur) à droite
-// 3) barre de progression pleine largeur + temps
-// Repère "en écoute" (.spotify-live-badge) retiré : demande explicite "no
-// other elements", uniquement les 3 rangées ci-dessus.
-function spotifyPlayerHtml(state) {
-  const { title, artist, cover, progressMs, durationMs, isPlaying, volumePercent } = state;
-  const pct = durationMs ? Math.min(100, (progressMs / durationMs) * 100) : 0;
-  return `
-    <div class="spotify-player">
+    <div class="spotify-player spotify-player--smtc">
       <div class="spotify-top-row">
-        ${cover ? `<img class="spotify-cover" src="${cover}" alt="">` : '<div class="spotify-cover spotify-cover-empty"></div>'}
+        ${thumbDataUrl
+          ? `<img class="spotify-cover" src="${thumbDataUrl}" alt="">`
+          : '<div class="spotify-cover spotify-cover-empty"></div>'}
         <div class="spotify-meta">
-          <div class="spotify-title" title="${title}">${title}</div>
-          <div class="spotify-artist" title="${artist}">${artist}</div>
+          <div class="spotify-title" title="${state.title || ''}">${state.title || '—'}</div>
+          <div class="spotify-artist" title="${state.artist || ''}">${state.artist || state.app || ''}</div>
         </div>
       </div>
       <div class="spotify-controls-row">
         <div class="spotify-controls-main">
-          <button class="spotify-btn" data-action="previous" title="Précédent">${SPOTIFY_ICONS.previous}</button>
-          <button class="spotify-btn spotify-btn-play" data-action="toggle" data-playing="${isPlaying}" title="${isPlaying ? 'Pause' : 'Lecture'}">${isPlaying ? SPOTIFY_ICONS.pause : SPOTIFY_ICONS.play}</button>
-          <button class="spotify-btn" data-action="next" title="Suivant">${SPOTIFY_ICONS.next}</button>
+          <button class="spotify-btn smtc-btn" data-smtc="previous" title="Précédent">${SPOTIFY_ICONS.previous}</button>
+          <button class="spotify-btn spotify-btn-play smtc-btn" data-smtc="toggle"
+            title="${isPlaying ? 'Pause' : 'Lecture'}">${isPlaying ? SPOTIFY_ICONS.pause : SPOTIFY_ICONS.play}</button>
+          <button class="spotify-btn smtc-btn" data-smtc="next" title="Suivant">${SPOTIFY_ICONS.next}</button>
         </div>
-        <div class="spotify-volume">
-          <span class="spotify-volume-icon">${SPOTIFY_ICONS.volume}</span>
-          <input type="range" min="0" max="100" value="${volumePercent ?? 50}" class="spotify-volume-slider">
-        </div>
+        <div class="spotify-smtc-app">${state.app || ''}</div>
       </div>
+      ${state.durationMs > 0 ? `
       <div class="spotify-progress">
         <div class="spotify-progress-bar"><div class="spotify-progress-fill" style="width:${pct}%"></div></div>
         <div class="spotify-progress-times">
-          <span>${spotifyFmtTime(progressMs)}</span>
-          <span>${spotifyFmtTime(durationMs)}</span>
+          <span>${spotifyFmtTime(state.positionMs)}</span>
+          <span>${spotifyFmtTime(state.durationMs)}</span>
         </div>
-      </div>
+      </div>` : ''}
     </div>`;
 }
 
 window.MatinModules.spotify = {
   async render(container, _config, _google, setBadge) {
-    const tokenData = await window.matin.spotify.getValidToken();
+    smtcEnsureListening();
+    injectSmtcStyle();
 
-    if (!tokenData?.accessToken) {
-      container.innerHTML = spotifyConnectHtml();
-      setBadge('—');
-      container.querySelector('.spotify-connect-btn')?.addEventListener('click', async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        btn.textContent = 'Connexion…';
-        try {
-          await window.matin.spotify.login();
-          await this.render(container, _config, _google, setBadge);
-        } catch (err) {
-          console.error('[Spotify] Connexion échouée', err);
-          container.innerHTML = `<span class="module-error">Échec de la connexion Spotify</span>`;
-        }
-      });
-      return;
-    }
+    let lastSig = null;
 
-    let volumeDragging = false;
-    let stopped = false;
+    function renderCurrent() {
+      // Signature track+status : ne redessine que si quelque chose a changé.
+      const sig = smtcState ? `${smtcState.thumbKey}|${smtcState.status}` : 'none';
+      if (sig === lastSig) return;
+      lastSig = sig;
 
-    const updateBadge = (state) => {
-      if (!state) { setBadge('—'); return; }
-      // Playlist/album en cours (2026-09-01, sur demande explicite) remplace
-      // l'artiste ici — chaîne vide (pas "lecture") si aucun contexte
-      // exploitable, cas explicitement demandé plutôt qu'un texte de repli.
-      setBadge(state.isPlaying ? (state.contextLabel || '') : 'en pause');
-    };
-
-    async function tick() {
-      // Pause après un 429 (voir spotifyRateLimitedUntil, tout en haut du
-      // fichier) : aucune requête réseau tant que la pause n'est pas
-      // écoulée — l'UI garde simplement son dernier état affiché, retente
-      // normalement au prochain tick une fois la pause expirée.
-      if (Date.now() < spotifyRateLimitedUntil) return true;
-
-      let accessToken;
-      try {
-        const fresh = await window.matin.spotify.getValidToken();
-        if (!fresh?.accessToken) {
-          container.innerHTML = spotifyConnectHtml();
-          updateBadge(null);
-          container.querySelector('.spotify-connect-btn')?.addEventListener('click', async (e) => {
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            btn.textContent = 'Connexion…';
-            try {
-              await window.matin.spotify.login();
-              await window.MatinModules.spotify.render(container, _config, _google, setBadge);
-            } catch (err) {
-              console.error('[Spotify] Connexion échouée', err);
-              container.innerHTML = `<span class="module-error">Échec de la connexion Spotify</span>`;
-            }
+      if (smtcState && smtcState.title) {
+        const thumb = smtcThumbs.get(smtcState.thumbKey) || null;
+        container.innerHTML = spotifySmtcHtml(smtcState, thumb);
+        setBadge(smtcState.status === 'playing' ? (smtcState.app || '') : 'en pause');
+        container.querySelectorAll('.smtc-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            await window.matin.smtc.send(btn.dataset.smtc);
           });
-          return false;
-        }
-        accessToken = fresh.accessToken;
-      } catch (err) {
-        console.error('[Spotify] Vérification du token échouée', err);
-        return true; // on retente au prochain tick plutôt que d'abandonner
-      }
-
-      try {
-        // additional_types=track,episode est indispensable : sans lui, Spotify
-        // renvoie item:null pour un podcast en cours (confirmé empiriquement —
-        // c'était la cause du "rien détecté" alors qu'un épisode jouait bel et
-        // bien). Par défaut l'API ne considère que les pistes musicales.
-        const playback = await spotifyApi('GET', '/me/player', accessToken, 'additional_types=track,episode');
-
-        if (!playback || !playback.item) {
-          const recent = await spotifyFetchRecentlyPlayed(accessToken).catch(() => []);
-          container.innerHTML = spotifyIdleHtml(recent);
-          container.querySelectorAll('.spotify-recent-item').forEach(el => {
-            el.addEventListener('click', () => {
-              const link = el.dataset.link;
-              if (link) window.matin.shell.openExternal(link);
-            });
-          });
-          updateBadge(null);
-          return true;
-        }
-
-        // Un épisode (podcast) n'a ni `artists` ni `album` — le nom du show
-        // fait office d'"artiste" et l'image est directement sur l'item.
-        const isEpisode = playback.currently_playing_type === 'episode';
-        const contextLabel = await spotifyResolveContextLabel(playback, accessToken, isEpisode).catch(() => '');
-        const state = {
-          title: playback.item.name || '',
-          artist: isEpisode
-            ? (playback.item.show?.name || '')
-            : (playback.item.artists || []).map(a => a.name).join(', '),
-          cover: spotifyBestImage(isEpisode ? playback.item.images : playback.item.album?.images),
-          progressMs: playback.progress_ms || 0,
-          durationMs: playback.item.duration_ms || 0,
-          isPlaying: !!playback.is_playing,
-          volumePercent: playback.device?.volume_percent,
-          contextLabel,
-        };
-
-        // Ne pas écraser le curseur de volume pendant que l'utilisateur le fait glisser.
-        if (volumeDragging) {
-          const existingSlider = container.querySelector('.spotify-volume-slider');
-          if (existingSlider) state.volumePercent = existingSlider.value;
-        }
-
-        container.innerHTML = spotifyPlayerHtml(state);
-        updateBadge(state);
-        wireControls(container, accessToken, () => (volumeDragging = true), () => (volumeDragging = false));
-        return true;
-      } catch (err) {
-        console.error('[Spotify] Lecture de l\'état échouée', err);
-        return true;
+        });
+      } else {
+        container.innerHTML = `<div class="spotify-idle"><span class="module-empty">Rien en cours de lecture</span></div>`;
+        setBadge('—');
       }
     }
 
-    function wireControls(root, accessToken, onDragStart, onDragEnd) {
-      const refreshSoon = () => setTimeout(() => tick(), 400);
+    renderCurrent();
 
-      root.querySelectorAll('.spotify-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const action = btn.dataset.action;
-          try {
-            if (action === 'previous') {
-              await spotifyApi('POST', '/me/player/previous', accessToken);
-            } else if (action === 'next') {
-              await spotifyApi('POST', '/me/player/next', accessToken);
-            } else if (action === 'toggle') {
-              const isPlaying = btn.dataset.playing === 'true';
-              await spotifyApi('PUT', isPlaying ? '/me/player/pause' : '/me/player/play', accessToken);
-            }
-          } catch (err) {
-            console.error(`[Spotify] Commande "${action}" échouée (Premium + appareil actif requis)`, err);
-          }
-          refreshSoon();
-        });
-      });
-
-      const slider = root.querySelector('.spotify-volume-slider');
-      if (slider) {
-        slider.addEventListener('pointerdown', onDragStart);
-        slider.addEventListener('change', async () => {
-          try {
-            await spotifyApi('PUT', '/me/player/volume', accessToken, `volume_percent=${slider.value}`);
-          } catch (err) {
-            console.error('[Spotify] Réglage du volume échoué', err);
-          } finally {
-            onDragEnd();
-          }
-        });
-      }
-    }
-
-    container.innerHTML = `<div class="loading-spinner" style="margin:20px auto;width:18px;height:18px"></div>`;
-    const ok = await tick();
-    if (!ok) return;
-
-    const intervalId = setInterval(async () => {
-      if (stopped || !document.body.contains(container)) {
-        clearInterval(intervalId);
-        return;
-      }
-      const stillOk = await tick();
-      if (!stillOk) {
-        stopped = true;
-        clearInterval(intervalId);
-      }
-    }, SPOTIFY_REFRESH_MS);
+    // Polling léger (2 s) — redessine seulement si l'état a changé.
+    setInterval(() => {
+      if (!document.body.contains(container)) return;
+      renderCurrent();
+    }, 2000);
   },
 };

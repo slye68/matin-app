@@ -14,7 +14,7 @@
   'use strict';
 
   // Géométrie calée sur l'image recadrée (fractions de la taille du composant)
-  const GEO = { cx: 0.507, cy: 0.425, headR: 0.357, pedY: 0.91 };
+  const GEO = { cx: 0.498, cy: 0.42, headR: 0.335, pedY: 0.883 };
 
   // Accent par état : appliqué aux effets uniquement, jamais au visage
   const THEME = {
@@ -40,7 +40,11 @@
       <canvas class="av-canvas av-back"></canvas>
       <div class="av-face">
         <img class="av-img" src="${src}" alt="" draggable="false">
+        <img class="av-img av-img-white" src="${src}" alt="" draggable="false">
+        <img class="av-img av-img-face" src="${src}" alt="" draggable="false">
+        <img class="av-img av-img-feat" src="${src}" alt="" draggable="false">
         <div class="av-mouth"></div>
+        <div class="av-smile"></div>
         <img class="av-jaw" src="${src}" alt="" draggable="false">
         <div class="av-eye av-eye-l"></div>
         <div class="av-eye av-eye-r"></div>
@@ -49,7 +53,7 @@
     container.appendChild(root);
 
     const $ = (s) => root.querySelector(s);
-    const face = $('.av-face'), jaw = $('.av-jaw'), mouth = $('.av-mouth');
+    const face = $('.av-face'), jaw = $('.av-jaw'), mouth = $('.av-mouth'), smileEl = $('.av-smile'), featEl = $('.av-img-feat');
     const eyeL = $('.av-eye-l'), eyeR = $('.av-eye-r');
     const cBack = $('.av-back'), cFront = $('.av-front');
     const bx = cBack.getContext('2d'), fx = cFront.getContext('2d');
@@ -112,12 +116,71 @@
       ph: rand(0, Math.PI * 2),
     }));
 
+    // ── Étoiles fines du fond noir (2026-09-25) : points nets d'1-2 px, semés
+    // dans le disque noir en évitant la tête, scintillement lent. Dessinées sur
+    // le canvas AVANT (fusion additive) : l'image du visage, opaque, cacherait
+    // celles du canvas arrière.
+    const STARS = [];
+    while (STARS.length < 220) {
+      const ang = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.47;
+      const x = 0.498 + Math.cos(ang) * rr, y = 0.43 + Math.sin(ang) * rr * 0.98;
+      if (Math.abs(x - 0.498) < 0.17 && y > 0.14 && y < 0.72) continue;   // pas sur le visage
+      if (y > 0.80) continue;                                              // pas sur le socle/la galaxie
+      STARS.push({ x, y, b: 0.25 + Math.random() * 0.75, big: Math.random() < 0.06, ph: Math.random() * 6.28, sp: 0.4 + Math.random() * 1.6 });
+    }
+
+    // ── Galaxie du socle : bras spiraux qui tournent en permanence ──
+    const GALAXY = Array.from({ length: 150 }, () => {
+      const arm = Math.floor(Math.random() * 3);
+      const r = Math.pow(Math.random(), 0.8) * 0.30 + 0.02;
+      return { a: (arm / 3) * Math.PI * 2 + r * 9 + rand(-0.35, 0.35), r, s: rand(0.5, 1.5), ph: rand(0, Math.PI * 2) };
+    });
+    let galaxyRot = 0;
+
     // ── Interaction yeux : regard vers la souris, survol, clignements ──
     // Les yeux font partie de l'image : seule la lueur superposée glisse vers
     // le curseur, et le visage s'incline légèrement (rotation 3D).
     let gazeTX = 0, gazeTY = 0, gazeX = 0, gazeY = 0;
     let hoverT = 0, hover = 0;
     let nextBlink = 2 + Math.random() * 3, blinkStart = -1;
+    // Mouvement de tête aléatoire pendant la parole : cible tirée toutes les
+    // 0,5-1,5 s, lissée, amplitude modulée par le volume.
+    let hmNext = 0, hmLast = -1, hmCur = null, hmStart = 0;
+    const HP = { yaw: 0, pitch: 0, roll: 0, dx: 0, dy: 0, sc: 0 };   // pose lissée
+    // Gestes de tête (pose cible normalisée ; osc = oscillation pendant le
+    // geste). 12 mouvements tirés au hasard, jamais 2 fois de suite.
+    const HEAD_GESTURES = [
+      { yaw: -1, pitch: 0.1, roll: 0.2, dx: -0.6, dy: 0, sc: 0 },               // regard gauche
+      { yaw: 1, pitch: 0.1, roll: -0.2, dx: 0.6, dy: 0, sc: 0 },                // regard droite
+      { yaw: 0, pitch: 0, roll: -1, dx: 0, dy: 0.2, sc: 0 },                    // tête penchée gauche
+      { yaw: 0, pitch: 0, roll: 1, dx: 0, dy: 0.2, sc: 0 },                     // tête penchée droite
+      { yaw: 0, pitch: -1, roll: 0, dx: 0, dy: -0.5, sc: 0.01 },                // menton relevé
+      { yaw: 0, pitch: 0.9, roll: 0, dx: 0, dy: 0.5, sc: 0 },                   // menton baissé
+      { yaw: -0.8, pitch: -0.6, roll: -0.6, dx: -0.4, dy: -0.3, sc: 0 },        // diagonale haut-gauche
+      { yaw: 0.8, pitch: 0.6, roll: 0.6, dx: 0.4, dy: 0.3, sc: 0 },             // diagonale bas-droite
+      { yaw: 0, pitch: 0.2, roll: 0, dx: 0, dy: 0.4, sc: 0.05 },                // se penche vers l'avant
+      { yaw: 0, pitch: -0.2, roll: 0, dx: 0, dy: -0.3, sc: -0.04 },             // recule
+      { yaw: 0, pitch: 0.3, roll: 0, dx: 0, dy: 0, sc: 0, osc: 'pitch', oa: 0.8, of: 7 },   // acquiescement
+      { yaw: 0, pitch: 0, roll: 0, dx: 0, dy: 0, sc: 0, osc: 'yaw', oa: 0.9, of: 6.5 },     // hochement latéral
+    ];
+    // Bouche : formes enchaînées au hasard pendant la parole (o = ouverture,
+    // w = largeur, s = sourire, k = décalage latéral). L'enveloppe audio les
+    // module : silence = bouche fermée, quelle que soit la forme tirée.
+    const MOUTH_SHAPES = [
+      { o: 1.0, w: 1.0, s: 0.0, k: 0 },     // grande ouverture
+      { o: 0.55, w: 0.9, s: 0.0, k: 0 },    // mi-ouverte
+      { o: 0.6, w: 0.55, s: 0.0, k: 0 },    // « o » arrondi
+      { o: 0.25, w: 1.45, s: 0.3, k: 0 },   // étirée
+      { o: 0.06, w: 1.0, s: 0.0, k: 0 },    // lèvres serrées
+      { o: 0.65, w: 1.35, s: 1.0, k: 0 },   // grand sourire ouvert
+      { o: 0.5, w: 1.0, s: 0.2, k: 1 },     // asymétrique droite
+      { o: 0.5, w: 1.0, s: 0.2, k: -1 },    // asymétrique gauche
+      { o: 0.15, w: 1.5, s: 1.0, k: 0 },    // sourire lèvres fermées
+      { o: 1.25, w: 0.85, s: 0.0, k: 0 },   // très ouverte
+    ];
+    let featK = 0;   // intensité lissée de la lueur des contours (parole uniquement)
+    let mNext = 0, mLast = -1, mTarget = MOUTH_SHAPES[1], smileNext = 3, smileUntil = 0;
+    const MS = { o: 0, w: 1, s: 0, k: 0 };
     const BLINK_DUR = 0.16;
     function onPointer(ev) {
       const r = root.getBoundingClientRect();
@@ -136,17 +199,17 @@
 
     // ── Paramètres animés ──
     const col = [0, 200, 255];
-    const k = { bright: 0, eyes: 0, halo: 0, spin: 0, wave: 0, spread: 0 };
+    const k = { bright: 0, eyes: 0, halo: 0, spin: 0, wave: 0, spread: 0, tint: 0 };   // tint : fond coloré accentué (écoute/parole)
     let t = 0, DT = 0.016, last = performance.now(), ringRot = 0, ringRot2 = 0;
     let raf = 0, running = false, lastDraw = 0;
 
     function targets() {
       const L = lvl;
       switch (state) {
-        case 'listening': return { bright: .06 + L * .10, eyes: .55 + L * .45, halo: .55 + L * .9, spin: .06, wave: .35, spread: L * .06 };
-        case 'thinking':  return { bright: .02, eyes: .22, halo: .40, spin: .45, wave: .08, spread: 0 };
-        case 'speaking':  return { bright: .16 + L * .22, eyes: .40 + L * .30, halo: .55 + L * .6, spin: .08, wave: 1, spread: L * .03 };
-        default:          return { bright: 0, eyes: .12, halo: .30, spin: .025, wave: .12, spread: 0 };
+        case 'listening': return { bright: .06 + L * .10, eyes: .55 + L * .45, halo: .55 + L * .9, spin: .06, wave: .35, spread: L * .06, tint: 1 };
+        case 'thinking':  return { bright: .02, eyes: .45, halo: .40, spin: .45, wave: .08, spread: 0, tint: 0 };
+        case 'speaking':  return { bright: .16 + L * .22, eyes: .70 + L * .30, halo: .55 + L * .6, spin: .08, wave: 1, spread: L * .03, tint: 1 };
+        default:          return { bright: 0, eyes: .12, halo: .30, spin: .025, wave: .12, spread: 0, tint: 0 };
       }
     }
 
@@ -203,22 +266,63 @@
       const br = Math.sin(t * (Math.PI * 2 / 6.5));
       const amp = state === 'idle' ? 0.006 : 0.009;
       const tilt = REDUCED ? 0 : 1;
-      face.style.transform = `perspective(700px) rotateY(${(gazeX * 7 * tilt).toFixed(2)}deg) rotateX(${(-gazeY * 5 * tilt).toFixed(2)}deg) translateY(${(-br * 0.35).toFixed(3)}%) scale(${(1 + br * amp).toFixed(4)})`;
+      // Gestes de tête pendant la parole. PAS bridés par « réduire les
+      // animations » (demande explicite) : seul le suivi du curseur (tilt) l'est.
+      if (state === 'speaking') {
+        if (t >= hmNext) {
+          let g; do { g = Math.floor(Math.random() * HEAD_GESTURES.length); } while (g === hmLast);
+          hmLast = g; hmCur = HEAD_GESTURES[g]; hmStart = t; hmNext = t + rand(0.7, 1.7);
+        }
+      } else hmCur = null;
+      const tp = hmCur || { yaw: 0, pitch: 0, roll: 0, dx: 0, dy: 0, sc: 0 };
+      const osc = hmCur && hmCur.osc ? Math.sin((t - hmStart) * hmCur.of) * hmCur.oa : 0;
+      const hmE = 1 - Math.pow(0.05, dt);
+      HP.yaw = lerp(HP.yaw, tp.yaw + (hmCur?.osc === 'yaw' ? osc : 0), hmE);
+      HP.pitch = lerp(HP.pitch, tp.pitch + (hmCur?.osc === 'pitch' ? osc : 0), hmE);
+      HP.roll = lerp(HP.roll, tp.roll, hmE);
+      HP.dx = lerp(HP.dx, tp.dx, hmE); HP.dy = lerp(HP.dy, tp.dy, hmE); HP.sc = lerp(HP.sc, tp.sc, hmE);
+      const hmAmp = 1 + lvl * 0.4;
+      face.style.transform = `perspective(700px) translate(${(HP.dx * 1.1 * hmAmp).toFixed(2)}%, ${(HP.dy * 0.8 * hmAmp).toFixed(2)}%) rotateY(${(gazeX * 7 * tilt + HP.yaw * 8 * hmAmp).toFixed(2)}deg) rotateX(${(-gazeY * 5 * tilt + HP.pitch * 5.5 * hmAmp).toFixed(2)}deg) rotateZ(${(HP.roll * 3 * hmAmp).toFixed(2)}deg) translateY(${(-br * 0.35).toFixed(3)}%) scale(${(1 + br * amp + HP.sc * 0.5).toFixed(4)})`;
       face.style.filter = `brightness(${(1 + k.bright + hover * 0.06 + br * 0.02).toFixed(3)}) saturate(${(1 + k.bright * 0.6).toFixed(3)})`;
 
       // Yeux : lueur (survol = plus vive), clignement, décalage vers le regard
       const eo = Math.min(1, (k.eyes + hover * 0.35) * (0.92 + 0.08 * Math.sin(t * 3.1))) * blink;
       eyeL.style.opacity = eo.toFixed(3);
       eyeR.style.opacity = (eo * (0.97 + 0.03 * Math.sin(t * 2.3))).toFixed(3);
+      const openness = state === 'idle' ? 1 : Math.max(0.45, Math.min(1, k.eyes / 0.7));
       const ex = (gazeX * S * 0.012).toFixed(2), ey = (gazeY * S * 0.008).toFixed(2);
-      const eyeT = `translate(-50%,-50%) translate(${ex}px,${ey}px) scaleY(${(0.25 + 0.75 * blink).toFixed(3)})`;
+      const eyeT = `translate(-50%,-50%) translate(${ex}px,${ey}px) scaleY(${(openness * (0.25 + 0.75 * blink)).toFixed(3)})`;
       eyeL.style.transform = eyeT;
       eyeR.style.transform = eyeT;
 
-      // Bouche (parole uniquement)
-      const open = state === 'speaking' ? Math.min(1, lvlFast * 1.6) : 0;
-      jaw.style.transform = `translateY(${(open * 1.15).toFixed(3)}%)`;
-      mouth.style.transform = `translate(-50%,-50%) scaleY(${(open * 1.1).toFixed(3)})`;
+      // Bouche (parole uniquement) : forme tirée au hasard toutes les 0,11-0,3 s
+      // (10 formes dont sourires et asymétries), modulée par le volume ; un
+      // sourire franc revient toutes les 3-7 s.
+      const speaking = state === 'speaking';
+      if (speaking) {
+        if (t >= mNext) {
+          let m; do { m = Math.floor(Math.random() * MOUTH_SHAPES.length); } while (m === mLast);
+          mLast = m; mTarget = MOUTH_SHAPES[m]; mNext = t + rand(0.11, 0.30);
+        }
+        if (t >= smileNext) { smileUntil = t + rand(0.9, 1.6); smileNext = t + rand(3, 7); }
+      } else { mTarget = { o: 0, w: 1, s: 0, k: 0 }; }
+      const mE = 1 - Math.pow(0.0005, dt);
+      const env = speaking ? Math.min(1, lvlFast * 2.4) : 0;
+      MS.o = lerp(MS.o, mTarget.o * (0.25 + 0.85 * env), mE);
+      MS.w = lerp(MS.w, mTarget.w, mE);
+      MS.s = lerp(MS.s, Math.max(mTarget.s, speaking && t < smileUntil ? 1 : 0), 1 - Math.pow(0.02, dt));
+      MS.k = lerp(MS.k, mTarget.k, mE);
+      const open = Math.min(1.3, MS.o);
+      jaw.style.transform = `translate(${(MS.k * 0.35).toFixed(3)}%, ${(open * 1.6).toFixed(3)}%)`;
+      mouth.style.transform = `translate(-50%,-50%) translateX(${(MS.k * 8).toFixed(1)}%) scale(${MS.w.toFixed(3)}, ${(open * 1.1).toFixed(3)})`;
+      smileEl.style.opacity = (MS.s * 0.85).toFixed(3);
+      smileEl.style.transform = `translate(-50%,-50%) translateX(${(MS.k * 6).toFixed(1)}%) scale(${(0.9 + 0.35 * MS.s + (MS.w - 1) * 0.3).toFixed(3)}, ${(0.6 + 0.8 * MS.s).toFixed(3)})`;
+
+      // Lueur blanc-cyan des contours yeux/nez/bouche : montée rapide, descente
+      // plus douce ; suit l'enveloppe de la voix, nulle hors parole.
+      const featT = speaking ? Math.min(1, 0.2 + env * 0.7) : 0;
+      featK = lerp(featK, featT, 1 - Math.pow(featT > featK ? 0.002 : 0.05, dt));
+      featEl.style.opacity = (featK * 0.55).toFixed(3);
 
       drawBack();
       drawFront();
@@ -232,10 +336,12 @@
       // Halo pulsant
       const pulse = 0.5 + 0.5 * Math.sin(t * (state === 'idle' ? 0.9 : 1.8));
       const hr = S * (0.40 + k.halo * 0.05 + pulse * 0.015);
-      const g = ctx.createRadialGradient(cx, cy, S * 0.12, cx, cy, hr);
-      g.addColorStop(0, rgba(0.10 + k.halo * 0.18, 0.5));
-      g.addColorStop(0.6, rgba(0.04 + k.halo * 0.08, 0.7));
-      g.addColorStop(1, rgba(0, 0.7));
+      const tn = k.tint;   // 0 idle/réflexion → 1 écoute/parole : halo plus large, plus opaque, couleur d'état plus pure
+      const g = ctx.createRadialGradient(cx, cy, S * (0.30 - 0.09 * tn), cx, cy, hr);   // 0.12 → 0.30 : le centre derrière le visage reste noir
+      const bst = 1 + 1.6 * tn, mix = lerp(0.5, 1, tn);
+      g.addColorStop(0, rgba(Math.min(0.75, (0.10 + k.halo * 0.18) * bst), mix));
+      g.addColorStop(0.6, rgba(Math.min(0.40, (0.04 + k.halo * 0.08) * bst), lerp(0.7, 1, tn)));
+      g.addColorStop(1, rgba(0, lerp(0.7, 1, tn)));
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(cx, cy, hr, 0, Math.PI * 2); ctx.fill();
 
@@ -302,8 +408,36 @@
         ctx.stroke();
       }
 
-      // Ondulations du socle
+      // Galaxie du socle — rotation CONSTANTE, indépendante de l'état (même
+      // en idle) ; DT est déjà ralenti si « réduire les animations ».
       const py = GEO.pedY * S;
+      galaxyRot += 0.55 * DT;
+      const core = ctx.createRadialGradient(cx, py, 0, cx, py, S * 0.10);
+      core.addColorStop(0, rgba(0.55, 0.5));
+      core.addColorStop(1, rgba(0, 0.5));
+      ctx.save();
+      ctx.translate(cx, py); ctx.scale(1, 0.22); ctx.translate(-cx, -py);
+      ctx.fillStyle = core;
+      ctx.beginPath(); ctx.arc(cx, py, S * 0.10, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      for (const g of GALAXY) {
+        const ang = g.a + galaxyRot * (1.4 - g.r * 2.2);
+        const x = cx + Math.cos(ang) * g.r * S;
+        const y = py + Math.sin(ang) * g.r * S * 0.22;
+        const tw = 0.6 + 0.4 * Math.sin(t * 2.2 + g.ph);
+        ctx.fillStyle = rgba((0.35 + 0.5 * (1 - g.r / 0.32)) * tw, 0.6);
+        ctx.beginPath(); ctx.arc(x, y, S * 0.0035 * g.s, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.setLineDash([S * 0.03, S * 0.05]);
+      ctx.lineWidth = 1;
+      [0.13, 0.21, 0.29].forEach((rr, i) => {
+        ctx.lineDashOffset = -galaxyRot * S * (i % 2 ? -0.12 : 0.12);
+        ctx.strokeStyle = rgba(0.30 - i * 0.06, 0.6);
+        ctx.beginPath(); ctx.ellipse(cx, py, S * rr, S * rr * 0.22, 0, 0, Math.PI * 2); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Ondulations du socle
       const ripples = state === 'speaking' || state === 'listening' ? 3 : 2;
       ctx.lineWidth = 1;
       for (let j = 0; j < ripples; j++) {
@@ -311,6 +445,22 @@
         const rx = S * (0.06 + ph * 0.30);
         ctx.strokeStyle = rgba((1 - ph) * (0.25 + lvl * 0.5), 0.6);
         ctx.beginPath(); ctx.ellipse(cx, py, rx, rx * 0.22, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      // Étoiles fines (voir STARS) : coordonnées arrondies = points nets.
+      for (const st of STARS) {
+        const tw = 0.55 + 0.45 * Math.sin(t * st.sp + st.ph);
+        const a = st.b * tw;
+        if (a < 0.08) continue;
+        const px = Math.round(st.x * S * dpr) / dpr, py2 = Math.round(st.y * S * dpr) / dpr;
+        const w = (st.big ? 2 : 1.2) / dpr * dpr;
+        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+        ctx.fillRect(px, py2, w, w);
+        if (st.big && a > 0.5) {   // petit scintillement en croix
+          ctx.fillStyle = `rgba(255,255,255,${(a * 0.45).toFixed(3)})`;
+          ctx.fillRect(px - 3, py2 + 0.5, 8, 1);
+          ctx.fillRect(px + 0.5, py2 - 3, 1, 8);
+        }
       }
 
       drawParticles(ctx, true);
@@ -333,7 +483,7 @@
         const a = (0.25 + 0.35 * tw + lvl * 0.5 * (state === 'listening' ? 1 : 0.4)) * faceFade * (front ? 1 : 0.6);
         if (a < 0.02) continue;
         const size = S * 0.0045 * p.s * (1 + lvl * (state === 'listening' ? 1.2 : 0.5));
-        ctx.fillStyle = rgba(a, front ? 0.6 : 0.4);
+        ctx.fillStyle = `rgba(255,255,255,${Math.min(1, a * 1.15).toFixed(3)})`;   // points lumineux blancs
         ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
       }
     }
