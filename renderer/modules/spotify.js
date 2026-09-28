@@ -30,23 +30,58 @@ const SPOTIFY_ICONS = {
 };
 
 // ── État SMTC partagé (un seul processus PowerShell global) ───────────────────
-let smtcState     = null;   // { type:'state', title, artist, app, status, positionMs, durationMs, thumbKey }
-let smtcThumbs    = new Map(); // thumbKey → data-URL (base64)
-let smtcListening = false;
+let smtcState       = null;   // { type:'state', title, artist, app, status, positionMs, durationMs, thumbKey }
+let smtcThumbs      = new Map(); // thumbKey → data-URL (base64) — limité à 10 entrées
+let smtcListening   = false;
+
+// Variables de rendu au scope module : render() peut être rappelé (Drive restore,
+// etc.) sans accumuler des listeners/setInterval supplémentaires.
+let smtcContainer    = null;
+let smtcSetBadge     = null;
+let smtcLastSig      = null;
+let smtcRenderInit   = false;
 
 function smtcEnsureListening() {
   if (smtcListening) return;
   smtcListening = true;
   window.matin.smtc.onState((msg) => { smtcState = (msg.type === 'state') ? msg : null; });
   window.matin.smtc.onThumb((msg) => {
-    if (msg.data) smtcThumbs.set(msg.key, `data:${msg.mime};base64,${msg.data}`);
-    else smtcThumbs.delete(msg.key);
+    if (msg.data) {
+      smtcThumbs.set(msg.key, `data:${msg.mime};base64,${msg.data}`);
+      // Limite la map à 10 entrées pour éviter l'accumulation de base64 en mémoire.
+      if (smtcThumbs.size > 10) smtcThumbs.delete(smtcThumbs.keys().next().value);
+    } else {
+      smtcThumbs.delete(msg.key);
+    }
   });
   // start() réveille le pont et rejoue smtcLastState depuis main.js ;
   // refresh force PowerShell à émettre l'état courant si le replay arrive trop tôt.
   window.matin.smtc.start().then(() => {
     window.matin.smtc.send('refresh').catch(() => {});
   });
+}
+
+// Rendu dans smtcContainer courant (scope module pour être appelable depuis
+// les listeners et l'interval sans capturer une ancienne ref container).
+function smtcRenderCurrent() {
+  if (!smtcContainer || !smtcSetBadge) return;
+  const sig = smtcState ? `${smtcState.thumbKey}|${smtcState.status}` : 'none';
+  if (sig === smtcLastSig) return;
+  smtcLastSig = sig;
+
+  if (smtcState && smtcState.title) {
+    const thumb = smtcThumbs.get(smtcState.thumbKey) || null;
+    smtcContainer.innerHTML = spotifySmtcHtml(smtcState, thumb);
+    smtcSetBadge(smtcState.status === 'playing' ? (smtcState.app || '') : 'en pause');
+    smtcContainer.querySelectorAll('.smtc-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await window.matin.smtc.send(btn.dataset.smtc);
+      });
+    });
+  } else {
+    smtcContainer.innerHTML = `<div class="spotify-idle"><span class="module-empty">Rien en cours de lecture</span></div>`;
+    smtcSetBadge('—');
+  }
 }
 
 function injectSmtcStyle() {
@@ -100,40 +135,20 @@ window.MatinModules.spotify = {
     smtcEnsureListening();
     injectSmtcStyle();
 
-    let lastSig = null;
+    // Met à jour la référence container/badge (render() peut être rappelé par
+    // Drive restore sans qu'on veuille empiler des listeners/setInterval).
+    smtcContainer = container;
+    smtcSetBadge  = setBadge;
+    smtcLastSig   = null; // force un re-draw complet pour le nouveau container
 
-    function renderCurrent() {
-      // Signature track+status : ne redessine que si quelque chose a changé.
-      const sig = smtcState ? `${smtcState.thumbKey}|${smtcState.status}` : 'none';
-      if (sig === lastSig) return;
-      lastSig = sig;
+    smtcRenderCurrent();
 
-      if (smtcState && smtcState.title) {
-        const thumb = smtcThumbs.get(smtcState.thumbKey) || null;
-        container.innerHTML = spotifySmtcHtml(smtcState, thumb);
-        setBadge(smtcState.status === 'playing' ? (smtcState.app || '') : 'en pause');
-        container.querySelectorAll('.smtc-btn').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            await window.matin.smtc.send(btn.dataset.smtc);
-          });
-        });
-      } else {
-        container.innerHTML = `<div class="spotify-idle"><span class="module-empty">Rien en cours de lecture</span></div>`;
-        setBadge('—');
-      }
+    // Listeners et interval enregistrés UNE SEULE FOIS pour toute la vie du module.
+    if (!smtcRenderInit) {
+      smtcRenderInit = true;
+      window.matin.smtc.onState(() => smtcRenderCurrent());
+      window.matin.smtc.onThumb(() => smtcRenderCurrent());
+      setInterval(() => smtcRenderCurrent(), 5000);
     }
-
-    renderCurrent();
-
-    // Re-render immédiat à chaque event SMTC (état ou pochette).
-    const onStateUpdate = () => { if (document.body.contains(container)) renderCurrent(); };
-    window.matin.smtc.onState(onStateUpdate);
-    window.matin.smtc.onThumb(onStateUpdate);
-
-    // Polling de sécurité (5 s) pour les cas où les events sont manqués.
-    setInterval(() => {
-      if (!document.body.contains(container)) return;
-      renderCurrent();
-    }, 5000);
   },
 };

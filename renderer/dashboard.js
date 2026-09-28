@@ -2617,6 +2617,10 @@ function initDriveUserdataRestoreListener() {
       if (!document.getElementById(`content-${key}`)) continue; // carte pas affichée — rien à rafraîchir
       const meta = resolveModuleMeta(key);
       if (!meta) continue;
+      // Modules sans refreshMs gèrent leur propre refresh en interne (même
+      // exclusion que le bouton Actualiser) — les rappeler empilerait un 2e
+      // setInterval interne à chaque sync Drive (fuite de listeners/timers).
+      if (!meta.refreshMs) continue;
       renderModuleOnce(key, meta, moduleConf.config);
     }
   });
