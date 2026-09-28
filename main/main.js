@@ -2474,7 +2474,9 @@ function smtcStart(win) {
       setTimeout(() => smtcStart(smtcWin), 5000);
     }
   });
-  smtcProc.stdin.on('error', () => {}); // pipe fermé si le process s'arrête avant l'écriture
+  smtcProc.stdin.on('error',  (e) => console.warn('[SMTC] stdin error:', e.code));
+  smtcProc.stdin.on('close',  ()  => console.log('[SMTC] stdin close'));
+  smtcProc.stdin.on('finish', ()  => console.log('[SMTC] stdin finish'));
   smtcProc.stdout.on('error', () => {}); // idem pour stdout
   smtcProc.stdout.setEncoding('utf8');
   let buf = '';

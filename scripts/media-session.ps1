@@ -159,15 +159,17 @@ function Invoke-Command([string]$cmd) {
 }
 
 Emit @{ type = 'ready' }
-$stdin = [Console]::In
+$stdinStream = [Console]::OpenStandardInput()
+$stdin = New-Object System.IO.StreamReader($stdinStream)
+$useStdin = $true
 $pending = $stdin.ReadLineAsync()
 
 while ($true) {
   try {
     # Commandes en attente (lecture non bloquante de stdin)
-    while ($pending.IsCompleted) {
+    while ($useStdin -and $pending.IsCompleted) {
       $line = $pending.Result
-      if ($null -eq $line) { exit 0 }               # stdin fermé : l'app s'est arrêtée
+      if ($null -eq $line) { $useStdin = $false; break }   # stdin fermé : mode état seul
       $pending = $stdin.ReadLineAsync()
       $parts = $line.Trim().Split(' ', 2)
       if ($parts.Count -lt 2) { continue }
