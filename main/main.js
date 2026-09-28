@@ -1,6 +1,3 @@
-process.on('uncaughtException',   (err)    => console.error('[CRASH] uncaughtException:',   err?.stack || err));
-process.on('unhandledRejection',  (reason) => console.error('[CRASH] unhandledRejection:', reason?.stack || reason));
-
 const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -2474,9 +2471,7 @@ function smtcStart(win) {
       setTimeout(() => smtcStart(smtcWin), 5000);
     }
   });
-  smtcProc.stdin.on('error',  (e) => console.warn('[SMTC] stdin error:', e.code));
-  smtcProc.stdin.on('close',  ()  => console.log('[SMTC] stdin close'));
-  smtcProc.stdin.on('finish', ()  => console.log('[SMTC] stdin finish'));
+  smtcProc.stdin.on('error', () => {});
   smtcProc.stdout.on('error', () => {}); // idem pour stdout
   smtcProc.stdout.setEncoding('utf8');
   let buf = '';
@@ -2493,22 +2488,16 @@ function smtcStart(win) {
           const p = smtcPending.get(msg.id);
           if (p) { clearTimeout(p.timer); smtcPending.delete(msg.id); p.resolve(msg.ok); }
         } else if (msg.type === 'state' || msg.type === 'none') {
-          console.log('[SMTC]', msg.type, msg.title || '(aucun titre)', msg.status || '');
           smtcLastState = msg;
           try { if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:state', msg); } catch {}
         } else if (msg.type === 'thumb') {
-          console.log('[SMTC] thumb reçue, key:', msg.key?.slice(0, 40));
           try { if (smtcWin && !smtcWin.isDestroyed()) smtcWin.webContents?.send('smtc:thumb', msg); } catch {}
         } else if (msg.type === 'ready') {
           console.log('[SMTC] Pont prêt');
         } else if (msg.type === 'error') {
           console.warn('[SMTC]', msg.message, msg.fatal ? '(fatal)' : '');
-        } else {
-          console.log('[SMTC] type inconnu:', msg.type);
         }
-      } catch (e) {
-        console.warn('[SMTC] JSON invalide:', e.message, '| début ligne:', line.slice(0, 120));
-      }
+      } catch { /* ligne non-JSON */ }
     }
   });
   smtcProc.stderr.on('data', (d) => console.warn('[SMTC stderr]', d.toString().trim()));
