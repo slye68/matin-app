@@ -234,13 +234,11 @@ async function renderSourcesRssModule(feedKey, container, config, setBadge, { ca
     </div>`;
   const tickerSlot = container.querySelector(`#rss-ticker-${feedKey}`);
 
-  // `config.sources` absent/vide (jamais configuré, ou installation
-  // existante d'avant cette fonctionnalité) → repli sur le(s) défaut(s) du
-  // module (voir *-sources.js), le comportement d'origine avant l'ajout des
-  // cases à cocher.
-  const enabledUrls = Array.isArray(config?.sources) && config.sources.length
-    ? config.sources
-    : (defaults || []);
+  // `config.sources` absent/vide → repli sur les défauts. URLs inconnues
+  // filtrées (sources retirées du catalogue) pour éviter les 404 persistants.
+  const _knownCat = new Set((catalog || []).map(s => s.url));
+  const _savedCat = Array.isArray(config?.sources) ? config.sources.filter(u => _knownCat.has(u)) : [];
+  const enabledUrls = _savedCat.length ? _savedCat : (defaults || []);
 
   try {
     const items = await sourcesRssFetchInterleaved(feedKey, enabledUrls, quota);
@@ -382,9 +380,9 @@ window.MatinModules.france = {
     franceUpdateHeader(container);
 
     const catalog = window.FRANCE_NEWS_SOURCES;
-    const enabledUrls = Array.isArray(config?.sources) && config.sources.length
-      ? config.sources
-      : (window.FRANCE_DEFAULT_SOURCES || []);
+    const _knownFr = new Set((catalog || []).map(s => s.url));
+    const _savedFr = Array.isArray(config?.sources) ? config.sources.filter(u => _knownFr.has(u)) : [];
+    const enabledUrls = _savedFr.length ? _savedFr : (window.FRANCE_DEFAULT_SOURCES || []);
 
     // `.sports-module`/`.sports-ticker-vwrap`/`.sports-ticker-vtrack` —
     // INCHANGÉES, demandé littéralement ("même formule que les autres
@@ -559,9 +557,9 @@ window.MatinModules.tech = {
     const catalog = window.TECH_NEWS_SOURCES;
     const defaults = window.TECH_DEFAULT_SOURCES;
     const quota = 4;
-    const enabledUrls = Array.isArray(config?.sources) && config.sources.length
-      ? config.sources
-      : (defaults || []);
+    const _knownTech = new Set((catalog || []).map(s => s.url));
+    const _savedTech = Array.isArray(config?.sources) ? config.sources.filter(u => _knownTech.has(u)) : [];
+    const enabledUrls = _savedTech.length ? _savedTech : (defaults || []);
 
     // Défilement automatique en boucle, pause au survol (2026-09-24, v3 —
     // REMPLACE la liste statique/scrollable de la v2) — durée calculée
@@ -667,9 +665,9 @@ window.MatinModules.bourse = {
     const catalog = window.BOURSE_NEWS_SOURCES;
     const defaults = window.BOURSE_DEFAULT_SOURCES;
     const quota = 4;
-    const enabledUrls = Array.isArray(config?.sources) && config.sources.length
-      ? config.sources
-      : (defaults || []);
+    const _knownBourse = new Set((catalog || []).map(s => s.url));
+    const _savedBourse = Array.isArray(config?.sources) ? config.sources.filter(u => _knownBourse.has(u)) : [];
+    const enabledUrls = _savedBourse.length ? _savedBourse : (defaults || []);
 
     // Défilement automatique en boucle, pause au survol — même technique que
     // Tech/Gaming (contenu dupliqué ×2 côté JS pour la boucle seamless,
