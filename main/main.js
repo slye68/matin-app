@@ -1,3 +1,6 @@
+process.on('uncaughtException',  (err)    => console.error('[CRASH]', err?.stack || err));
+process.on('unhandledRejection', (reason) => console.error('[CRASH]', reason?.stack || reason));
+
 const { app, BrowserWindow, ipcMain, shell, nativeTheme, Notification, screen, Menu, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
