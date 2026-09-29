@@ -653,6 +653,17 @@ body.ultrawide .module-card { max-width: 500px; }
   text-shadow: 0 0 10px rgba(239, 68, 68, 0.6), 0 0 25px rgba(239, 68, 68, 0.25);
 }
 
+/* Transparence YouTube — verre dépoli sur le fond d'application.
+   Visible dès qu'un fond (étoiles, aurore, wallpaper…) est actif.
+   #161b27 → rgba(22,27,39) ; mode clair : blanc semi-transparent. */
+#module-youtube.module-card {
+  background: rgba(22, 27, 39, 0.55) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+:root[data-color-scheme="light"] #module-youtube.module-card {
+  background: rgba(255, 255, 255, 0.55) !important;
+}
 
 /* Bordures de catégorie adoucies en thème clair (2026-08-11, sur demande
    explicite) — les mêmes couleurs pleines ci-dessus paraissent trop vives

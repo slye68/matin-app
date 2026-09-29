@@ -1365,6 +1365,8 @@ function createMainWindow() {
     height: bounds.height,
     minWidth: 900,
     minHeight: 600,
+    maximizable: true,
+    resizable: true,
     backgroundColor: color,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -1413,7 +1415,10 @@ function createMainWindow() {
   const showOnce = () => {
     if (shown) return;
     shown = true;
-    if (currentDisplayMode !== 'floating') mainWindow.show();
+    if (currentDisplayMode !== 'floating') {
+      mainWindow.show();
+      if (store.get('app.windowMaximized')) mainWindow.maximize();
+    }
   };
   mainWindow.once('ready-to-show', showOnce);
   setTimeout(showOnce, 2000);
@@ -1430,9 +1435,13 @@ function createMainWindow() {
     // redimensionnements déclenchés par l'outil dev de test responsive, pour
     // ne jamais écraser la vraie taille utilisateur avec une taille de preset.
     if (devWindowSizeTestSuppressBoundsSave) return;
-    const [width, height] = mainWindow.getSize();
-    safeStoreSet('app.windowBounds', { width, height });
+    if (!mainWindow.isMaximized()) {
+      const [width, height] = mainWindow.getSize();
+      safeStoreSet('app.windowBounds', { width, height });
+    }
   });
+  mainWindow.on('maximize',   () => safeStoreSet('app.windowMaximized', true));
+  mainWindow.on('unmaximize', () => safeStoreSet('app.windowMaximized', false));
 
   // Cause RÉELLE trouvée du rapport "l'app ne kill pas ses processus à la
   // fermeture" (2026-09-16) : `sunWindow` (mode d'affichage flottant, voir
