@@ -1348,7 +1348,7 @@ async function assistantStartOpenAISession(apiKey) {
   console.log(`[Assistant] OpenAI Realtime — modèle: ${model}, voix: ${voice}`);
   assistantSetState('thinking');
 
-  const sysPrompt = `${ASSISTANT_SYSTEM_PROMPT}\n\nModules disponibles : ${assistantModuleList()}.\n\nContenu actuel du dashboard (aperçu) :\n${assistantDashboardSummary('', 350).slice(0, 6000)}`;
+  const sysPrompt = `${ASSISTANT_SYSTEM_PROMPT}\n\nModules disponibles : ${assistantModuleList()}.\n\nContenu actuel du dashboard (aperçu) :\n${assistantDashboardSummary('', 350).slice(0, 6000)}\n\nIMPORTANT — DICTION : Tu t'exprimes exclusivement en français. Adopte une diction claire, posée et naturelle. Prononce chaque mot distinctement, sans précipitation. Utilise une intonation expressive et chaleureuse, proche d'un locuteur francophone natif. Évite les tics de langage anglais.`;
 
   // Déclarations d'outils partagées avec Gemini, converties au format OpenAI.
   // google_search est une capacité native Gemini uniquement — non incluse ici.
