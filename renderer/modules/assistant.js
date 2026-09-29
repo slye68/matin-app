@@ -935,7 +935,9 @@ async function assistantStartMic() {
       // OpenAI : VAD géré par le serveur. On ferme seulement après 30s sans parole.
       if (assistantCurrentProvider === 'openai' && assistantCard?.classList.contains('orb-listening')) {
         const now = performance.now();
-        if (now - assistantListenSince > 3500) { assistantEndForSilence('3.5s sans activité'); return; }
+        // Avant la première réponse : 10s pour parler. Après : 3.5s entre échanges.
+        const openaiLimit = assistantHadModelTurn ? 3500 : 10000;
+        if (now - assistantListenSince > openaiLimit) { assistantEndForSilence(`${openaiLimit / 1000}s sans activité`); return; }
       }
 
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
