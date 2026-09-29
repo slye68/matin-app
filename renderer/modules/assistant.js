@@ -932,36 +932,10 @@ async function assistantStartMic() {
       for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
       const rms = Math.sqrt(sum / float32.length);
       if (assistantCard?.classList.contains('orb-listening')) assistantAvatar?.setAudio(Math.min(1, rms * 6));
-      // OpenAI mode manuel : détection parole/silence côté client pour commit.
+      // OpenAI : VAD géré par le serveur. On ferme seulement après 30s sans parole.
       if (assistantCurrentProvider === 'openai' && assistantCard?.classList.contains('orb-listening')) {
         const now = performance.now();
-        if (assistantCalib.length < 3) {
-          assistantCalib.push(rms);
-          if (assistantCalib.length === 3) assistantNoiseFloor = [...assistantCalib].sort((a, b) => a - b)[1];
-        } else {
-          const threshold = Math.max(ASSISTANT_SPEECH_MIN, assistantNoiseFloor * ASSISTANT_SPEECH_RATIO);
-          assistantLoudBlocks = rms > threshold ? assistantLoudBlocks + 1 : 0;
-          if (assistantLoudBlocks >= 2) {
-            assistantSpokeSinceTurn = true;
-            assistantLastActivity = now;
-            assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2;
-          } else if (rms <= threshold) {
-            assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2;
-            // Silence après parole → commit + demande de réponse
-            if (assistantSpokeSinceTurn && !assistantOpenAICommitted && now - assistantLastActivity > 900) {
-              assistantOpenAICommitted = true;
-              assistantSpokeSinceTurn = false;
-              if (assistantWs?.readyState === WebSocket.OPEN) {
-                assistantWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-                assistantWs.send(JSON.stringify({ type: 'response.create' }));
-              }
-            }
-          }
-        }
-        // Timeout : ferme seulement si l'utilisateur n'a jamais parlé et qu'on n'attend pas de réponse
-        if (!assistantSpokeSinceTurn && !assistantOpenAICommitted && now - assistantListenSince > ASSISTANT_FIRST_SILENCE_MS) {
-          assistantEndForSilence('5s sans parole'); return;
-        }
+        if (now - assistantListenSince > 30000) { assistantEndForSilence('30s sans activité'); return; }
       }
 
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
@@ -1058,7 +1032,8 @@ function assistantHandleOpenAIMessage(event) {
   try { data = JSON.parse(event.data); } catch { return; }
   console.log('[OpenAI]', data.type, data);
   switch (data.type) {
-    case 'response.audio.delta':
+    case 'response.audio.delta':       // beta (conservé pour compatibilité)
+    case 'response.output_audio.delta': // GA
       assistantResetSilenceTimer();
       assistantHadModelTurn = true;
       assistantSpokeSinceTurn = false;
