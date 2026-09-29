@@ -875,6 +875,7 @@ const ASSISTANT_SPEECH_MIN = 0.012;   // plancher absolu du seuil de parole
 const ASSISTANT_SPEECH_RATIO = 3.5;   // parole = RMS > bruit de fond × ce ratio
 let assistantSpokeSinceTurn = false;
 let assistantHadModelTurn = false;
+let assistantOpenAICommitted = false; // buffer audio commité, en attente de réponse OpenAI
 let assistantListenSince = 0;   // entrée dans l'état 'listening'
 let assistantLastActivity = 0;  // dernière parole détectée ou message de Gemini
 let assistantNoiseFloor = 0.004;
@@ -894,6 +895,7 @@ function assistantEndForSilence(reason) {
 function assistantDisconnect() {
   assistantSpokeSinceTurn = false;
   assistantHadModelTurn = false;
+  assistantOpenAICommitted = false;
   assistantNoiseFloor = 0.004;
   assistantCalib = [];
   assistantLoudBlocks = 0;
@@ -946,7 +948,8 @@ async function assistantStartMic() {
           } else if (rms <= threshold) {
             assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2;
             // Silence après parole → commit + demande de réponse
-            if (assistantSpokeSinceTurn && now - assistantLastActivity > 900) {
+            if (assistantSpokeSinceTurn && !assistantOpenAICommitted && now - assistantLastActivity > 900) {
+              assistantOpenAICommitted = true;
               assistantSpokeSinceTurn = false;
               if (assistantWs?.readyState === WebSocket.OPEN) {
                 assistantWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
@@ -955,8 +958,8 @@ async function assistantStartMic() {
             }
           }
         }
-        // Timeout total : ferme la session si rien ne vient
-        if (!assistantSpokeSinceTurn && now - assistantListenSince > ASSISTANT_FIRST_SILENCE_MS) {
+        // Timeout : ferme seulement si l'utilisateur n'a jamais parlé et qu'on n'attend pas de réponse
+        if (!assistantSpokeSinceTurn && !assistantOpenAICommitted && now - assistantListenSince > ASSISTANT_FIRST_SILENCE_MS) {
           assistantEndForSilence('5s sans parole'); return;
         }
       }
@@ -1062,9 +1065,9 @@ function assistantHandleOpenAIMessage(event) {
       if (data.delta) assistantEnqueueAudio(data.delta);
       break;
     case 'response.done':
+      assistantOpenAICommitted = false;
       assistantWaitPlaybackEnd(() => {
         if (assistantWs) {
-          // Réinitialise l'état parole pour le prochain tour
           assistantSpokeSinceTurn = false;
           assistantCalib = [];
           assistantListenSince = performance.now();
