@@ -663,6 +663,10 @@ body.ultrawide .module-card { max-width: 500px; }
   color: #facc15;
   text-shadow: 0 0 10px rgba(250, 204, 21, 0.6), 0 0 25px rgba(250, 204, 21, 0.25);
 }
+:root[data-color-scheme="light"] #module-cinema.module-card .module-title {
+  color: #ea580c;
+  text-shadow: none;
+}
 #module-youtube.module-card .module-title {
   color: #ef4444;
   text-shadow: 0 0 10px rgba(239, 68, 68, 0.6), 0 0 25px rgba(239, 68, 68, 0.25);

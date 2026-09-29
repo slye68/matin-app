@@ -1100,7 +1100,12 @@ const SPORTNEWS_SOURCE_COLORS = {
   'Foot Mercato': 'rgba(34,197,94,0.80)',
   'BeBasket': 'rgba(168,85,247,0.80)',
 };
+const SPORTNEWS_SOURCE_COLORS_LIGHT = {
+  "L'Équipe": 'rgba(234,88,12,0.90)',
+};
 function sportNewsSourceColor(label) {
+  const isLight = document.documentElement.dataset.colorScheme === 'light';
+  if (isLight && SPORTNEWS_SOURCE_COLORS_LIGHT[label]) return SPORTNEWS_SOURCE_COLORS_LIGHT[label];
   return SPORTNEWS_SOURCE_COLORS[label] || null;
 }
 
