@@ -1365,7 +1365,7 @@ function createMainWindow() {
     height: bounds.height,
     minWidth: 900,
     minHeight: 600,
-    transparent: true,
+    backgroundColor: color,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color,
