@@ -29,13 +29,16 @@
   <script>document.documentElement.dataset.colorScheme = window.matin.initialTheme;</script>
   <style>
     body { overflow-y: auto; }
-    /* Bordure fenêtre (2026-08-10, sur demande explicite) — encadré fin,
-       DEDANS les bords de la fenêtre (pas de glow extérieur : la fenêtre
-       reste opaque avec cadre/boutons natifs réduire-agrandir-fermer,
-       l'utilisateur a explicitement choisi cette option plutôt qu'une
-       conversion en fenêtre transparente/sans cadre, qui aurait cassé ces
-       boutons natifs et le glisser-déposer de la fenêtre). */
+    /* Bordure fenêtre */
     body { border: 2px solid #4f8ef7; }
+    /* Fond dégradé mode clair — ciel bleu pâle (photo 2, moitié haute) */
+    :root[data-color-scheme="light"] body {
+      background: linear-gradient(165deg, #c8ddf5 0%, #dceeff 18%, #ecf4ff 40%, #f4f8ff 70%, #f9fbff 100%) !important;
+    }
+    /* Fond dégradé mode sombre — bleu nuit profond (photo 2, moitié basse) */
+    :root:not([data-color-scheme="light"]) body {
+      background: linear-gradient(165deg, #050e1c 0%, #091628 35%, #0c1d38 60%, #0a1a30 100%) !important;
+    }
     /* Thème clair/sombre — cette fenêtre suivait un thème CLAIR figé en dur
        ici même jusqu'au 2026-08-06→2026-08-08 (voir CONTEXT.md pour
        l'historique) : ce `:root` local a été retiré sur demande explicite du
@@ -219,11 +222,17 @@
     .config-tabbar {
       flex-shrink: 0;
       display: flex;
-      gap: 4px;
+      gap: 0;
       margin-top: 48px;
-      padding: 0 16px;
-      border-bottom: 1px solid var(--border);
+      padding: 0 12px;
+      border-bottom: 2px solid rgba(79, 142, 247, 0.25);
       overflow-x: auto;
+      background: rgba(255, 255, 255, 0.04);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), inset 0 -1px 0 rgba(79, 142, 247, 0.1);
+    }
+    :root[data-color-scheme="light"] .config-tabbar {
+      background: rgba(255, 255, 255, 0.55);
+      box-shadow: 0 2px 8px rgba(79, 142, 247, 0.08), inset 0 -1px 0 rgba(79, 142, 247, 0.2);
     }
     .config-tab {
       display: flex;
@@ -240,11 +249,29 @@
       cursor: grab;
       white-space: nowrap;
       flex-shrink: 0;
+      position: relative;
       transition: color 0.15s, border-color 0.15s, background 0.15s;
     }
+    /* Séparateur vertical avec dégradé entre onglets */
+    .config-tab + .config-tab::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 20%;
+      height: 60%;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, rgba(79, 142, 247, 0.3) 40%, rgba(79, 142, 247, 0.3) 60%, transparent);
+    }
+    .config-tab.active + .config-tab::before,
+    .config-tab + .config-tab.active::before { opacity: 0; }
     .config-tab:active { cursor: grabbing; }
-    .config-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
-    .config-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .config-tab:hover { color: var(--text-primary); background: rgba(79, 142, 247, 0.07); }
+    .config-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+      background: rgba(79, 142, 247, 0.06);
+    }
     .config-tab.drag-over { background: var(--accent-glow); }
     .config-tab-icon { font-size: 14px; }
     /* Mode clair — onglets et boutons du menu plus foncés (2026-09-09, sur
@@ -324,9 +351,15 @@
       padding: 10px 12px;
       background: var(--bg-panel);
       border: 1px solid var(--border);
+      border-left: 3px solid rgba(79, 142, 247, 0.45);
       border-radius: var(--radius-md);
       transition: background 0.15s, border-color 0.15s;
       user-select: none;
+    }
+    .module-row:hover { border-left-color: rgba(79, 142, 247, 0.8); }
+    /* Module activé — liséret accent plein */
+    .module-row-wrap:not(.module-disabled) .module-row {
+      border-left-color: rgba(79, 142, 247, 0.7);
     }
     .module-row-icon { font-size: 18px; }
     .module-row-name { flex: 1; font-size: 13px; font-weight: 500; }

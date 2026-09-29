@@ -4315,12 +4315,19 @@ async function initGoogleSection() {
 // `.profil-info-connected`/`.profil-info-pending` (voir config.html) pour la
 // couleur du bouton — vert connecté, jaune en attente d'autorisation/erreur
 // (`statusOverride`), neutre sinon.
+function maskEmail(email) {
+  if (!email) return 'compte connecté';
+  const [local, domain] = email.split('@');
+  const masked = local.split('.').map(p => p[0] + '*'.repeat(Math.min(p.length - 1, 6))).join('.');
+  return `${masked}@${domain}`;
+}
+
 function updateGoogleUI(googleData, statusOverride) {
   const label = document.getElementById('googleLabel');
   const pill  = document.getElementById('accountPillGoogle');
 
   if (googleData?.accessToken) {
-    label.textContent = `Déconnecter (${googleData.email || 'compte connecté'})`;
+    label.textContent = `Déconnecter (${maskEmail(googleData.email)})`;
     if (pill) pill.title = 'Modules Agenda, Gmail et Tâches Google activés';
   } else {
     label.textContent = statusOverride || 'Connecter';
