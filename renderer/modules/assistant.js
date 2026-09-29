@@ -1052,9 +1052,13 @@ function assistantHandleOpenAIMessage(event) {
         }
       });
       break;
+    case 'input_audio_buffer.speech_stopped':
+    case 'response.created':
+      assistantListenSince = performance.now();
+      break;
     case 'input_audio_buffer.speech_started':
       assistantLastActivity = performance.now();
-      assistantListenSince = performance.now(); // reset le timer de fin d'écoute
+      assistantListenSince = performance.now();
       if (assistantCard?.classList.contains('orb-speaking')) {
         assistantClearPlayback();
         if (assistantWs?.readyState === WebSocket.OPEN) assistantWs.send(JSON.stringify({ type: 'response.cancel' }));
