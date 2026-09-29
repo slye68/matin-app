@@ -181,7 +181,7 @@ html.dashboard-window[data-color-scheme="light"] {
 html, body {
   height: 100%;
   overflow: hidden;
-  background: var(--bg-base);
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: 15px;
