@@ -1321,7 +1321,7 @@ async function assistantStartOpenAISession(apiKey) {
   assistantCurrentSampleRateIn = ASSISTANT_OPENAI_SAMPLE_RATE;
   const lang   = (await window.matin.store.get('assistant_lang'))  || 'fr-FR';
   const voice  = (await window.matin.store.get('openai_voice'))    || 'alloy';
-  const model  = (await window.matin.store.get('openai_model'))    || 'gpt-4o-realtime-preview';
+  const model  = (await window.matin.store.get('openai_model'))    || 'gpt-4o-realtime-preview-2024-12-17';
   assistantGain = Math.max(0.5, Math.min(6, Number(await window.matin.store.get('assistant_gain')) || 1));
 
   console.log(`[Assistant] OpenAI Realtime — modèle: ${model}, voix: ${voice}`);

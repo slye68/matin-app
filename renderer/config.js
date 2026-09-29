@@ -164,7 +164,7 @@ let searchEngineValue = window.SearchEngines.DEFAULT;
 let assistantGeminiKey = '';
 let assistantOpenAIKey = '';
 let assistantOpenAIVoice = 'alloy';
-let assistantOpenAIModel = 'gpt-4o-realtime-preview';
+let assistantOpenAIModel = 'gpt-4o-realtime-preview-2024-12-17';
 let assistantShortcutValue = '';
 let assistantLangValue = 'fr-FR';
 let assistantGainValue = 1; // sensibilité micro (gain logiciel), voir assistant.js
@@ -1196,8 +1196,9 @@ function createStartOnBootRow() {
 // sont des clés store globales (voir MODULE_META.assistant).
 const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
 const OPENAI_MODELS = [
-  ['gpt-4o-realtime-preview', 'GPT-4o Realtime (recommandé)'],
-  ['gpt-4o-mini-realtime-preview', 'GPT-4o Mini Realtime (économique)'],
+  ['gpt-4o-realtime-preview-2024-12-17', 'GPT-4o Realtime (déc. 2024)'],
+  ['gpt-4o-realtime-preview-2024-10-01', 'GPT-4o Realtime (oct. 2024)'],
+  ['gpt-4o-mini-realtime-preview-2024-12-17', 'GPT-4o Mini Realtime (économique)'],
 ];
 
 function renderAssistantConfigSection(mod) {
