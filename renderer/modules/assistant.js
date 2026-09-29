@@ -935,7 +935,7 @@ async function assistantStartMic() {
       // OpenAI : VAD géré par le serveur. On ferme seulement après 30s sans parole.
       if (assistantCurrentProvider === 'openai' && assistantCard?.classList.contains('orb-listening')) {
         const now = performance.now();
-        if (now - assistantListenSince > 3000) { assistantEndForSilence('3s sans activité'); return; }
+        if (now - assistantListenSince > 3500) { assistantEndForSilence('3.5s sans activité'); return; }
       }
 
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
@@ -1030,7 +1030,6 @@ function assistantHandleMessage(event) {
 function assistantHandleOpenAIMessage(event) {
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
-  console.log('[OpenAI]', data.type, data);
   switch (data.type) {
     case 'response.audio.delta':       // beta (conservé pour compatibilité)
     case 'response.output_audio.delta': // GA
