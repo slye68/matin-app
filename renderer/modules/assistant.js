@@ -931,7 +931,8 @@ async function assistantStartMic() {
       const rms = Math.sqrt(sum / float32.length);
       if (assistantCard?.classList.contains('orb-listening')) assistantAvatar?.setAudio(Math.min(1, rms * 6));
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
-      if (assistantCard?.classList.contains('orb-listening')) {
+      // OpenAI : VAD géré côté serveur → on ne coupe pas la session localement.
+      if (assistantCurrentProvider !== 'openai' && assistantCard?.classList.contains('orb-listening')) {
         const now = performance.now();
         // Étalonnage : les 3 premiers blocs (~0,8s, juste après le bip)
         // mesurent le bruit de la pièce au lieu d'être jugés comme parole.
