@@ -16,11 +16,34 @@
  */
 window.MatinModules = window.MatinModules || {};
 
-const ASSISTANT_SAMPLE_RATE_IN = 16000;
-const ASSISTANT_SAMPLE_RATE_OUT = 24000;
+const ASSISTANT_SAMPLE_RATE_IN  = 16000;  // Gemini input
+const ASSISTANT_SAMPLE_RATE_OUT = 24000;  // Gemini output + OpenAI I/O
 const ASSISTANT_CHUNK_SIZE = 4096;
 const ASSISTANT_WS_BASE = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 const ASSISTANT_VOICE_MAP = { 'fr-FR': 'Aoede', 'en-US': 'Charon', 'es-ES': 'Fenrir' };
+
+// ── OpenAI Realtime ──────────────────────────────────────────────────────────
+const ASSISTANT_OPENAI_WS_BASE   = 'wss://api.openai.com/v1/realtime';
+const ASSISTANT_OPENAI_SAMPLE_RATE = 24000; // I/O OpenAI : même taux que la sortie Gemini
+const ASSISTANT_OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+
+// Convertit une déclaration d'outil au format Gemini (types MAJ, behavior) vers
+// le format OpenAI (types minuscules, type:"function", sans behavior).
+function assistantGeminiToolToOpenAI(d) {
+  const lower = (v) => {
+    if (!v || typeof v !== 'object') return v;
+    const r = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (k === 'type' && typeof val === 'string') r[k] = val.toLowerCase();
+      else if (k === 'properties') r[k] = Object.fromEntries(Object.entries(val).map(([pk, pv]) => [pk, lower(pv)]));
+      else if (k === 'items') r[k] = lower(val);
+      else r[k] = val;
+    }
+    return r;
+  };
+  const { behavior: _b, ...rest } = d;
+  return { type: 'function', ...rest, ...(d.parameters ? { parameters: lower(d.parameters) } : {}) };
+}
 
 const ASSISTANT_SYSTEM_PROMPT = `Tu es Matin, un assistant vocal généraliste intégré à un dashboard Windows.
 Réponds de façon concise et naturelle — ta réponse sera lue à voix haute, ne cite jamais de lien.
@@ -531,8 +554,6 @@ async function assistantShowSource({ source }) {
 const ASSISTANT_WALLPAPERS = [
   { key: 'none', label: 'Aucun fond', theme: null },
   { key: 'stars', label: 'Fond étoilé', theme: 'dark' },
-  { key: 'aurora', label: 'Aurore boréale', theme: 'dark' },
-  { key: 'particles', label: 'Particules flottantes', theme: 'dark' },
   { key: 'rain', label: 'Pluie', theme: 'dark' },
   { key: 'snow', label: 'Neige', theme: 'dark' },
   { key: 'matrix', label: 'Matrix', theme: 'dark' },
@@ -540,6 +561,8 @@ const ASSISTANT_WALLPAPERS = [
   { key: 'beach', label: 'Plage au lever du soleil', theme: 'dark' },
   { key: 'mountain', label: 'Lever de soleil en montagne', theme: 'dark' },
   { key: 'lac', label: 'Lac et forêt', theme: 'dark' },
+  { key: 'dawnlake', label: "Lac à l'aube", theme: null },
+  { key: 'earth-horizon', label: "Terre depuis l'espace", theme: null },
   { key: 'paper', label: 'Grain de papier', theme: 'light' },
   { key: 'geometric', label: 'Lignes géométriques', theme: 'light' },
   { key: 'gradient', label: 'Dégradé doux', theme: 'light' },
@@ -663,6 +686,9 @@ let assistantSourceNode = null;
 let assistantProcessorNode = null;
 let assistantPlaybackSources = [];
 let assistantSessionReady = false;
+let assistantCurrentProvider = 'gemini'; // 'gemini' | 'openai'
+let assistantCurrentSampleRateIn = ASSISTANT_SAMPLE_RATE_IN;
+let assistantGeminiApiKey = '';
 let assistantNextPlayTime = 0;
 let assistantPlaybackTimer = null;
 
@@ -886,7 +912,7 @@ function assistantDisconnect() {
 
 async function assistantStartMic() {
   try {
-    assistantCaptureCtx = new AudioContext({ sampleRate: ASSISTANT_SAMPLE_RATE_IN });
+    assistantCaptureCtx = new AudioContext({ sampleRate: assistantCurrentSampleRateIn });
     assistantMediaStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -934,9 +960,13 @@ async function assistantStartMic() {
       }
 
       const int16 = assistantFloatToInt16(float32);
-      assistantWs.send(JSON.stringify({
-        realtime_input: { audio: { mime_type: `audio/pcm;rate=${ASSISTANT_SAMPLE_RATE_IN}`, data: assistantBufferToBase64(int16.buffer) } },
-      }));
+      if (assistantCurrentProvider === 'openai') {
+        assistantWs.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: assistantBufferToBase64(int16.buffer) }));
+      } else {
+        assistantWs.send(JSON.stringify({
+          realtime_input: { audio: { mime_type: `audio/pcm;rate=${assistantCurrentSampleRateIn}`, data: assistantBufferToBase64(int16.buffer) } },
+        }));
+      }
     };
     assistantSourceNode.connect(assistantProcessorNode);
     assistantProcessorNode.connect(assistantCaptureCtx.destination);
@@ -985,6 +1015,48 @@ function assistantHandleMessage(event) {
         }));
       }
     });
+  }
+}
+
+// ── Gestionnaire de messages OpenAI Realtime ─────────────────────────────────
+function assistantHandleOpenAIMessage(event) {
+  let data;
+  try { data = JSON.parse(event.data); } catch { return; }
+  switch (data.type) {
+    case 'response.audio.delta':
+      assistantResetSilenceTimer();
+      assistantHadModelTurn = true;
+      assistantSpokeSinceTurn = false;
+      assistantSetState('speaking');
+      if (data.delta) assistantEnqueueAudio(data.delta);
+      break;
+    case 'response.done':
+      assistantWaitPlaybackEnd(() => { if (assistantWs) assistantSetState('listening'); });
+      break;
+    case 'input_audio_buffer.speech_started':
+      assistantLastActivity = performance.now();
+      if (assistantCard?.classList.contains('orb-speaking')) {
+        assistantClearPlayback();
+        if (assistantWs?.readyState === WebSocket.OPEN) assistantWs.send(JSON.stringify({ type: 'response.cancel' }));
+        assistantSetState('listening');
+      }
+      break;
+    case 'response.function_call_arguments.done': {
+      assistantResetSilenceTimer();
+      const { call_id: callId, name: fnName, arguments: fnArgsStr } = data;
+      let fnArgs;
+      try { fnArgs = JSON.parse(fnArgsStr || '{}'); } catch { fnArgs = {}; }
+      assistantRunTool(fnName, fnArgs).then((response) => {
+        if (assistantWs?.readyState === WebSocket.OPEN) {
+          assistantWs.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(response) } }));
+          assistantWs.send(JSON.stringify({ type: 'response.create' }));
+        }
+      });
+      break;
+    }
+    case 'error':
+      console.error('[Assistant] OpenAI Realtime erreur :', data.error?.message || JSON.stringify(data.error));
+      break;
   }
 }
 
@@ -1059,11 +1131,13 @@ async function assistantMarkExhausted(model) {
   await window.matin.store.set(ASSISTANT_EXHAUSTED_KEY, { date: assistantToday(), models });
 }
 
-async function assistantStartSession() {
-  const apiKey = (await window.matin.store.get('gemini_api_key')) || '';
+async function assistantStartGeminiSession(apiKey) {
+  assistantCurrentProvider = 'gemini';
+  assistantCurrentSampleRateIn = ASSISTANT_SAMPLE_RATE_IN;
+  assistantGeminiApiKey = apiKey;
   const lang = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
   const voice = (await window.matin.store.get('assistant_voice')) || ''; // '' = voix par langue
-  console.log('[Assistant] Voix :', voice || `${ASSISTANT_VOICE_MAP[lang] || 'Aoede'} (auto)`);
+  console.log('[Assistant] Voix Gemini :', voice || `${ASSISTANT_VOICE_MAP[lang] || 'Aoede'} (auto)`);
   assistantGain = Math.max(0.5, Math.min(6, Number(await window.matin.store.get('assistant_gain')) || 1));
   if (!apiKey) {
     console.warn('[Assistant] Aucune clé API Gemini configurée (Paramètres → Utile → Assistant vocal).');
@@ -1235,9 +1309,91 @@ async function assistantStartSession() {
       await assistantMarkExhausted(model);
       assistantLiveModel = null;
       console.warn(`[Assistant] Quota épuisé sur ${model} : essai du modèle suivant…`);
-      assistantStartSession();
+      assistantStartGeminiSession(assistantGeminiApiKey);
     }
   };
+}
+
+// ── Session OpenAI Realtime ──────────────────────────────────────────────────
+async function assistantStartOpenAISession(apiKey) {
+  assistantCurrentProvider = 'openai';
+  assistantCurrentSampleRateIn = ASSISTANT_OPENAI_SAMPLE_RATE;
+  const lang   = (await window.matin.store.get('assistant_lang'))  || 'fr-FR';
+  const voice  = (await window.matin.store.get('openai_voice'))    || 'alloy';
+  const model  = (await window.matin.store.get('openai_model'))    || 'gpt-4o-realtime-preview';
+  assistantGain = Math.max(0.5, Math.min(6, Number(await window.matin.store.get('assistant_gain')) || 1));
+
+  console.log(`[Assistant] OpenAI Realtime — modèle: ${model}, voix: ${voice}`);
+  assistantSetState('thinking');
+
+  const sysPrompt = `${ASSISTANT_SYSTEM_PROMPT}\n\nModules disponibles : ${assistantModuleList()}.\n\nContenu actuel du dashboard (aperçu) :\n${assistantDashboardSummary('', 350).slice(0, 6000)}`;
+
+  // Déclarations d'outils partagées avec Gemini, converties au format OpenAI.
+  // google_search est une capacité native Gemini uniquement — non incluse ici.
+  const openaiTools = [
+    { name: 'web_search', description: "Recherche sur internet (actualité, faits récents, météo, résultats, infos que tu ne connais pas). À utiliser dès qu'une question demande une information à jour.", parameters: { type: 'object', properties: { query: { type: 'string', description: 'Requête de recherche' } }, required: ['query'] } },
+    { name: 'execute_dashboard_command', description: 'Exécute une commande simple sur le dashboard Matin', parameters: { type: 'object', properties: { command: { type: 'string', enum: ['TOGGLE_THEME', 'OPEN_SETTINGS', 'CLOSE_SETTINGS', 'REFRESH_ALL', 'REORGANIZE', 'UNDO_REORGANIZE'] } }, required: ['command'] } },
+    { name: 'set_modules_enabled', description: 'Active et/ou désactive PLUSIEURS modules du dashboard en une seule fois.', parameters: { type: 'object', properties: { enable: { type: 'array', items: { type: 'string' }, description: 'Modules à activer' }, disable: { type: 'array', items: { type: 'string' }, description: 'Modules à désactiver' } } } },
+    { name: 'read_dashboard', description: "Lit le contenu actuellement affiché par les modules du dashboard.", parameters: { type: 'object', properties: { module: { type: 'string', description: 'Clé ou nom du module (optionnel)' } } } },
+    { name: 'set_module_enabled', description: 'Active ou désactive un module du dashboard.', parameters: { type: 'object', properties: { module: { type: 'string' }, enabled: { type: 'boolean' } }, required: ['module', 'enabled'] } },
+    { name: 'switch_profile', description: 'Bascule le dashboard sur le profil 1 ou 2.', parameters: { type: 'object', properties: { profile: { type: 'integer', description: '1 ou 2' } }, required: ['profile'] } },
+    { name: 'control_lights', description: "Allume/éteint des lumières et règle la luminosité.", parameters: { type: 'object', properties: { on: { type: 'boolean' }, target: { type: 'string' }, brightness: { type: 'integer', description: '0-100' } } } },
+    { name: 'control_shutters', description: "Commande les volets.", parameters: { type: 'object', properties: { action: { type: 'string', enum: ['open', 'close'] }, position: { type: 'integer', description: '0-100' }, target: { type: 'string' } } } },
+    { name: 'control_climate', description: 'Commande la climatisation.', parameters: { type: 'object', properties: { power: { type: 'boolean' }, mode: { type: 'string', enum: ['auto', 'cool', 'heat', 'dry', 'fan'] }, temperature: { type: 'number' }, target: { type: 'string' } } } },
+    { name: 'control_music', description: 'Contrôle le lecteur audio actif.', parameters: { type: 'object', properties: { action: { type: 'string', enum: ['play', 'pause', 'next', 'previous'] } }, required: ['action'] } },
+    { name: 'open_shortcut', description: 'Ouvre un raccourci : Gmail, Drive, YouTube, Agenda, Photos, Maps.', parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+    { name: 'set_wallpaper', description: "Change le fond d'écran du dashboard.", parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+    { name: 'open_web_search', description: "Ouvre une recherche dans Google Chrome via la barre du dashboard.", parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+    { name: 'show_note', description: "Affiche un texte écrit dans un bloc-notes à l'écran.", parameters: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'string' }, source: { type: 'integer', description: 'Numéro [source n] du résultat web (optionnel)' } }, required: ['title', 'content'] } },
+    { name: 'show_source', description: 'Ajoute un lien de source au dernier bloc-notes.', parameters: { type: 'object', properties: { source: { type: 'integer' } }, required: ['source'] } },
+  ].map((d) => ({ type: 'function', ...d }));
+
+  const ws = new WebSocket(
+    `${ASSISTANT_OPENAI_WS_BASE}?model=${encodeURIComponent(model)}`,
+    ['realtime', `openai-insecure-api-key.${apiKey}`, 'openai-beta.realtime-v1']
+  );
+  assistantWs = ws;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type: 'session.update',
+      session: {
+        modalities: ['audio'],
+        instructions: sysPrompt,
+        voice,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 800, create_response: true },
+        tools: openaiTools,
+        tool_choice: 'auto',
+      },
+    }));
+    assistantSessionReady = true;
+    assistantPlayListenSound();
+    assistantStartMic().then((ok) => {
+      if (ok) assistantSetState('listening');
+      else { assistantDisconnect(); assistantSetState('idle'); }
+    });
+  };
+  ws.onmessage = (event) => {
+    if (event.data instanceof Blob) event.data.text().then((text) => assistantHandleOpenAIMessage({ data: text }));
+    else assistantHandleOpenAIMessage(event);
+  };
+  ws.onerror = (e) => { console.error('[Assistant] Erreur WebSocket OpenAI Realtime :', e); };
+  ws.onclose = (e) => {
+    console.warn(`[Assistant] Session OpenAI Realtime fermée (code ${e.code}) : ${e.reason || '(aucune raison)'}`);
+    if (assistantWs !== ws) return;
+    assistantDisconnect();
+    assistantSetState('idle');
+  };
+}
+
+// ── Dispatcher : OpenAI si clé disponible, sinon Gemini ─────────────────────
+async function assistantStartSession() {
+  const openaiKey = (await window.matin.store.get('openai_api_key')) || '';
+  if (openaiKey) return assistantStartOpenAISession(openaiKey);
+  const geminiKey = (await window.matin.store.get('gemini_api_key')) || '';
+  return assistantStartGeminiSession(geminiKey);
 }
 
 function assistantToggle() {

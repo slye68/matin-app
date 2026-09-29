@@ -7290,6 +7290,44 @@ body.ultrawide .module-card { max-width: 500px; }
 .assistant-shortcut-input:hover { border-color: var(--accent); }
 .assistant-shortcut-input.recording { border-color: var(--accent); background: var(--bg-hover); color: var(--accent); }
 
+/* Assistant vocal — accordions Gemini / ChatGPT */
+.asst-acc { border: 1px solid var(--border-subtle, rgba(255,255,255,.08)); border-radius: 8px; overflow: hidden; }
+.asst-acc + .asst-acc { margin-top: 8px; }
+.asst-acc-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--bg-hover);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.asst-acc-header:hover { background: var(--bg-active, rgba(255,255,255,.12)); }
+.asst-acc-arrow {
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform .18s ease;
+  flex: none;
+}
+.asst-acc-title { flex: 1; }
+.asst-acc-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(79,142,247,.18);
+  color: var(--accent);
+  letter-spacing: .04em;
+}
+.asst-acc-badge--openai { background: rgba(16,185,129,.15); color: #10b981; }
+.asst-acc-body { display: none; flex-direction: column; gap: 10px; padding: 10px 14px 14px 14px; }
+.asst-acc-body.open { display: flex; }
+
 /* ─── Scrollbar ──────────────────────────────────────────────── */
 /* Piste resserrée (2026-08-16, sur demande explicite) — largeur totale
    ramenée de 6px à 4px (plus fine, se lit comme une piste plus précise dans

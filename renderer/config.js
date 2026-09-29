@@ -162,6 +162,9 @@ let searchEngineValue = window.SearchEngines.DEFAULT;
 
 // Assistant vocal (2026-09-25) — 3 réglages globaux, chargés dans initConfig.
 let assistantGeminiKey = '';
+let assistantOpenAIKey = '';
+let assistantOpenAIVoice = 'alloy';
+let assistantOpenAIModel = 'gpt-4o-realtime-preview';
 let assistantShortcutValue = '';
 let assistantLangValue = 'fr-FR';
 let assistantGainValue = 1; // sensibilité micro (gain logiciel), voir assistant.js
@@ -658,6 +661,9 @@ async function initConfig() {
   // raison que startOnBootEnabled ci-dessus.
   searchEngineValue = (await window.matin.store.get('app.searchEngine')) || window.SearchEngines.DEFAULT;
   assistantGeminiKey = (await window.matin.store.get('gemini_api_key')) || '';
+  assistantOpenAIKey = (await window.matin.store.get('openai_api_key')) || '';
+  assistantOpenAIVoice = (await window.matin.store.get('openai_voice')) || 'alloy';
+  assistantOpenAIModel = (await window.matin.store.get('openai_model')) || 'gpt-4o-realtime-preview';
   assistantShortcutValue = (await window.matin.store.get('assistant_shortcut')) || '';
   assistantLangValue = (await window.matin.store.get('assistant_lang')) || 'fr-FR';
   assistantGainValue = Number(await window.matin.store.get('assistant_gain')) || 1;
@@ -1188,99 +1194,208 @@ function createStartOnBootRow() {
 // Même mécanisme que hueField/fglairField : visibilité gérée par la règle CSS
 // générique `.module-row-wrap.module-disabled`. `mod` inutilisé : les réglages
 // sont des clés store globales (voir MODULE_META.assistant).
+const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+const OPENAI_MODELS = [
+  ['gpt-4o-realtime-preview', 'GPT-4o Realtime (recommandé)'],
+  ['gpt-4o-mini-realtime-preview', 'GPT-4o Mini Realtime (économique)'],
+];
+
 function renderAssistantConfigSection(mod) {
   const wrap = document.createElement('div');
   wrap.className = 'module-config-field hue-config-field';
-  wrap.innerHTML = `
-      <div class="hue-config-row">
-        <label>Clé API Gemini</label>
-        <input type="password" class="assistant-gemini-key-input" placeholder="Clé API Gemini" value="${assistantGeminiKey}" autocomplete="off">
-        <button type="button" class="fglair-password-toggle assistant-gemini-toggle" title="Afficher/masquer la clé">👁</button>
-      </div>
-      <div class="assistant-gemini-actions">
-        <button type="button" class="assistant-gemini-test-btn etf-add-line-btn">Tester</button>
-        <a href="#" class="assistant-gemini-link">Obtenir une clé →</a>
-      </div>
-      <p class="hue-config-status" data-status="gemini"></p>
-      <p class="hue-config-hint">Pour rester 100 % gratuit : créez la clé avec un compte Google AI Studio SANS compte de facturation associé. Dès qu'un compte de facturation est renseigné sur le projet, le niveau gratuit est perdu et l'API devient payante (erreur « prepayment credits are depleted » une fois le crédit épuisé).</p>
-      <p class="hue-config-hint">Le niveau gratuit est limité par Google : chaque modèle vocal a son propre quota journalier. Pour en tirer le maximum, l'assistant bascule automatiquement sur un autre modèle quand le quota de l'un est atteint, et le réessaie le lendemain.</p>
 
+  const geminiActive = !!assistantGeminiKey && !assistantOpenAIKey;
+  const openaiActive = !!assistantOpenAIKey;
+
+  wrap.innerHTML = `
       <div class="hue-config-row">
         <label>Raccourci</label>
         <button type="button" class="assistant-shortcut-input">${assistantShortcutValue || 'Cliquez puis appuyez sur une touche…'}</button>
         <button type="button" class="assistant-shortcut-clear etf-add-line-btn">Effacer</button>
       </div>
 
-      <div class="hue-config-row">
-        <label>Sensibilité micro</label>
-        <select class="assistant-gain-select">
-          <option value="1" ${assistantGainValue === 1 ? 'selected' : ''}>Normale</option>
-          <option value="2" ${assistantGainValue === 2 ? 'selected' : ''}>Élevée (x2)</option>
-          <option value="3" ${assistantGainValue === 3 ? 'selected' : ''}>Très élevée (x3)</option>
-          <option value="4.5" ${assistantGainValue === 4.5 ? 'selected' : ''}>Maximale (x4,5)</option>
-        </select>
+      <!-- Accordion Gemini -->
+      <div class="asst-acc">
+        <button type="button" class="asst-acc-header" data-acc="gemini">
+          <span class="asst-acc-arrow">▶</span>
+          <span class="asst-acc-title">Gemini</span>
+          ${geminiActive ? '<span class="asst-acc-badge">Actif</span>' : ''}
+        </button>
+        <div class="asst-acc-body" data-acc-body="gemini">
+          <div class="hue-config-row">
+            <label>Clé API</label>
+            <input type="password" class="assistant-gemini-key-input" placeholder="Clé API Gemini" value="${assistantGeminiKey}" autocomplete="off">
+            <button type="button" class="fglair-password-toggle assistant-gemini-toggle" title="Afficher/masquer la clé">👁</button>
+          </div>
+          <div class="assistant-gemini-actions">
+            <button type="button" class="assistant-gemini-test-btn etf-add-line-btn">Tester</button>
+            <a href="#" class="assistant-gemini-link">Obtenir une clé →</a>
+          </div>
+          <p class="hue-config-status" data-status="gemini"></p>
+          <p class="hue-config-hint">Pour rester 100 % gratuit : créez la clé avec un compte Google AI Studio SANS compte de facturation. Le niveau gratuit a un quota journalier par modèle — l'assistant bascule automatiquement sur un autre modèle en cas de quota atteint.</p>
+
+          <div class="hue-config-row">
+            <label>Sensibilité micro</label>
+            <select class="assistant-gain-select">
+              <option value="1" ${assistantGainValue === 1 ? 'selected' : ''}>Normale</option>
+              <option value="2" ${assistantGainValue === 2 ? 'selected' : ''}>Élevée (x2)</option>
+              <option value="3" ${assistantGainValue === 3 ? 'selected' : ''}>Très élevée (x3)</option>
+              <option value="4.5" ${assistantGainValue === 4.5 ? 'selected' : ''}>Maximale (x4,5)</option>
+            </select>
+          </div>
+
+          <div class="hue-config-row">
+            <label>Voix</label>
+            <select class="assistant-voice-select">
+              <option value="" ${!assistantVoiceValue ? 'selected' : ''}>Automatique (selon la langue)</option>
+              ${ASSISTANT_VOICES.map(([name, desc]) => `<option value="${name}" ${assistantVoiceValue === name ? 'selected' : ''}>${name} — ${desc}</option>`).join('')}
+            </select>
+          </div>
+          <p class="hue-config-hint">La nouvelle voix s'applique à la prochaine conversation.</p>
+
+          <div class="hue-config-row">
+            <label>Langue</label>
+            <select class="assistant-lang-select">
+              <option value="fr-FR" ${assistantLangValue === 'fr-FR' ? 'selected' : ''}>Français</option>
+              <option value="en-US" ${assistantLangValue === 'en-US' ? 'selected' : ''}>English</option>
+              <option value="es-ES" ${assistantLangValue === 'es-ES' ? 'selected' : ''}>Español</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      <div class="hue-config-row">
-        <label>Voix</label>
-        <select class="assistant-voice-select">
-          <option value="" ${!assistantVoiceValue ? 'selected' : ''}>Automatique (selon la langue)</option>
-          ${ASSISTANT_VOICES.map(([name, desc]) => `<option value="${name}" ${assistantVoiceValue === name ? 'selected' : ''}>${name} — ${desc}</option>`).join('')}
-        </select>
-      </div>
-      <p class="hue-config-hint">La nouvelle voix s'applique à la prochaine conversation. Toutes parlent français, avec un rendu plus ou moins naturel selon la voix : compare à l'oreille.</p>
+      <!-- Accordion ChatGPT -->
+      <div class="asst-acc">
+        <button type="button" class="asst-acc-header" data-acc="openai">
+          <span class="asst-acc-arrow">▶</span>
+          <span class="asst-acc-title">ChatGPT</span>
+          ${openaiActive ? '<span class="asst-acc-badge asst-acc-badge--openai">Actif</span>' : ''}
+        </button>
+        <div class="asst-acc-body" data-acc-body="openai">
+          <div class="hue-config-row">
+            <label>Clé API</label>
+            <input type="password" class="assistant-openai-key-input" placeholder="sk-…" value="${assistantOpenAIKey}" autocomplete="off">
+            <button type="button" class="fglair-password-toggle assistant-openai-toggle" title="Afficher/masquer la clé">👁</button>
+          </div>
+          <div class="assistant-gemini-actions">
+            <button type="button" class="assistant-openai-test-btn etf-add-line-btn">Tester</button>
+            <a href="#" class="assistant-openai-link">Obtenir une clé →</a>
+          </div>
+          <p class="hue-config-status" data-status="openai"></p>
+          <p class="hue-config-hint">Si une clé OpenAI est renseignée, l'assistant utilise ChatGPT (API Realtime payante). Sans clé OpenAI, l'assistant utilise Gemini. La recherche web Google n'est pas disponible avec ChatGPT.</p>
 
-      <div class="hue-config-row">
-        <label>Langue</label>
-        <select class="assistant-lang-select">
-          <option value="fr-FR" ${assistantLangValue === 'fr-FR' ? 'selected' : ''}>Français</option>
-          <option value="en-US" ${assistantLangValue === 'en-US' ? 'selected' : ''}>English</option>
-          <option value="es-ES" ${assistantLangValue === 'es-ES' ? 'selected' : ''}>Español</option>
-        </select>
+          <div class="hue-config-row">
+            <label>Modèle</label>
+            <select class="assistant-openai-model-select">
+              ${OPENAI_MODELS.map(([id, label]) => `<option value="${id}" ${assistantOpenAIModel === id ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="hue-config-row">
+            <label>Voix</label>
+            <select class="assistant-openai-voice-select">
+              ${OPENAI_VOICES.map((v) => `<option value="${v}" ${assistantOpenAIVoice === v ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+          </div>
+        </div>
       </div>
   `;
 
-  const keyInput = wrap.querySelector('.assistant-gemini-key-input');
-  const keyToggle = wrap.querySelector('.assistant-gemini-toggle');
-  const testBtn = wrap.querySelector('.assistant-gemini-test-btn');
-  const status = wrap.querySelector('[data-status="gemini"]');
+  // ── Accordions ──────────────────────────────────────────────────────────────
+  wrap.querySelectorAll('.asst-acc-header').forEach((header) => {
+    const id = header.dataset.acc;
+    const body = wrap.querySelector(`[data-acc-body="${id}"]`);
+    const arrow = header.querySelector('.asst-acc-arrow');
+    header.addEventListener('click', () => {
+      const open = body.classList.toggle('open');
+      arrow.style.transform = open ? 'rotate(90deg)' : '';
+    });
+  });
+
+  // ── Gemini key ───────────────────────────────────────────────────────────────
+  const geminiKeyInput = wrap.querySelector('.assistant-gemini-key-input');
+  const geminiKeyToggle = wrap.querySelector('.assistant-gemini-toggle');
+  const geminiTestBtn = wrap.querySelector('.assistant-gemini-test-btn');
+  const geminiStatus = wrap.querySelector('[data-status="gemini"]');
 
   wrap.querySelector('.assistant-gemini-link').addEventListener('click', (e) => {
     e.preventDefault();
     window.matin.shell.openExternal('https://aistudio.google.com/app/apikey');
   });
-  keyInput.addEventListener('input', (e) => {
+  geminiKeyInput.addEventListener('input', (e) => {
     assistantGeminiKey = e.target.value.trim();
     window.matin.store.set('gemini_api_key', assistantGeminiKey);
-    status.textContent = '';
+    geminiStatus.textContent = '';
   });
-  keyToggle.addEventListener('click', () => {
-    const revealed = keyInput.type === 'text';
-    keyInput.type = revealed ? 'password' : 'text';
-    keyToggle.classList.toggle('active', !revealed);
+  geminiKeyToggle.addEventListener('click', () => {
+    const revealed = geminiKeyInput.type === 'text';
+    geminiKeyInput.type = revealed ? 'password' : 'text';
+    geminiKeyToggle.classList.toggle('active', !revealed);
   });
-
-  // Ping minimal GET /models : vérifie seulement que la clé est acceptée
-  // (n'atteste pas que l'API Live est utilisable — facturation possible).
-  testBtn.addEventListener('click', async () => {
-    const key = keyInput.value.trim();
-    if (!key) { status.textContent = 'Renseignez une clé avant de tester.'; return; }
-    testBtn.disabled = true;
-    const label = testBtn.textContent;
-    testBtn.textContent = 'Test en cours…';
+  geminiTestBtn.addEventListener('click', async () => {
+    const key = geminiKeyInput.value.trim();
+    if (!key) { geminiStatus.textContent = 'Renseignez une clé avant de tester.'; return; }
+    geminiTestBtn.disabled = true;
+    const label = geminiTestBtn.textContent;
+    geminiTestBtn.textContent = 'Test en cours…';
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
-      status.textContent = res.ok ? '✓ Clé valide' : '✗ Clé invalide';
-    } catch (err) {
-      status.textContent = '✗ Clé invalide';
+      geminiStatus.textContent = res.ok ? '✓ Clé valide' : '✗ Clé invalide';
+    } catch {
+      geminiStatus.textContent = '✗ Clé invalide';
     } finally {
-      testBtn.disabled = false;
-      testBtn.textContent = label;
+      geminiTestBtn.disabled = false;
+      geminiTestBtn.textContent = label;
     }
   });
 
-  // Raccourci global : clic → enregistrement de la prochaine combinaison
-  // (format Accelerator Electron), Échap annule.
+  // ── OpenAI key ───────────────────────────────────────────────────────────────
+  const openaiKeyInput = wrap.querySelector('.assistant-openai-key-input');
+  const openaiKeyToggle = wrap.querySelector('.assistant-openai-toggle');
+  const openaiTestBtn = wrap.querySelector('.assistant-openai-test-btn');
+  const openaiStatus = wrap.querySelector('[data-status="openai"]');
+
+  wrap.querySelector('.assistant-openai-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.matin.shell.openExternal('https://platform.openai.com/api-keys');
+  });
+  openaiKeyInput.addEventListener('input', (e) => {
+    assistantOpenAIKey = e.target.value.trim();
+    window.matin.store.set('openai_api_key', assistantOpenAIKey);
+    openaiStatus.textContent = '';
+  });
+  openaiKeyToggle.addEventListener('click', () => {
+    const revealed = openaiKeyInput.type === 'text';
+    openaiKeyInput.type = revealed ? 'password' : 'text';
+    openaiKeyToggle.classList.toggle('active', !revealed);
+  });
+  openaiTestBtn.addEventListener('click', async () => {
+    const key = openaiKeyInput.value.trim();
+    if (!key) { openaiStatus.textContent = 'Renseignez une clé avant de tester.'; return; }
+    openaiTestBtn.disabled = true;
+    const label = openaiTestBtn.textContent;
+    openaiTestBtn.textContent = 'Test en cours…';
+    try {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } });
+      openaiStatus.textContent = res.ok ? '✓ Clé valide' : '✗ Clé invalide';
+    } catch {
+      openaiStatus.textContent = '✗ Clé invalide';
+    } finally {
+      openaiTestBtn.disabled = false;
+      openaiTestBtn.textContent = label;
+    }
+  });
+
+  wrap.querySelector('.assistant-openai-model-select').addEventListener('change', (e) => {
+    assistantOpenAIModel = e.target.value;
+    window.matin.store.set('openai_model', assistantOpenAIModel);
+  });
+  wrap.querySelector('.assistant-openai-voice-select').addEventListener('change', (e) => {
+    assistantOpenAIVoice = e.target.value;
+    window.matin.store.set('openai_voice', assistantOpenAIVoice);
+  });
+
+  // ── Raccourci global ─────────────────────────────────────────────────────────
   const shortcutBtn = wrap.querySelector('.assistant-shortcut-input');
   const applyShortcut = (accelerator) => {
     assistantShortcutValue = accelerator || '';
@@ -1316,16 +1431,14 @@ function renderAssistantConfigSection(mod) {
   });
   wrap.querySelector('.assistant-shortcut-clear').addEventListener('click', () => applyShortcut(''));
 
-  wrap.querySelector('.assistant-voice-select').addEventListener('change', (e) => {
-    assistantVoiceValue = e.target.value;
-    window.matin.store.set('assistant_voice', assistantVoiceValue);
-  });
-
   wrap.querySelector('.assistant-gain-select').addEventListener('change', (e) => {
     assistantGainValue = Number(e.target.value);
     window.matin.store.set('assistant_gain', assistantGainValue);
   });
-
+  wrap.querySelector('.assistant-voice-select').addEventListener('change', (e) => {
+    assistantVoiceValue = e.target.value;
+    window.matin.store.set('assistant_voice', assistantVoiceValue);
+  });
   wrap.querySelector('.assistant-lang-select').addEventListener('change', (e) => {
     assistantLangValue = e.target.value;
     window.matin.store.set('assistant_lang', assistantLangValue);
