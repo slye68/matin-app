@@ -1363,6 +1363,7 @@ async function assistantStartOpenAISession(apiKey) {
     ws.send(JSON.stringify({
       type: 'session.update',
       session: {
+        type: 'session',
         modalities: ['audio'],
         instructions: sysPrompt,
         voice,
