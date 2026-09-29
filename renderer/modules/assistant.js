@@ -930,8 +930,38 @@ async function assistantStartMic() {
       for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
       const rms = Math.sqrt(sum / float32.length);
       if (assistantCard?.classList.contains('orb-listening')) assistantAvatar?.setAudio(Math.min(1, rms * 6));
+      // OpenAI mode manuel : détection parole/silence côté client pour commit.
+      if (assistantCurrentProvider === 'openai' && assistantCard?.classList.contains('orb-listening')) {
+        const now = performance.now();
+        if (assistantCalib.length < 3) {
+          assistantCalib.push(rms);
+          if (assistantCalib.length === 3) assistantNoiseFloor = [...assistantCalib].sort((a, b) => a - b)[1];
+        } else {
+          const threshold = Math.max(ASSISTANT_SPEECH_MIN, assistantNoiseFloor * ASSISTANT_SPEECH_RATIO);
+          assistantLoudBlocks = rms > threshold ? assistantLoudBlocks + 1 : 0;
+          if (assistantLoudBlocks >= 2) {
+            assistantSpokeSinceTurn = true;
+            assistantLastActivity = now;
+            assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2;
+          } else if (rms <= threshold) {
+            assistantNoiseFloor = assistantNoiseFloor * 0.8 + rms * 0.2;
+            // Silence après parole → commit + demande de réponse
+            if (assistantSpokeSinceTurn && now - assistantLastActivity > 900) {
+              assistantSpokeSinceTurn = false;
+              if (assistantWs?.readyState === WebSocket.OPEN) {
+                assistantWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+                assistantWs.send(JSON.stringify({ type: 'response.create' }));
+              }
+            }
+          }
+        }
+        // Timeout total : ferme la session si rien ne vient
+        if (!assistantSpokeSinceTurn && now - assistantListenSince > ASSISTANT_FIRST_SILENCE_MS) {
+          assistantEndForSilence('5s sans parole'); return;
+        }
+      }
+
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
-      // OpenAI : VAD géré côté serveur → on ne coupe pas la session localement.
       if (assistantCurrentProvider !== 'openai' && assistantCard?.classList.contains('orb-listening')) {
         const now = performance.now();
         // Étalonnage : les 3 premiers blocs (~0,8s, juste après le bip)
@@ -1032,7 +1062,15 @@ function assistantHandleOpenAIMessage(event) {
       if (data.delta) assistantEnqueueAudio(data.delta);
       break;
     case 'response.done':
-      assistantWaitPlaybackEnd(() => { if (assistantWs) assistantSetState('listening'); });
+      assistantWaitPlaybackEnd(() => {
+        if (assistantWs) {
+          // Réinitialise l'état parole pour le prochain tour
+          assistantSpokeSinceTurn = false;
+          assistantCalib = [];
+          assistantListenSince = performance.now();
+          assistantSetState('listening');
+        }
+      });
       break;
     case 'input_audio_buffer.speech_started':
       assistantLastActivity = performance.now();
