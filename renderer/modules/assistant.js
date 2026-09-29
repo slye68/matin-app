@@ -1383,7 +1383,7 @@ async function assistantStartOpenAISession(apiKey) {
   ].map((d) => ({ type: 'function', ...d }));
 
   const ws = new WebSocket(
-    `${ASSISTANT_OPENAI_WS_BASE}?model=${encodeURIComponent(model)}`,
+    `${ASSISTANT_OPENAI_WS_BASE}?model=${encodeURIComponent(model)}&voice=${encodeURIComponent(voice)}`,
     ['realtime', `openai-insecure-api-key.${apiKey}`]
   );
   assistantWs = ws;
