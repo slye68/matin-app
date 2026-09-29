@@ -1341,20 +1341,6 @@
         radial-gradient(1px 1px at 85% 80%, #fff, transparent),
         radial-gradient(1px 1px at 10% 75%, #fff, transparent);
     }
-    .personnaliser-thumb-aurora {
-      background: #0d1424;
-      background-image:
-        linear-gradient(120deg, transparent 10%, rgba(52,211,153,0.55) 40%, transparent 70%),
-        linear-gradient(120deg, transparent 20%, rgba(167,139,250,0.5) 55%, transparent 85%);
-    }
-    .personnaliser-thumb-particles {
-      background: #0d1424;
-      background-image:
-        radial-gradient(2px 2px at 25% 70%, var(--accent-green), transparent),
-        radial-gradient(2px 2px at 55% 30%, var(--accent-green), transparent),
-        radial-gradient(1.5px 1.5px at 75% 60%, var(--accent-green), transparent),
-        radial-gradient(1.5px 1.5px at 40% 45%, var(--accent-green), transparent);
-    }
     .personnaliser-thumb-rain {
       background: #0d1424;
       background-image:
@@ -1407,6 +1393,16 @@
         #0d2818 48.5%, #0a2012 56%,
         #0a2a3a 58%, #0a2a3a 100%);
     }
+    /* Approximation verticale du dégradé + halo décentré réels (voir
+       dashboard.js dawnlakeDrawStaticScene) — même convention que les autres
+       vignettes de cette liste (aucune ne rejoue le vrai rendu canvas, juste
+       un dégradé CSS qui en donne un aperçu). */
+    .personnaliser-thumb-dawnlake {
+      background: linear-gradient(to bottom,
+        #0d2f5c 0%, #3a6f9c 30%, #7fa9c4 42%,
+        #e8cfa0 46%, #a9c9dc 50%,
+        #0f3550 50.5%, #0f3550 100%);
+    }
     .personnaliser-thumb-paper {
       background-color: #f5f5f0;
       background-image: radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px);
@@ -1442,6 +1438,10 @@
     }
     .personnaliser-thumb-winter-sea {
       background-image: url('assets/wallpapers/winter-sea.jpg');
+      background-size: cover; background-position: center;
+    }
+    .personnaliser-thumb-earth-horizon {
+      background-image: url('assets/wallpapers/earth-horizon.webp');
       background-size: cover; background-position: center;
     }
 
@@ -2016,6 +2016,13 @@
            window.matin.displayMode.set). -->
       <div class="personnaliser-section-title">Mode d'affichage</div>
       <div class="display-mode-options" id="displayModeOptions"></div>
+
+      <div class="personnaliser-section-title">Transparence des modules</div>
+      <div style="padding:0 2px 4px;display:flex;align-items:center;gap:10px;">
+        <input type="range" id="moduleOpacitySlider" min="10" max="100" step="5"
+               style="flex:1;accent-color:var(--accent,#3b82f6);">
+        <span id="moduleOpacityValue" style="min-width:32px;text-align:right;font-size:13px;color:var(--text-secondary);">100%</span>
+      </div>
 
       <div class="personnaliser-section-title" style="display:flex;align-items:center;gap:6px;">
         Fond du dashboard

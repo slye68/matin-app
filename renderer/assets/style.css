@@ -100,6 +100,14 @@
    `.module-card` uniquement (pas une redéfinition de `--border`, encore
    utilisée telle quelle par les champs/menus déroulants de Paramètres). */
 :root[data-color-scheme="light"] .module-card {
+  /* #ffffff = --bg-panel clair */
+  background: rgba(255, 255, 255, var(--module-opacity, 1));
+  border-color: transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+/* Thème parchemin dashboard (#f0efe9 = rgb(240,239,233)) */
+html.dashboard-window[data-color-scheme="light"] .module-card {
+  background: rgba(240, 239, 233, var(--module-opacity, 1));
   border-color: transparent;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
@@ -536,9 +544,16 @@ body.portrait-mode #btnPortraitMode {
 }
 
 /* ─── Module card ────────────────────────────────────────────── */
+:root { --module-opacity: 1; }
+
 .module-card {
   position: absolute;
-  background: var(--bg-panel);
+  /* #161b27 = rgb(22,27,39) = --bg-panel sombre ; opacity pilotée par
+     --module-opacity (jauge Paramètres → Personnaliser → Transparence).
+     backdrop-filter s'active progressivement : nul à 100 %, max ~10px à 0 %. */
+  background: rgba(22, 27, 39, var(--module-opacity, 1));
+  backdrop-filter: blur(calc((1 - var(--module-opacity, 1)) * 10px));
+  -webkit-backdrop-filter: blur(calc((1 - var(--module-opacity, 1)) * 10px));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 14px 16px;
@@ -653,17 +668,6 @@ body.ultrawide .module-card { max-width: 500px; }
   text-shadow: 0 0 10px rgba(239, 68, 68, 0.6), 0 0 25px rgba(239, 68, 68, 0.25);
 }
 
-/* Transparence YouTube — verre dépoli sur le fond d'application.
-   Visible dès qu'un fond (étoiles, aurore, wallpaper…) est actif.
-   #161b27 → rgba(22,27,39) ; mode clair : blanc semi-transparent. */
-#module-youtube.module-card {
-  background: rgba(22, 27, 39, 0.55) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-:root[data-color-scheme="light"] #module-youtube.module-card {
-  background: rgba(255, 255, 255, 0.55) !important;
-}
 
 /* Bordures de catégorie adoucies en thème clair (2026-08-11, sur demande
    explicite) — les mêmes couleurs pleines ci-dessus paraissent trop vives
@@ -1603,7 +1607,8 @@ body.ultrawide .module-card { max-width: 500px; }
    spécificité que les règles `.module-card[data-theme=...]` posées plus
    haut dans ce fichier — l'emporte par ORDRE de cascade, cette section
    venant après, même technique que Mon Équipe). */
-[id^="module-ol"].module-card { background: var(--ol-card, #0d1828); border-color: var(--ol-border, #152030); border-left-color: transparent; }
+/* #0d1828 = --ol-card sombre */
+[id^="module-ol"].module-card { background: rgba(13, 24, 40, var(--module-opacity, 1)); border-color: var(--ol-border, #152030); border-left-color: transparent; }
 /* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
    atténué" de la version précédente, retiré) — patron "France" : fond clair
    hérité, header légèrement teinté, titre en accent orange, texte des items
@@ -1614,7 +1619,7 @@ body.ultrawide .module-card { max-width: 500px; }
    de la règle de base, voir tout en haut de cette section) pour couvrir tout
    endroit qui la consommerait. */
 :root[data-color-scheme="light"] [id^="module-ol"] { --ol-card: var(--bg-panel); }
-:root[data-color-scheme="light"] [id^="module-ol"].module-card { background: var(--bg-panel); }
+:root[data-color-scheme="light"] [id^="module-ol"].module-card { background: rgba(255, 255, 255, var(--module-opacity, 1)); }
 :root[data-color-scheme="light"] [id^="module-ol"].module-card .module-header,
 :root[data-color-scheme="light"] #module-sportNews.module-card .module-header {
   background: rgba(249, 115, 22, 0.06);
@@ -2615,7 +2620,7 @@ body.ultrawide .module-card { max-width: 500px; }
    les règles `:root[data-color-scheme="light"]` juste en dessous, patron
    "France" — fond clair hérité, header teinté, titre accent, texte sombre). */
 #module-gaming.module-card { border-color: var(--neon-blue, #00c8ff); }
-:root[data-color-scheme="light"] #module-gaming.module-card { border-color: rgba(0, 200, 255, 0.7); background: var(--bg-panel); }
+:root[data-color-scheme="light"] #module-gaming.module-card { border-color: rgba(0, 200, 255, 0.7); background: rgba(255, 255, 255, var(--module-opacity, 1)); }
 /* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
    atténué" d'une version précédente, retiré) — patron "France" : fond clair
    hérité (aucune règle `background` sur `.module-card` ici), header
@@ -2645,7 +2650,7 @@ body.ultrawide .module-card { max-width: 500px; }
   --gaming-text: #c0d8f0;
   --gaming-text-muted: #5a7898;
 }
-#module-gaming.module-card { background: #0a0f1e; }
+#module-gaming.module-card { background: rgba(10, 15, 30, var(--module-opacity, 1)); }
 
 /* En-tête, hauteur fixe ~82px — dégradé diagonal 4 arrêts + grille
    hexagonale (`::before`, repeating-linear-gradient croisé ±60°) + glow rose
@@ -2803,7 +2808,7 @@ body.ultrawide .module-card { max-width: 500px; }
    "France"), même mise à jour que Gaming juste au-dessus. */
 #module-tech.module-card { border-color: var(--tech-neon, #00aaff); }
 :root[data-color-scheme="light"] #module-tech { --tech-card: var(--bg-panel); }
-:root[data-color-scheme="light"] #module-tech.module-card { border-color: rgba(0, 170, 255, 0.7); background: var(--bg-panel); }
+:root[data-color-scheme="light"] #module-tech.module-card { border-color: rgba(0, 170, 255, 0.7); background: rgba(255, 255, 255, var(--module-opacity, 1)); }
 /* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
    atténué" d'une version précédente, retiré) — patron "France" : fond clair
    hérité (aucune règle `background` sur `.module-card` ici), header
@@ -2842,7 +2847,8 @@ body.ultrawide .module-card { max-width: 500px; }
   --tech-text-dim: #1e2e40;
   --tech-divider: rgba(0, 170, 255, 0.07);
 }
-#module-tech.module-card { background: var(--tech-card); }
+/* --tech-card: #0b0e18 = rgb(11,14,24) sombre */
+#module-tech.module-card { background: rgba(11, 14, 24, var(--module-opacity, 1)); }
 
 /* En-tête, hauteur fixe ~78px — dégradé diagonal 4 arrêts + grille circuit
    board (`::before`, repeating-linear-gradient horizontaux/verticaux) + glow
@@ -3155,8 +3161,9 @@ body.ultrawide .module-card { max-width: 500px; }
 /* Vert éclairci (2026-09-23, sur demande explicite — le blanc en gras du
    titre manquait de confort de lecture sur l'ancien fond quasi noir
    #030f07) : #0a2413, toujours "vert forêt" mais nettement moins sombre. */
-#module-bourse.module-card { background: #0a2413; border-color: rgba(34, 197, 94, 0.35); }
-:root[data-color-scheme="light"] #module-bourse.module-card { border-color: rgba(34, 197, 94, 0.6); background: var(--bg-panel); }
+/* #0a2413 = rgb(10,36,19) */
+#module-bourse.module-card { background: rgba(10, 36, 19, var(--module-opacity, 1)); border-color: rgba(34, 197, 94, 0.35); }
+:root[data-color-scheme="light"] #module-bourse.module-card { border-color: rgba(34, 197, 94, 0.6); background: rgba(255, 255, 255, var(--module-opacity, 1)); }
 /* Mode clair (2026-09-24, sur demande explicite — REMPLACE le "fond sombre
    atténué" d'une version précédente, retiré) — patron "France" : fond clair
    hérité (aucune règle `background` sur `.module-card` ici), header
@@ -3297,8 +3304,9 @@ body.ultrawide .module-card { max-width: 500px; }
    modérément sombre (pas quasi-noir) d'emblée, PAS #030f07-like : retour
    direct sur Bourse (2026-09-23, même conversation) signalant un titre blanc
    gras peu lisible sur un fond trop sombre, évité ici dès le départ. */
-#module-sante.module-card { background: #1a0f16; border-color: rgba(236, 72, 153, 0.35); }
-:root[data-color-scheme="light"] #module-sante.module-card { border-color: rgba(236, 72, 153, 0.6); background: var(--bg-panel); }
+/* #1a0f16 = rgb(26,15,22) */
+#module-sante.module-card { background: rgba(26, 15, 22, var(--module-opacity, 1)); border-color: rgba(236, 72, 153, 0.35); }
+:root[data-color-scheme="light"] #module-sante.module-card { border-color: rgba(236, 72, 153, 0.6); background: rgba(255, 255, 255, var(--module-opacity, 1)); }
 /* Mode clair (2026-09-24, sur demande explicite — REMPLACE le fond sombre
    rosé atténué d'une version précédente, qui ciblait par erreur
    `.sports-ticker-vitem`/`.header-glow-line`, jamais utilisées par CE
@@ -4053,57 +4061,6 @@ body.ultrawide .module-card { max-width: 500px; }
    (startStarsBackground), scintillement en sinus par étoile. */
 .app-background-layer.bg-stars { background: radial-gradient(ellipse at 50% 0%, #0d1424 0%, var(--bg-base) 60%); }
 
-/* 🌌 Aurore boréale (sombre) — pur CSS, 2 nappes dégradées vert/violet qui
-   dérivent lentement en opacité/position, superposées en 'screen' pour un
-   effet lumineux plutôt qu'un simple fondu de couleur plate. */
-.app-background-layer.bg-aurora {
-  background: var(--bg-base);
-}
-.app-background-layer.bg-aurora::before,
-.app-background-layer.bg-aurora::after {
-  content: '';
-  position: absolute;
-  left: -20%; right: -20%;
-  height: 60%;
-  filter: blur(40px);
-  mix-blend-mode: screen;
-  opacity: 0.35;
-  animation: app-bg-aurora-drift 22s ease-in-out infinite alternate;
-}
-.app-background-layer.bg-aurora::before {
-  top: -10%;
-  background: linear-gradient(120deg, transparent 0%, var(--accent-green) 35%, transparent 70%);
-}
-.app-background-layer.bg-aurora::after {
-  top: 10%;
-  background: linear-gradient(120deg, transparent 10%, var(--accent-purple) 45%, transparent 80%);
-  animation-duration: 28s;
-  animation-delay: -6s;
-}
-@keyframes app-bg-aurora-drift {
-  0%   { transform: translateX(-6%) translateY(0) scaleY(1); }
-  100% { transform: translateX(6%) translateY(4%) scaleY(1.15); }
-}
-
-/* ✨ Particules flottantes (sombre) — divs `.app-bg-particle` générés par
-   dashboard.js (startParticlesBackground), montent lentement en boucle avec
-   un fondu d'entrée/sortie, taille/délai/durée randomisés en style inline. */
-.app-background-layer.bg-particles { background: var(--bg-base); }
-.app-bg-particle {
-  position: absolute;
-  bottom: -10px;
-  border-radius: 50%;
-  background: var(--accent-green);
-  opacity: 0;
-  animation: app-bg-particle-float linear infinite;
-}
-@keyframes app-bg-particle-float {
-  0%   { opacity: 0; transform: translateY(0) scale(0.8); }
-  10%  { opacity: 0.5; }
-  90%  { opacity: 0.35; }
-  100% { opacity: 0; transform: translateY(-100vh) scale(1.1); }
-}
-
 /* 🌧️ Pluie (sombre) — divs `.app-bg-raindrop` générées par dashboard.js
    (startRainBackground), traînées fines gris/bleu qui tombent tout droit,
    taille/durée/délai randomisés en style inline. */
@@ -4226,6 +4183,16 @@ body.ultrawide .module-card { max-width: 500px; }
 }
 .app-background-layer.bg-winter-sea {
   background-image: url('wallpapers/winter-sea.jpg');
+  background-size: cover; background-position: center;
+}
+
+/* 🌍 Terre depuis l'espace (2026-09-29, sur demande explicite, photo
+   fournie) — même technique que les fonds winter-* ci-dessus (photo réelle,
+   pur CSS `background-image`, aucun canvas/JS) : disponible en mode sombre
+   ET clair (voir dashboard.js APP_BACKGROUND_DARK_KEYS/LIGHT_KEYS,
+   PERSONNALISER_OPTIONS theme:null). */
+.app-background-layer.bg-earth-horizon {
+  background-image: url('wallpapers/earth-horizon.webp');
   background-size: cover; background-position: center;
 }
 

@@ -4550,8 +4550,6 @@ async function renderDriveSection() {
 const PERSONNALISER_OPTIONS = [
   { key: 'none',      emoji: '🚫', label: 'Aucun fond', theme: null },
   { key: 'stars',     emoji: '⭐', label: 'Fond étoilé', theme: 'dark' },
-  { key: 'aurora',    emoji: '🌌', label: 'Aurore boréale', theme: 'dark' },
-  { key: 'particles', emoji: '✨', label: 'Particules flottantes', theme: 'dark' },
   { key: 'rain',      emoji: '🌧️', label: 'Pluie', theme: 'dark' },
   { key: 'snow',      emoji: '❄️', label: 'Neige', theme: 'dark' },
   { key: 'matrix',    emoji: '💊', label: 'Matrix', theme: 'dark' },
@@ -4559,6 +4557,20 @@ const PERSONNALISER_OPTIONS = [
   { key: 'beach',     emoji: '🏖️', label: 'Plage au lever du soleil', theme: 'dark' },
   { key: 'mountain',  emoji: '🏔️', label: 'Lever de soleil en montagne', theme: 'dark' },
   { key: 'lac',       emoji: '🏞️', label: 'Lac et forêt', theme: 'dark' },
+  // `theme: null` (2026-09-29, sur demande explicite, "disponible en mode
+  // clair aussi") — voir dashboard.js APP_BACKGROUND_LIGHT_KEYS, seule cette
+  // clé (+ earth-horizon ci-dessous) est gated dans LES DEUX listes ;
+  // `theme: null` est ce qui la rend visible/sélectionnable quel que soit le
+  // thème actuel (voir le filtre `visible` plus bas, `opt.theme === null ||
+  // opt.theme === currentTheme`) — le rendu canvas lui-même reste inchangé.
+  { key: 'dawnlake',  emoji: '🌄', label: "Lac à l'aube", theme: null },
+  // Photo réelle (2026-09-29, sur demande explicite, image fournie) — voir
+  // renderer/assets/wallpapers/earth-horizon.webp + style.css .bg-earth-
+  // horizon (pur CSS `background-image`, même convention que les fonds
+  // winter-*, AUCUN dispatch JS dans dashboard.js applyAppBackground
+  // nécessaire). `theme: null` comme dawnlake ci-dessus, demandé
+  // explicitement pour les 2 (mode sombre ET clair).
+  { key: 'earth-horizon', emoji: '🌍', label: 'Terre depuis l\'espace', theme: null },
   { key: 'paper',     emoji: '📄', label: 'Grain de papier', theme: 'light' },
   { key: 'geometric', emoji: '📐', label: 'Lignes géométriques', theme: 'light' },
   { key: 'gradient',  emoji: '🌫️', label: 'Dégradé doux', theme: 'light' },
@@ -4580,6 +4592,7 @@ async function initPersonnaliserSection() {
     overlay.classList.add('open');
     await renderPersonnaliserOptions();
     await renderDisplayModeOptions();
+    await initModuleOpacitySlider();
   };
   // Sauvegarde automatique du fond dans le profil actif à la fermeture
   // (2026-09-13, sur demande explicite — "sans bouton Enregistrer séparé") :
@@ -4600,6 +4613,22 @@ async function initPersonnaliserSection() {
   btnOpen.addEventListener('click', openModal);
   btnClose.addEventListener('click', closeModal);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+}
+
+async function initModuleOpacitySlider() {
+  const slider = document.getElementById('moduleOpacitySlider');
+  const label  = document.getElementById('moduleOpacityValue');
+  if (!slider || !label) return;
+
+  const stored = (await window.matin.store.get('app.moduleOpacity')) ?? 1;
+  slider.value = Math.round(stored * 100);
+  label.textContent = slider.value + '%';
+
+  slider.oninput = () => { label.textContent = slider.value + '%'; };
+  slider.onchange = async () => {
+    const v = Number(slider.value) / 100;
+    await window.matin.moduleOpacity.set(v);
+  };
 }
 
 async function renderPersonnaliserOptions() {

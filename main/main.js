@@ -2022,6 +2022,15 @@ ipcMain.handle('app:setBackground', (_e, background) => {
   return true;
 });
 
+ipcMain.handle('app:setModuleOpacity', (_e, value) => {
+  const v = Math.min(1, Math.max(0.1, Number(value) || 1));
+  safeStoreSet('app.moduleOpacity', v);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('moduleOpacity:updated', v);
+  }
+  return true;
+});
+
 // Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite, voir
 // "🎨 Personnaliser" → section "Mode d'affichage" et applyDisplayMode/
 // showSunWindow plus haut ; volet latéral SUPPRIMÉ ENTIÈREMENT le 2026-09-01,

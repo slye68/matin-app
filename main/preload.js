@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld('matin', {
     onUpdated: (cb)   => ipcRenderer.on('background:updated', (_e, key) => cb(key)),
   },
 
+  // ── Transparence des modules (voir main.js app:setModuleOpacity) ──────────
+  moduleOpacity: {
+    set:       (v)  => ipcRenderer.invoke('app:setModuleOpacity', v),
+    onUpdated: (cb) => ipcRenderer.on('moduleOpacity:updated', (_e, v) => cb(v)),
+  },
+
   // ── Mode d'affichage — Icône flottante (2026-08-23, voir main.js
   // applyDisplayMode et "🎨 Personnaliser" → section "Mode d'affichage") —
   // `expandFromSun` est appelé depuis sun.html (fenêtre séparée, mais qui

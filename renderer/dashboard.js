@@ -547,10 +547,16 @@ function initThemeSync() {
 // APP_BACKGROUND_DARK_KEYS/LIGHT_KEYS) : une clé qui ne correspond pas au
 // thème affiché en ce moment ne rend rien plutôt que de s'afficher hors
 // contexte (ex. après un changement de thème sans repasser par Personnaliser).
-const APP_BACKGROUND_DARK_KEYS = ['stars', 'aurora', 'particles', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain', 'lac'];
-const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient', 'winter-frost', 'winter-pines', 'winter-peaks', 'winter-mist', 'winter-illus', 'winter-sea'];
+const APP_BACKGROUND_DARK_KEYS = ['stars', 'rain', 'snow', 'matrix', 'nebula', 'beach', 'mountain', 'lac', 'dawnlake', 'earth-horizon'];
+// `dawnlake`/`earth-horizon` (2026-09-29, sur demande explicite) — les 2
+// SEULS fonds disponibles dans LES DEUX listes (dark ET light) : le reste de
+// cette liste "claire" garde son rendu conçu pour un fond d'app clair
+// (grain de papier, dégradés doux...), mais ces 2-là gardent leur rendu
+// SOMBRE inchangé même choisis en thème clair — demandé littéralement tel
+// quel ("disponible en mode clair aussi"), pas une redéfinition en version
+// claire.
+const APP_BACKGROUND_LIGHT_KEYS = ['paper', 'geometric', 'gradient', 'winter-frost', 'winter-pines', 'winter-peaks', 'winter-mist', 'winter-illus', 'winter-sea', 'dawnlake', 'earth-horizon'];
 const APP_BACKGROUND_STAR_COUNT = 140;
-const APP_BACKGROUND_PARTICLE_COUNT = 26;
 const APP_BACKGROUND_RAIN_COUNT = 60;
 const APP_BACKGROUND_SNOW_COUNT = 60; // demandé explicitement (2026-08-11, voir startSnowBackground)
 const APP_BACKGROUND_SNOW_SIZES = [4, 6, 8]; // px — mix demandé explicitement pour un effet de profondeur
@@ -608,20 +614,6 @@ function startStarsBackground(layer) {
     appBackgroundAnimId = requestAnimationFrame(frame);
   }
   appBackgroundAnimId = requestAnimationFrame(frame);
-}
-
-function startParticlesBackground(layer) {
-  for (let i = 0; i < APP_BACKGROUND_PARTICLE_COUNT; i++) {
-    const el = document.createElement('div');
-    el.className = 'app-bg-particle';
-    const size = Math.random() * 3 + 2;
-    el.style.left = `${Math.random() * 100}%`;
-    el.style.width = `${size}px`;
-    el.style.height = `${size}px`;
-    el.style.animationDuration = `${Math.random() * 14 + 14}s`;
-    el.style.animationDelay = `-${Math.random() * 20}s`;
-    layer.appendChild(el);
-  }
 }
 
 function startRainBackground(layer) {
@@ -1518,6 +1510,130 @@ function startLacBackground(layer) {
   appBackgroundAnimId = requestAnimationFrame(frame);
 }
 
+// ─── Fond "Lac à l'aube" (2026-09-29, sur demande explicite, image de
+// référence fournie) ─────────────────────────────────────────────────────
+// Variante du fond Lac ci-dessus (même technique : montagnes en couches +
+// lac réfléchissant + brume/ondulations réutilisées TELLES QUELLES, voir
+// lacMakeMist/lacDrawMist/lacDrawRipples), mais 2 différences visuelles
+// demandées par la référence : (1) AUCUNE bande de forêt — les montagnes
+// descendent directement jusqu'à la rive, contrairement au fond Lac ; (2) un
+// halo chaud LOCALISÉ près de l'horizon plutôt qu'un dégradé de ciel
+// uniforme — combine un dégradé vertical (bleu profond → bleu clair) ET un
+// dégradé radial posé PAR-DESSUS, décentré vers la droite, pour la lumière
+// du petit matin qu'on voit sur l'image fournie (chaude d'un seul côté, pas
+// au centre ni symétrique). 5 couches de montagnes (3 pour le fond Lac) :
+// plus de profondeur atmosphérique — la plus éloignée est presque fondue
+// dans le ciel (faible contraste), la plus proche nettement plus sombre,
+// c'est cet écart qui donne l'effet de brume/éloignement de la référence.
+function dawnlakeDrawStaticScene(staticCanvas, w, h) {
+  const sctx = staticCanvas.getContext('2d');
+  staticCanvas.width = w;
+  staticCanvas.height = h;
+
+  const horizonY = h * 0.42;
+  const lakeTopY = horizonY;
+
+  const skyGrad = sctx.createLinearGradient(0, 0, 0, horizonY);
+  skyGrad.addColorStop(0, '#0d2f5c');
+  skyGrad.addColorStop(0.55, '#2f6fa8');
+  skyGrad.addColorStop(1, '#8fc3e0');
+
+  // Halo chaud décentré (voir commentaire de section) — positionné aux 92%
+  // de la largeur, aux 3/4 de la hauteur du ciel (proche de l'horizon, pas
+  // du zénith), rayon large (55% de la largeur) pour un dégradé doux plutôt
+  // qu'un point net.
+  const glow = sctx.createRadialGradient(w * 0.92, horizonY * 0.75, 0, w * 0.92, horizonY * 0.75, w * 0.55);
+  glow.addColorStop(0, 'rgba(255, 244, 214, 0.55)');
+  glow.addColorStop(0.5, 'rgba(255, 224, 180, 0.18)');
+  glow.addColorStop(1, 'rgba(255, 224, 180, 0)');
+
+  const paintSky = () => {
+    sctx.fillStyle = skyGrad;
+    sctx.fillRect(0, 0, w, horizonY);
+    sctx.fillStyle = glow;
+    sctx.fillRect(0, 0, w, horizonY);
+  };
+  paintSky();
+
+  // 5 couches, farthest → nearest — mountainDrawLayer déjà générique
+  // (réutilisée telle quelle, voir fond Montagne/Lac plus haut). `jagAmp`
+  // nul sur les 2 couches les plus éloignées (silhouettes lisses, fondues
+  // dans la brume) ; les 3 plus proches gagnent en découpe ET en contraste.
+  const layers = [
+    { color: '#a9c9dc', baseY: 0.20, amp: 0.050, freq: 1.3, jagAmpFrac: 0,     jagFreq: 0 },
+    { color: '#7fa9c4', baseY: 0.26, amp: 0.060, freq: 1.7, jagAmpFrac: 0,     jagFreq: 0 },
+    { color: '#5686a8', baseY: 0.31, amp: 0.055, freq: 2.2, jagAmpFrac: 0.008, jagFreq: 6 },
+    { color: '#325f7e', baseY: 0.35, amp: 0.050, freq: 2.8, jagAmpFrac: 0.015, jagFreq: 8 },
+    { color: '#173a52', baseY: 0.39, amp: 0.035, freq: 3.4, jagAmpFrac: 0.020, jagFreq: 11 },
+  ];
+  const drawSceneLayers = () => {
+    layers.forEach((l) => {
+      mountainDrawLayer(sctx, w, horizonY, l.color, {
+        baseY: h * l.baseY, amp: h * l.amp, freq: l.freq,
+        jagAmp: h * l.jagAmpFrac, jagFreq: l.jagFreq,
+        centerBoost: 0, centerWidth: 0,
+      });
+    });
+  };
+  drawSceneLayers();
+
+  // Lac — surface plate réfléchissante.
+  sctx.fillStyle = '#0f3550';
+  sctx.fillRect(0, lakeTopY, w, h - lakeTopY);
+
+  // Reflet — ciel (dégradé + halo) + montagnes REJOUÉS en miroir, assombris
+  // par la couleur du lac par-dessus (même technique que le fond Lac).
+  sctx.save();
+  sctx.beginPath();
+  sctx.rect(0, lakeTopY, w, h - lakeTopY);
+  sctx.clip();
+  sctx.translate(0, lakeTopY * 2);
+  sctx.scale(1, -1);
+  sctx.globalAlpha = 0.55;
+  paintSky();
+  drawSceneLayers();
+  sctx.restore();
+  sctx.fillStyle = 'rgba(15, 53, 80, 0.35)';
+  sctx.fillRect(0, lakeTopY, w, h - lakeTopY);
+}
+
+function startDawnLakeBackground(layer) {
+  const canvas = document.createElement('canvas');
+  layer.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const staticCanvas = document.createElement('canvas');
+
+  let mists = [];
+  let lakeTopY = 0;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    lakeTopY = canvas.height * 0.42;
+    dawnlakeDrawStaticScene(staticCanvas, canvas.width, canvas.height);
+    // lacMakeMist/lacDrawMist/lacDrawRipples réutilisées telles quelles (voir
+    // fond Lac plus haut) — même effet de brume/ondulations, aucune raison
+    // de dupliquer cette logique pour un fond qui ne diffère que par la
+    // scène statique dessinée en dessous.
+    mists = Array.from({ length: APP_BACKGROUND_LAC_MIST_COUNT }, () => lacMakeMist(canvas.width, lakeTopY, canvas.height - lakeTopY));
+  }
+  resize();
+  appBackgroundResizeHandler = resize;
+  window.addEventListener('resize', appBackgroundResizeHandler);
+
+  function frame(t) {
+    ctx.drawImage(staticCanvas, 0, 0);
+    lacDrawRipples(ctx, canvas.width, lakeTopY, canvas.height - lakeTopY, t);
+    for (const m of mists) {
+      m.x += m.speed;
+      if (m.x - 120 * m.scale > canvas.width) m.x = -120 * m.scale;
+      lacDrawMist(ctx, m);
+    }
+    appBackgroundAnimId = requestAnimationFrame(frame);
+  }
+  appBackgroundAnimId = requestAnimationFrame(frame);
+}
+
 function applyAppBackground(key) {
   const layer = document.getElementById('appBackgroundLayer');
   if (!layer) return;
@@ -1531,19 +1647,29 @@ function applyAppBackground(key) {
 
   layer.classList.add(`bg-${key}`);
   if (key === 'stars') startStarsBackground(layer);
-  else if (key === 'particles') startParticlesBackground(layer);
   else if (key === 'rain') startRainBackground(layer);
   else if (key === 'snow') startSnowBackground(layer);
   else if (key === 'matrix') startMatrixBackground(layer);
   else if (key === 'beach') startBeachBackground(layer);
   else if (key === 'mountain') startMountainBackground(layer);
   else if (key === 'lac') startLacBackground(layer);
-  // aurora/nebula/paper/geometric/gradient : pur CSS via la classe bg-<clé> posée ci-dessus, rien d'autre à faire.
+  else if (key === 'dawnlake') startDawnLakeBackground(layer);
+  // nebula/paper/geometric/gradient : pur CSS via la classe bg-<clé> posée ci-dessus, rien d'autre à faire.
 }
 
 function initAppBackground() {
   window.matin.store.get('app.background').then((key) => applyAppBackground(key || 'none'));
   window.matin.background.onUpdated((key) => applyAppBackground(key));
+}
+
+function applyModuleOpacity(v) {
+  const opacity = Math.min(1, Math.max(0.1, Number(v) || 1));
+  document.documentElement.style.setProperty('--module-opacity', opacity);
+}
+
+function initModuleOpacity() {
+  window.matin.store.get('app.moduleOpacity').then((v) => applyModuleOpacity(v ?? 1));
+  window.matin.moduleOpacity.onUpdated((v) => applyModuleOpacity(v));
 }
 
 // ─── Mode d'affichage — Icône flottante (2026-08-23, sur demande explicite,
@@ -2640,6 +2766,7 @@ async function initDashboard() {
   initDriveUserdataRestoreListener();
   initThemeSync();
   initAppBackground();
+  initModuleOpacity();
   initDisplayMode();
   initAlertsBanner();
   initMissingDataWarning();
