@@ -1052,6 +1052,7 @@ function assistantHandleOpenAIMessage(event) {
       break;
     case 'input_audio_buffer.speech_started':
       assistantLastActivity = performance.now();
+      assistantListenSince = performance.now(); // reset le timer de fin d'écoute
       if (assistantCard?.classList.contains('orb-speaking')) {
         assistantClearPlayback();
         if (assistantWs?.readyState === WebSocket.OPEN) assistantWs.send(JSON.stringify({ type: 'response.cancel' }));
@@ -1380,7 +1381,6 @@ async function assistantStartOpenAISession(apiKey) {
       type: 'session.update',
       session: {
         type: 'realtime',
-        voice,
         instructions: sysPrompt,
         tools: openaiTools,
         tool_choice: 'auto',
