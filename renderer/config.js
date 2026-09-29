@@ -1195,11 +1195,6 @@ function createStartOnBootRow() {
 // générique `.module-row-wrap.module-disabled`. `mod` inutilisé : les réglages
 // sont des clés store globales (voir MODULE_META.assistant).
 const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
-const OPENAI_MODELS = [
-  ['gpt-4o-realtime-preview-2024-12-17', 'GPT-4o Realtime (déc. 2024)'],
-  ['gpt-4o-realtime-preview-2024-10-01', 'GPT-4o Realtime (oct. 2024)'],
-  ['gpt-4o-mini-realtime-preview-2024-12-17', 'GPT-4o Mini Realtime (économique)'],
-];
 
 function renderAssistantConfigSection(mod) {
   const wrap = document.createElement('div');
@@ -1287,10 +1282,11 @@ function renderAssistantConfigSection(mod) {
 
           <div class="hue-config-row">
             <label>Modèle</label>
-            <select class="assistant-openai-model-select">
-              ${OPENAI_MODELS.map(([id, label]) => `<option value="${id}" ${assistantOpenAIModel === id ? 'selected' : ''}>${label}</option>`).join('')}
-            </select>
+            <input type="text" class="assistant-openai-model-input" placeholder="gpt-4o-realtime-preview-…" value="${assistantOpenAIModel}" autocomplete="off">
+            <button type="button" class="assistant-openai-detect-btn etf-add-line-btn" title="Lister les modèles Realtime disponibles">Détecter</button>
           </div>
+          <select class="assistant-openai-model-select" style="display:none"></select>
+          <p class="hue-config-hint assistant-openai-model-hint" style="display:none"></p>
 
           <div class="hue-config-row">
             <label>Voix</label>
@@ -1387,9 +1383,50 @@ function renderAssistantConfigSection(mod) {
     }
   });
 
-  wrap.querySelector('.assistant-openai-model-select').addEventListener('change', (e) => {
-    assistantOpenAIModel = e.target.value;
+  const modelInput = wrap.querySelector('.assistant-openai-model-input');
+  const modelSelect = wrap.querySelector('.assistant-openai-model-select');
+  const modelHint = wrap.querySelector('.assistant-openai-model-hint');
+  const detectBtn = wrap.querySelector('.assistant-openai-detect-btn');
+
+  modelInput.addEventListener('input', (e) => {
+    assistantOpenAIModel = e.target.value.trim();
     window.matin.store.set('openai_model', assistantOpenAIModel);
+  });
+
+  modelSelect.addEventListener('change', (e) => {
+    assistantOpenAIModel = e.target.value;
+    modelInput.value = assistantOpenAIModel;
+    window.matin.store.set('openai_model', assistantOpenAIModel);
+  });
+
+  detectBtn.addEventListener('click', async () => {
+    const key = openaiKeyInput.value.trim();
+    if (!key) { modelHint.textContent = 'Renseignez une clé OpenAI d\'abord.'; modelHint.style.display = ''; return; }
+    detectBtn.disabled = true;
+    detectBtn.textContent = '…';
+    try {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { data } = await res.json();
+      const realtime = (data || []).filter((m) => m.id.includes('realtime')).map((m) => m.id).sort();
+      if (!realtime.length) { modelHint.textContent = 'Aucun modèle Realtime disponible pour cette clé.'; modelHint.style.display = ''; return; }
+      modelSelect.innerHTML = realtime.map((id) => `<option value="${id}" ${assistantOpenAIModel === id ? 'selected' : ''}>${id}</option>`).join('');
+      modelSelect.style.display = '';
+      modelHint.textContent = `${realtime.length} modèle(s) trouvé(s) — sélectionne-en un.`;
+      modelHint.style.display = '';
+      if (!realtime.includes(assistantOpenAIModel)) {
+        assistantOpenAIModel = realtime[0];
+        modelInput.value = assistantOpenAIModel;
+        modelSelect.value = assistantOpenAIModel;
+        window.matin.store.set('openai_model', assistantOpenAIModel);
+      }
+    } catch (err) {
+      modelHint.textContent = `Erreur : ${err.message}`;
+      modelHint.style.display = '';
+    } finally {
+      detectBtn.disabled = false;
+      detectBtn.textContent = 'Détecter';
+    }
   });
   wrap.querySelector('.assistant-openai-voice-select').addEventListener('change', (e) => {
     assistantOpenAIVoice = e.target.value;
