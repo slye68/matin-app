@@ -875,7 +875,8 @@ const ASSISTANT_SPEECH_MIN = 0.012;   // plancher absolu du seuil de parole
 const ASSISTANT_SPEECH_RATIO = 3.5;   // parole = RMS > bruit de fond × ce ratio
 let assistantSpokeSinceTurn = false;
 let assistantHadModelTurn = false;
-let assistantOpenAICommitted = false; // buffer audio commité, en attente de réponse OpenAI
+let assistantOpenAICommitted = false;
+let assistantOpenAISpeaking = false;
 let assistantListenSince = 0;   // entrée dans l'état 'listening'
 let assistantLastActivity = 0;  // dernière parole détectée ou message de Gemini
 let assistantNoiseFloor = 0.004;
@@ -896,6 +897,7 @@ function assistantDisconnect() {
   assistantSpokeSinceTurn = false;
   assistantHadModelTurn = false;
   assistantOpenAICommitted = false;
+  assistantOpenAISpeaking = false;
   assistantNoiseFloor = 0.004;
   assistantCalib = [];
   assistantLoudBlocks = 0;
@@ -937,7 +939,7 @@ async function assistantStartMic() {
         const now = performance.now();
         // Avant la première réponse : 10s pour parler. Après : 3.5s entre échanges.
         const openaiLimit = assistantHadModelTurn ? 3500 : 10000;
-        if (now - assistantListenSince > openaiLimit) { assistantEndForSilence(`${openaiLimit / 1000}s sans activité`); return; }
+        if (!assistantOpenAISpeaking && now - assistantListenSince > openaiLimit) { assistantEndForSilence('fin ecoute'); return; }
       }
 
       // Fin de conversation automatique (voir ASSISTANT_SILENCE_MS).
@@ -1053,10 +1055,14 @@ function assistantHandleOpenAIMessage(event) {
       });
       break;
     case 'input_audio_buffer.speech_stopped':
+      assistantOpenAISpeaking = false;
+      assistantListenSince = performance.now();
+      break;
     case 'response.created':
       assistantListenSince = performance.now();
       break;
     case 'input_audio_buffer.speech_started':
+      assistantOpenAISpeaking = true;
       assistantLastActivity = performance.now();
       assistantListenSince = performance.now();
       if (assistantCard?.classList.contains('orb-speaking')) {
