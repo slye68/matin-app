@@ -1380,6 +1380,7 @@ async function assistantStartOpenAISession(apiKey) {
       type: 'session.update',
       session: {
         type: 'realtime',
+        voice,
         instructions: sysPrompt,
         tools: openaiTools,
         tool_choice: 'auto',

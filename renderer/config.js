@@ -1194,7 +1194,7 @@ function createStartOnBootRow() {
 // Même mécanisme que hueField/fglairField : visibilité gérée par la règle CSS
 // générique `.module-row-wrap.module-disabled`. `mod` inutilisé : les réglages
 // sont des clés store globales (voir MODULE_META.assistant).
-const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'cedar', 'coral', 'echo', 'marin', 'sage', 'shimmer', 'verse'];
 
 function renderAssistantConfigSection(mod) {
   const wrap = document.createElement('div');
