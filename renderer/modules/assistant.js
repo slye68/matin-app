@@ -1056,6 +1056,7 @@ function assistantHandleMessage(event) {
 function assistantHandleOpenAIMessage(event) {
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
+  console.log('[OpenAI]', data.type, data);
   switch (data.type) {
     case 'response.audio.delta':
       assistantResetSilenceTimer();
