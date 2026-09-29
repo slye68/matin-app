@@ -1194,7 +1194,6 @@ function createStartOnBootRow() {
 // Même mécanisme que hueField/fglairField : visibilité gérée par la règle CSS
 // générique `.module-row-wrap.module-disabled`. `mod` inutilisé : les réglages
 // sont des clés store globales (voir MODULE_META.assistant).
-const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'cedar', 'coral', 'echo', 'marin', 'sage', 'shimmer', 'verse'];
 
 function renderAssistantConfigSection(mod) {
   const wrap = document.createElement('div');
@@ -1288,12 +1287,6 @@ function renderAssistantConfigSection(mod) {
           <select class="assistant-openai-model-select" style="display:none"></select>
           <p class="hue-config-hint assistant-openai-model-hint" style="display:none"></p>
 
-          <div class="hue-config-row">
-            <label>Voix</label>
-            <select class="assistant-openai-voice-select">
-              ${OPENAI_VOICES.map((v) => `<option value="${v}" ${assistantOpenAIVoice === v ? 'selected' : ''}>${v}</option>`).join('')}
-            </select>
-          </div>
         </div>
       </div>
   `;
@@ -1427,10 +1420,6 @@ function renderAssistantConfigSection(mod) {
       detectBtn.disabled = false;
       detectBtn.textContent = 'Détecter';
     }
-  });
-  wrap.querySelector('.assistant-openai-voice-select').addEventListener('change', (e) => {
-    assistantOpenAIVoice = e.target.value;
-    window.matin.store.set('openai_voice', assistantOpenAIVoice);
   });
 
   // ── Raccourci global ─────────────────────────────────────────────────────────
