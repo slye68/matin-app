@@ -1364,7 +1364,6 @@ async function assistantStartOpenAISession(apiKey) {
       type: 'session.update',
       session: {
         type: 'realtime',
-        modalities: ['audio'],
         instructions: sysPrompt,
         voice,
         input_audio_format: 'pcm16',
